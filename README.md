@@ -36,25 +36,6 @@ Kết nối biến tần năng lượng mặt trời **Lumentree** với **Home 
 
 ---
 
-## 📅 Dự định phát triển trong tương lai
-
-### Future
-- Allow advanced setting changes directly from HA.
-- Use **ESP32** to locally interface with inverter (no Lumentree cloud, no Internet).
-- Add multiple inverter support.
-
-### Tương lai
-- Cho phép thay đổi các cài đặt nâng cao của biến tần qua Home Assistant.
-- Dùng ESP32 để giao tiếp cục bộ với biến tần (bỏ qua cloud).
-- Hỗ trợ nhiều biến tần cùng lúc.
-
----
-
-## 🤝 Tham gia cùng phát triển
-Bạn nào quan tâm có thể fork, sửa, hoặc mở pull request – hoặc cùng mình nghiên cứu phần giao tiếp nội bộ với ESP32.
-
----
-
 ## 📄 License
 Giữ nguyên theo [Giấy phép gốc từ vboyhn](https://github.com/vboyhn/LumentreeHA). Các bản chỉnh sửa tuân thủ MIT License.
 =======
