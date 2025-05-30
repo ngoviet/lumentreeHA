@@ -6,7 +6,7 @@ Kết nối biến tần năng lượng mặt trời **Lumentree** với **Home 
 <table>
   <tr>
     <td align="center"><strong>Lumentree 5.5kW</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/sensor.png" width="400"/></td>
-    <td align="center"><strong>SUNT 4.0kW-H</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/Lumentree%204kw.png" width="400"/></td>
+    <td align="center"><strong>Lumentree 4kw</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/Lumentree4kw.png" width="400"/></td>
   </tr>
 </table>
 
