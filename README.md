@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # 🔌 LumentreeHA
 
 Kết nối biến tần năng lượng mặt trời **Lumentree** với **Home Assistant** – cho phép giám sát, điều khiển và mở rộng khả năng tích hợp hệ thống điện mặt trời vào hệ sinh thái smarthome.
