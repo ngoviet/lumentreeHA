@@ -3,7 +3,13 @@
 
 Kết nối biến tần năng lượng mặt trời **Lumentree** với **Home Assistant** – cho phép giám sát, điều khiển và mở rộng khả năng tích hợp hệ thống điện mặt trời vào hệ sinh thái smarthome.
 
-<img src="https://github.com/vboyhn/LumentreeHA/blob/main/sensor.png" width="850" alt="Lumentree Sensor Screenshot" />
+<table>
+  <tr>
+    <td align="center"><strong>Lumentree 5.5kW</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/sensor.png" width="400"/></td>
+    <td align="center"><strong>SUNT 4.0kW-H</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/Lumentree%204kw.png" width="400"/></td>
+  </tr>
+</table>
+
 
 
 ---
