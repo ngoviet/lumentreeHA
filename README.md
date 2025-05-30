@@ -73,4 +73,3 @@ Connect Lumentree solar inverter to Home Asstistant
 - ...
 
 * Bạn nào có hứng thú thì cùng nghiên cứu với mình nhé!!!
->>>>>>> 8ace0c8c41cfd2fa6107be635857d4bd2c1cd2b7
