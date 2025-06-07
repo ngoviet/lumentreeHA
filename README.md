@@ -70,7 +70,7 @@ type: custom:mini-graph-card
 name: Tổng công suất tải
 icon: mdi:lightning-bolt
 entities:
-  - entity: sensor.device_h240909079_total_load_power
+  - entity: sensor.device_h240909379_total_load_power
     name: Total Load Power
 line_width: 3
 hours_to_show: 24
