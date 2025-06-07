@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 {
   "domain": "lumentree",
   "name": "Lumentree Inverter",
@@ -18,24 +17,3 @@
     "custom_components.lumentree"
   ]
 }
-=======
-{
-  "domain": "lumentree",
-  "name": "Lumentree Inverter",
-  "config_flow": true,
-  "documentation": "https://github.com/vboyhn/LumentreeHA",
-  "issue_tracker": "https://github.com/vboyhn/LumentreeHA/issues",
-  "requirements": [
-    "aiohttp>=3.8.0",
-    "paho-mqtt>=1.6.0",
-    "crcmod>=1.7"
-  ],
-  "codeowners": ["@vboyhn"],
-  "version": "1.8",
-  "iot_class": "local_polling",
-  "loggers": [
-    "paho",
-    "custom_components.lumentree"
-  ]
-}
->>>>>>> 8ace0c8c41cfd2fa6107be635857d4bd2c1cd2b7

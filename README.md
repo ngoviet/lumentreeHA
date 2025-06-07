@@ -13,6 +13,21 @@ Kết nối biến tần năng lượng mặt trời **Lumentree** với **Home 
 
 ---
 
+---
+
+## 🇻🇳 Các thay đổi gần đây
+
+- ✅ Thêm cảm biến `total_load_power`: tổng công suất tải = `load_power` + `ac_output_power`
+- ✅ Hỗ trợ icon và đơn vị đo là `W`
+- ✅ Hiển thị biểu đồ trong Lovelace bằng `mini-graph-card`
+
+---
+
+## 🇺🇸 Recent Changes
+
+- ✅ Added `total_load_power` sensor: total load = `load_power` + `ac_output_power`
+- ✅ Support for icon and unit (`W`)
+- ✅ Display chart in Lovelace using `mini-graph-card`
 ## 🛠️ Các thay đổi trong bản chỉnh sửa này (so với repo gốc `vboyhn/LumentreeHA`)
 
 > Đây là bản fork từ [vboyhn/LumentreeHA](https://github.com/vboyhn/LumentreeHA), được chỉnh sửa và mở rộng:
