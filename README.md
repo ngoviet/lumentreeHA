@@ -1,90 +1,75 @@
-# 🔌 LumentreeHA
+# LumentreeHA – Home Assistant Custom Integration
 
-Kết nối biến tần năng lượng mặt trời **Lumentree** với **Home Assistant** – cho phép giám sát, điều khiển và mở rộng khả năng tích hợp hệ thống điện mặt trời vào hệ sinh thái smarthome.
+## 🌐 Overview
 
-**Lumentree 5.5kW**
+This is a custom integration for connecting Lumentree and SUNT hybrid inverters to Home Assistant.  
+It supports real-time monitoring of PV generation, battery status, grid flow, load consumption, and more.
 
-<img src="https://github.com/ngoviet/LumentreeHA/blob/main/Lumentree5.5kw.png" width="100%"/>
-
-**Lumentree 4kW**
-
-<img src="https://github.com/ngoviet/LumentreeHA/blob/main/Lumentree4kw.png" width="100%"/>
-
+Đây là custom component giúp kết nối biến tần hybrid Lumentree hoặc SUNT với Home Assistant.  
+Hỗ trợ giám sát thông số điện năng như công suất PV, pin, lưới, tải tiêu thụ theo thời gian thực.
 
 ---
 
----
+## ⚙️ Supported Devices | Thiết bị hỗ trợ
 
-## 🇻🇳 Các thay đổi gần đây
-
-- ✅ Thêm cảm biến `total_load_power`: tổng công suất tải = `load_power` + `ac_output_power`
-- ✅ Hỗ trợ icon và đơn vị đo là `W`
-- ✅ Hiển thị biểu đồ trong Lovelace bằng `mini-graph-card`
+- SUNT 4.0KW-H Hybrid Inverter
+- Lumentree 5.5kW Hybrid Inverter
+- Other inverters with similar data structure
 
 ---
 
-## 🇺🇸 Recent Changes
+## ✨ Features | Tính năng chính
 
-- ✅ Added `total_load_power` sensor: total load = `load_power` + `ac_output_power`
-- ✅ Support for icon and unit (`W`)
-- ✅ Display chart in Lovelace using `mini-graph-card`
-## 🛠️ Các thay đổi trong bản chỉnh sửa này (so với repo gốc `vboyhn/LumentreeHA`)
-
-> Đây là bản fork từ [vboyhn/LumentreeHA](https://github.com/vboyhn/LumentreeHA), được chỉnh sửa và mở rộng:
-
-- ✅ **Fix lỗi thread-unsafe**: thay thế `async_dispatcher_send` bằng `dispatcher_send` để tương thích Home Assistant mới.
-- ✅ **Sửa lỗi reconnect gây crash**: xử lý `hass.async_create_task()` đúng thread context.
-- ✅ **Cải tiến log**: thêm debug rõ ràng hơn khi kết nối thất bại hoặc mất phiên.
-- ✅ **Tối ưu tương thích** với Home Assistant 2024.x.
-- 🔄 Có thể sẽ cập nhật thêm hỗ trợ kết nối trực tiếp với ESP32 trong tương lai.
+- 📡 Auto-discovery via config flow (add by IP + SN)
+- ⚡ Realtime sensor updates via polling
+- 📊 Lovelace support for power visualization (e.g. mini-graph-card)
+- 🔋 Battery SOC, charge/discharge power tracking
+- 🔌 Load, PV, grid, and inverter metrics
+- 🧮 Custom sensor: `total_load_power = load_power + ac_output_power`
 
 ---
 
-## 🚀 Cách sử dụng
+## 🆕 Recent Changes | Thay đổi gần đây
 
-### ENGLISH:
-- Copy the `lumentree` folder into your `custom_components` directory.
-- Reboot Home Assistant.
-- Add new integration: **Lumentree**.
-- Enter your Device ID (serial number) to log in and start syncing data.
+### 🇺🇸 English
+- ✅ Added `total_load_power` sensor: total = `load_power` + `ac_output_power`
+- ✅ Icon support and proper unit (`W`)
+- ✅ Lovelace graph integration with `mini-graph-card`
 
-### TIẾNG VIỆT:
-- Sao chép thư mục `lumentree` vào `custom_components` trong Home Assistant.
-- Khởi động lại Home Assistant.
-- Vào phần `Cấu hình > Tích hợp (Integrations)` để thêm thiết bị **Lumentree**.
-- Nhập **số serial (Device ID)** để kết nối và theo dõi dữ liệu từ biến tần.
+### 🇻🇳 Tiếng Việt
+- ✅ Thêm cảm biến `total_load_power`: tổng tải = `load_power` + `ac_output_power`
+- ✅ Hỗ trợ biểu tượng và đơn vị `W`
+- ✅ Hiển thị biểu đồ trong Lovelace
 
 ---
 
-## 📄 License
-Giữ nguyên theo [Giấy phép gốc từ vboyhn](https://github.com/vboyhn/LumentreeHA). Các bản chỉnh sửa tuân thủ MIT License.
-=======
-# LumentreeHA
-Connect Lumentree solar inverter to Home Asstistant
+## 🛠️ Installation | Cài đặt
 
-<img src="https://github.com/vboyhn/LumentreeHA/blob/main/sensor.png" width="850" alt="Sensor" /> 
+1. Copy folder `lumentree` to `custom_components` in your Home Assistant config directory
+2. Restart Home Assistant
+3. Go to *Settings → Devices & Services → Add Integration*
+4. Choose **LumentreeHA**, then enter IP + SN of inverter
 
+---
 
-# How to use: 
- - Copy 'lumentree' folder to your 'custom_components' folder
- - Reboot your HA
- - Add device lumentree, use Device ID (SN) to login.
+## 📈 Lovelace Example | Ví dụ biểu đồ Lovelace
 
-  
-# Cách sử dụng:
-- Sao chép thư mục 'lumentree' vào trong thư mục 'custom_components' của bạn
-- Khởi động lại HA của bạn
-- Thêm thiết bị lumentree, sử dụng số seri để đăng nhập.
+```yaml
+type: custom:mini-graph-card
+name: Tổng công suất tải
+icon: mdi:lightning-bolt
+entities:
+  - entity: sensor.device_h240909079_total_load_power
+    name: Total Load Power
+line_width: 3
+hours_to_show: 24
+points_per_hour: 6
+```
 
+---
 
-# Future
-- Make change setting avaiable.
-- Use ESP32 to read and setting your Inverter in local (no need connect to Lumentree server, no need internet)
-- ...
+## 📮 Contact & Credit
 
-# Tương lai
-- Thực hiện thay đổi cài đặt biến tần bằng HA.
-- Sử dụng ESP32 để đọc và cài đặt Biến tần (không cần kết nối với máy chủ Lumentree, không cần internet)
-- ...
+This fork is customized by [Ngô Đức Việt](https://github.com/ngoviet) for real-world hybrid inverters and dashboard integration.  
+Original base: [vboyhn/LumentreeHA](https://github.com/vboyhn/LumentreeHA)
 
-* Bạn nào có hứng thú thì cùng nghiên cứu với mình nhé!!!
