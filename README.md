@@ -52,6 +52,17 @@ Hỗ trợ giám sát thông số điện năng như công suất PV, pin, lư�
 
 ---
 
+## 🖼️ Interface Preview | Giao diện minh hoạ
+
+<table>
+  <tr>
+    <td align="center"><strong>Lumentree 5.5kW</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/sensor.png" width="400"/></td>
+    <td align="center"><strong>SUNT 4.0kW-H</strong><br><img src="https://github.com/ngoviet/LumentreeHA/blob/main/Lumentree%204kw.png" width="400"/></td>
+  </tr>
+</table>
+
+---
+
 ## 📈 Lovelace Example | Ví dụ biểu đồ Lovelace
 
 ```yaml
