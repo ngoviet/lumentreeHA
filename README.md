@@ -1,337 +1,208 @@
-# 🌞 Lumentree v2.0 - Home Assistant Integration
+# LumentreeHA
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![maintenance](https://img.shields.io/badge/maintainer-ngoviet-blue.svg)](https://github.com/ngoviet)
 [![GitHub release](https://img.shields.io/github/release/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/releases)
-[![GitHub stars](https://img.shields.io/github/stars/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/network)
-[![GitHub issues](https://img.shields.io/github/issues/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/issues)
-[![GitHub license](https://img.shields.io/github/license/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/blob/main/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/ngoviet/lumentreeHA.svg?style=social&label=Star)](https://github.com/ngoviet/lumentreeHA)
 
-**Optimized Home Assistant Integration for Lumentree Solar Inverters**
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ngoviet&repository=lumentreeHA&category=integration)
 
-A comprehensive Home Assistant integration for Lumentree solar inverters with real-time MQTT data, HTTP API statistics, and energy dashboard integration.
+Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real-time monitoring via MQTT and HTTP API.
 
-## ✨ Features
+![LumentreeHA Dashboard](1.jpg)
 
-### 🚀 Performance Optimized
-- **30% reduction** in CPU usage compared to v1.8
-- Optimized MQTT polling and data processing
-- Efficient memory management
-- Smart error handling and recovery
+## Features
 
-### 📊 Comprehensive Monitoring
-- **30+ sensors** covering all aspects of solar system
-- **Real-time data** via MQTT (95 registers)
-- **Daily statistics** via HTTP API
-- **Battery cell monitoring** with detailed information
-- **Energy dashboard** integration
+- **Real-time monitoring** via MQTT connection
+- **HTTP API integration** for device information and daily statistics
+- **Comprehensive sensor support** for:
+  - PV power generation (PV1, PV2, Total)
+  - Battery status (voltage, current, SOC, power, charging/discharging)
+  - Grid connection (voltage, frequency, power import/export)
+  - Load monitoring and power consumption
+  - Device temperature and health
+  - UPS mode detection
+  - Master/Slave status
+- **Daily statistics tracking** with historical data
+- **Battery cell monitoring** (if supported by device)
+- **Configurable polling intervals**
+- **Robust error handling** and reconnection logic
 
-### 🌍 Multi-language Support
-- English and Vietnamese translations
-- Localized sensor names and descriptions
-- Regional configuration options
+![LumentreeHA Sensors](2.jpg)
 
-### 🔧 Advanced Features
-- **MQTT real-time data** from 95 Modbus registers
-- **HTTP API daily statistics** for energy tracking
-- **Battery cell monitoring** with voltage per cell
-- **Energy Dashboard** integration
-- **Automation support** with comprehensive triggers
-- **Error recovery** and reconnection handling
+## Supported Devices
 
-## 📥 Installation
+- **SUNT-4.0KW-H** (Primary support)
+- **Other SUNT series inverters** (Compatible)
 
-### Method 1: HACS (Recommended)
+## Installation
 
-1. Open HACS in Home Assistant
+### HACS (Recommended)
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=ngoviet&repository=lumentreeHA&category=integration)
+
+1. Open **HACS** in your Home Assistant instance
 2. Go to **Integrations**
-3. Click the 3-dot menu → **Custom repositories**
-4. Add repository URL: `https://github.com/ngoviet/lumentreeHA`
-5. Select Category: **Integration**
+3. Click the **three dots** (⋮) in the top right corner
+4. Select **Custom repositories**
+5. Add this repository:
+   - **Repository**: `https://github.com/ngoviet/lumentreeHA`
+   - **Category**: `Integration`
 6. Click **Add**
-7. Search for **"Lumentree"** and install
+7. Search for **"LumentreeHA"** and install it
 8. Restart Home Assistant
+9. Add the integration via **Configuration** → **Integrations**
 
-### Method 2: Manual Installation
+### Manual Installation
 
-1. Download the latest release
-2. Extract to `custom_components/lumentree/` in your Home Assistant config directory
+1. Download the latest release from [GitHub](https://github.com/ngoviet/lumentreeHA/releases)
+2. Copy the `custom_components/lumentree` folder to your Home Assistant `custom_components/` directory
 3. Restart Home Assistant
+4. Add the integration via **Configuration** → **Integrations**
 
-## ⚙️ Configuration
+## Configuration
 
-### Adding Integration
+### Getting Your HTTP Token
 
-1. Go to **Settings** → **Devices & Services**
-2. Click **"+ Add Integration"**
-3. Search for **"Lumentree"**
-4. Enter your **Device ID** or **Serial Number**
+1. Open the **Lumentree mobile app**
+2. Navigate to your device settings
+3. Find the **HTTP Token** or **API Key** section
+4. Copy the token for use in Home Assistant
+
+### Adding the Integration
+
+1. Go to **Configuration** → **Integrations**
+2. Click **Add Integration**
+3. Search for **"Lumentree Inverter"**
+4. Enter your device information:
+   - **Device SN**: Serial number of your inverter (e.g., `H240909079`)
+   - **Device ID**: Device ID (usually same as SN)
+   - **Device Name**: Friendly name for your device
+   - **HTTP Token**: Authentication token from Lumentree app
 5. Click **Submit**
 
-The integration will automatically detect and configure all sensors.
+## Requirements
 
-## 📊 Available Sensors
+- **Home Assistant**: 2022.7.0 or later
+- **Python packages**:
+  - `aiohttp>=3.8.0`
+  - `paho-mqtt>=1.6.0`
+  - `crcmod>=1.7`
+
+## Sensors
 
 ### Real-time Sensors (MQTT)
-- **PV Power** - Solar panel power generation
-- **Battery Power** - Battery charge/discharge power
-- **Battery SOC** - State of charge percentage
-- **Grid Power** - Grid import/export power
-- **Load Power** - Load consumption power
-- **AC Output Power** - AC output power
-- **Total Load Power** - Combined load power
-- **AC Input Power** - AC input power
-- **PV1/PV2 Power** - Individual PV string power
-- **AC Output VA** - Apparent power
-- **Battery Voltage** - Battery voltage
-- **AC Output Voltage** - AC output voltage
-- **Grid Voltage** - Grid voltage
-- **AC Input Voltage** - AC input voltage
-- **PV1/PV2 Voltage** - Individual PV string voltage
-- **Battery Current** - Battery current
-- **AC Output Frequency** - AC output frequency
-- **AC Input Frequency** - AC input frequency
-- **Device Temperature** - Inverter temperature
-- **Battery Status** - Charging/Discharging status
-- **Grid Status** - Import/Export status
-- **Battery Type** - Battery type information
-- **Master/Slave Status** - System status
-- **Device SN** - Device serial number
-- **Battery Cell Info** - Individual cell voltages
-- **Last Raw MQTT** - Raw MQTT data (debug)
+- **PV Power**: Total solar generation power
+- **PV1/PV2 Power**: Individual PV string power
+- **Battery**: Voltage, current, SOC, power, status
+- **Grid**: Voltage, frequency, power (import/export)
+- **Load**: Power consumption
+- **AC Output**: Voltage, frequency, power, VA
+- **Device**: Temperature, UPS mode, master/slave status
 
-### Daily Statistics Sensors (HTTP API)
-- **PV Generation Today** - Daily solar generation
-- **Battery Charge Today** - Daily battery charging
-- **Battery Discharge Today** - Daily battery discharging
-- **Grid Input Today** - Daily grid import
-- **Load Consumption Today** - Daily load consumption
+### Daily Statistics (HTTP API)
+- **PV Generation**: Daily solar energy production
+- **Battery Charge/Discharge**: Daily battery energy flow
+- **Grid Import/Export**: Daily grid energy exchange
+- **Load Consumption**: Daily load energy usage
 
 ### Binary Sensors
-- **Online Status** - Device connectivity status
-- **UPS Mode** - UPS mode status
+- **Online Status**: Device connectivity status
+- **UPS Mode**: Whether device is in UPS mode
 
-## 📈 Performance Metrics
+## Troubleshooting
 
-| Metric | v1.8 | v2.0 | Improvement |
-|--------|------|------|-------------|
-| CPU Usage (DEBUG off) | 100% | 70% | **-30%** |
-| Code Readability | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **+70%** |
-| Maintainability | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | **+80%** |
+### Common Issues
 
-## 🔧 Configuration Options
+**"Unrec len" errors in logs:**
+- ✅ **Fixed in v2.0**: Parser now handles 202-byte data packets correctly
+- Make sure you're using the latest version
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| Polling Interval | 5s | MQTT data request interval |
-| Stats Update | 10min | Daily statistics update interval |
+**No data from sensors:**
+- Verify your **HTTP token** is correct
+- Check device is **online** in Lumentree app
+- Review MQTT connection status in logs
+- Ensure device SN and ID are correct
 
-## 📊 Dashboard Examples
+**Integration won't load:**
+- Verify all **requirements** are installed
+- Check Home Assistant **logs** for errors
+- Ensure device SN and ID match exactly
+- Try removing and re-adding the integration
 
-### Lovelace Card Configuration
-
-```yaml
-type: custom:mini-graph-card
-name: Solar Power Flow
-icon: mdi:solar-power
-entities:
-  - entity: sensor.lumentree_pv_power
-    name: PV Power
-    color: orange
-  - entity: sensor.lumentree_battery_power
-    name: Battery Power
-    color: green
-  - entity: sensor.lumentree_grid_power
-    name: Grid Power
-    color: blue
-  - entity: sensor.lumentree_load_power
-    name: Load Power
-    color: red
-hours_to_show: 24
-points_per_hour: 4
-line_width: 2
-animate: true
-```
-
-### Energy Dashboard Integration
-
-All energy sensors are compatible with Home Assistant's built-in Energy Dashboard:
-
-- **PV Generation Today**
-- **Battery Charge/Discharge Today**
-- **Grid Input Today**
-- **Load Consumption Today**
-
-## 🐛 Troubleshooting
-
-### Integration won't load
-
-1. Check logs: **Settings** → **System** → **Logs**
-2. Ensure dependencies are installed: `aiohttp`, `paho-mqtt`, `crcmod`
-3. Restart Home Assistant
-
-### Sensors show "Unavailable"
-
-1. Check MQTT connection status
-2. Verify Device ID/Serial Number is correct
-3. Check network connection to inverter
+**MQTT connection issues:**
+- Check internet connectivity
+- Verify MQTT broker is accessible
+- Review firewall settings
 
 ### Debug Logging
 
-Enable debug logging in `configuration.yaml`:
+Enable detailed logging to troubleshoot issues:
 
 ```yaml
 logger:
-  default: warning
+  default: info
   logs:
     custom_components.lumentree: debug
+    homeassistant.components.mqtt: debug
 ```
 
-## 📝 Changelog
+## Changelog
 
-### v2.0 (2025-01-09)
+### 2.0.0 (2025-01-10)
+- ✅ **Fixed MQTT parser** for 202-byte data packets
+- ✅ **Improved error handling** and reconnection logic
+- ✅ **Enhanced logging** with better error messages
+- ✅ **Added support** for extended data format
+- ✅ **Optimized performance** and memory usage
 
-* ✨ **Performance**: Optimized debug logging (30% CPU reduction)
-* 🐛 **Fixed**: NameError: name 'callback' is not defined
-* 🐛 **Fixed**: SyntaxError in get_daily_stats
-* 🐛 **Fixed**: Duplicate content in string.json
-* 📖 **Refactor**: Improved code structure and readability
-* 🔧 **Updated**: manifest.json to v2.0
-* 🌍 **Added**: Multi-language support (EN/VI)
-* 📊 **Added**: Battery cell monitoring
-* 🔋 **Added**: Energy Dashboard integration
+### 1.0.0 (2024-12-01)
+- 🎉 **Initial release**
+- Basic MQTT and HTTP integration
+- Core sensor support
+- Config flow implementation
 
-### v1.8 (Previous)
+## Contributing
 
-* Initial optimized version
+We welcome contributions! Here's how you can help:
 
-## 🤝 Contributing
+1. **Fork** the repository
+2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
+3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
+4. **Push** to the branch (`git push origin feature/amazing-feature`)
+5. **Open** a Pull Request
 
-We welcome contributions! Please create a Pull Request.
+### Development Setup
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+1. Clone the repository
+2. Install development dependencies
+3. Make your changes
+4. Test with your Lumentree device
+5. Submit a pull request
 
-## 📄 License
+## Support
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- 📧 **GitHub Issues**: [Report bugs or request features](https://github.com/ngoviet/lumentreeHA/issues)
+- 💬 **Home Assistant Community**: [Join the discussion](https://community.home-assistant.io/)
+- 📖 **Documentation**: Check this README and code comments
 
-## 🙏 Credits
+## License
 
-* **Original Author**: @vboyhn
-* **Optimized by**: @ngoviet
-* **Contributors**: See all contributors
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
-## 📞 Support
+## Acknowledgments
 
-* 🐛 **Bug Reports**: [GitHub Issues](https://github.com/ngoviet/lumentreeHA/issues)
-* 💬 **Discussions**: [GitHub Discussions](https://github.com/ngoviet/lumentreeHA/discussions)
-* 📧 **Contact**: Create an issue on GitHub
+- **Lumentree** for providing the API and MQTT protocol
+- **Home Assistant Community** for support and feedback
+- **HACS** for making installation easy
+- **Contributors** who help improve this integration
 
-## 🌟 Screenshots
+## Donate
 
-### Solar Energy Dashboard
-![Solar Dashboard](https://via.placeholder.com/800x400/4CAF50/FFFFFF?text=Solar+Energy+Dashboard)
+If you find this integration useful, consider supporting the development:
 
-### Real-time Power Flow
-![Power Flow](https://via.placeholder.com/800x400/2196F3/FFFFFF?text=Real-time+Power+Flow)
-
-## 📚 Additional Documentation
-
-### Advanced Configuration
-
-#### Custom Polling Interval
-
-In `configuration.yaml`:
-
-```yaml
-lumentree:
-  polling_interval: 10  # Change from 5s default to 10s
-```
-
-#### Disable Unnecessary Sensors
-
-Go to **Settings** → **Devices & Services** → **Lumentree** → Click device → Disable unused sensors
-
-### Automation Examples
-
-#### Low Battery Alert
-
-```yaml
-automation:
-  - alias: "Low Battery Alert"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.lumentree_battery_soc
-        below: 20
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "Alert: Solar battery at {{ states('sensor.lumentree_battery_soc') }}%"
-```
-
-#### Auto Water Heater on Excess PV
-
-```yaml
-automation:
-  - alias: "Turn on Water Heater on Excess PV"
-    trigger:
-      - platform: numeric_state
-        entity_id: sensor.lumentree_pv_power
-        above: 2000
-    condition:
-      - condition: numeric_state
-        entity_id: sensor.lumentree_battery_soc
-        above: 80
-    action:
-      - service: switch.turn_on
-        entity_id: switch.water_heater
-```
-
-## ❓ FAQ
-
-### How to find Device ID?
-
-Device ID is usually printed on the inverter label or can be found in the manufacturer's mobile app.
-
-### Does it work offline?
-
-Internet connection is required for initial authentication, then only local network connection to the inverter is needed.
-
-### Multiple inverters support?
-
-Yes! You can add multiple integration instances for each inverter.
-
-### Why do some sensors show "Unknown"?
-
-Some sensors only have data when the inverter is active (e.g., PV Power only during daylight).
-
-## ⭐ Support the Project
-
-If this integration is useful to you, please give it a ⭐ on GitHub!
-
-## 🔄 Roadmap
-
-### In Development
-* HACS default support
-* Additional battery cell sensors
-* Pre-built dashboard templates
-* Enhanced multi-language support
-
-### Under Consideration
-* WebSocket support for faster updates
-* Advanced energy charts
-* CSV data export
+[![Buy me a coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-%23FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/ngoviet)
 
 ---
 
-**Made with ❤️ for the Home Assistant Community**
-
-[Report Bug](https://github.com/ngoviet/lumentreeHA/issues) · [Request Feature](https://github.com/ngoviet/lumentreeHA/issues) · [Documentation](https://github.com/ngoviet/lumentreeHA#readme)
-
----
-
-### 🇻🇳 Made in Vietnam 🇻🇳
+**Made with ❤️ for the Home Assistant community**
