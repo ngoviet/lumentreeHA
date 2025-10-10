@@ -25,7 +25,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers.device_registry import DeviceEntry
 
 try:
-    # Import các const đã cập nhật
+    # Import updated constants
     from .const import (
         DOMAIN, _LOGGER, CONF_DEVICE_SN, CONF_DEVICE_ID,
         MQTT_BROKER, DEFAULT_POLLING_INTERVAL, CONF_HTTP_TOKEN, DEFAULT_STATS_INTERVAL
@@ -67,12 +67,12 @@ except ImportError as import_err:
         def data(self): return {}
         last_update_success = False
 
-    # Fallback Exceptions (Tách class ra dòng riêng)
+    # Fallback Exceptions (Separate classes to different lines)
     class AuthException(Exception):
         pass
     class ApiException(Exception):
         pass
-    # Lấy chúng từ global scope nếu đã được import ở trên, nếu không thì định nghĩa class fallback
+    # Get them from global scope if already imported above, otherwise define fallback classes
     if "UpdateFailed" not in globals():
          class UpdateFailed(Exception):
              pass
@@ -82,7 +82,7 @@ except ImportError as import_err:
     if "ConfigEntryNotReady" not in globals():
          class ConfigEntryNotReady(Exception):
              pass
-    # --- Hết phần Fallback ---
+    # --- End of Fallback section ---
 
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
@@ -179,7 +179,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 try:
                     current_timer()
                     _LOGGER.info(f"MQTT polling timer cancelled for {device_sn} during unload.")
-                    remove_interval = None # Đảm bảo không gọi lại
+                    remove_interval = None # Ensure not called again
                 except Exception as timer_err:
                     _LOGGER.error(f"Error cancelling timer during unload {device_sn}: {timer_err}")
 

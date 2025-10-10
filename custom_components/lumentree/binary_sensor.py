@@ -81,7 +81,7 @@ class LumentreeBinarySensor(BinarySensorEntity):
         """Handle updates from the dispatcher."""
         if self.entity_description.key in data:
             new_state = data[self.entity_description.key]
-            # Xử lý cả True và False
+            # Handle both True and False
             if isinstance(new_state, bool):
                 if self._attr_is_on != new_state:
                     _LOGGER.info(f"Binary sensor {self.entity_id} state changing to: {new_state}")
@@ -89,7 +89,7 @@ class LumentreeBinarySensor(BinarySensorEntity):
                     self.async_write_ha_state()
             else:
                 _LOGGER.warning(f"Received non-boolean value for {self.unique_id}: {new_state}")
-                # Nếu nhận giá trị không hợp lệ, có thể set về Unknown
+                # If receiving invalid value, can set to Unknown
                 # if self._attr_is_on is not None:
                 #     self._attr_is_on = None
                 #     self.async_write_ha_state()

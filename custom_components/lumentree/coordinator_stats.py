@@ -7,35 +7,35 @@ from typing import Any, Dict, Optional
 import logging
 
 from homeassistant.core import HomeAssistant
-# Import UpdateFailed và DataUpdateCoordinator từ đúng module
+# Import UpdateFailed and DataUpdateCoordinator from correct module
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
-# Import các hàm tiện ích datetime và timezone
+# Import datetime and timezone utility functions
 from homeassistant.util import dt as dt_util
-# Import ConfigEntryAuthFailed từ đúng module
+# Import ConfigEntryAuthFailed from correct module
 from homeassistant.exceptions import ConfigEntryAuthFailed
 
 try:
-    # Import các thành phần cần thiết từ component
+    # Import required components from component
     from .api import LumentreeHttpApiClient, ApiException, AuthException
     from .const import DOMAIN, _LOGGER, DEFAULT_STATS_INTERVAL, CONF_DEVICE_SN
 except ImportError as import_err:
-    # --- Fallback Definitions (Đã sửa lỗi cú pháp) ---
+    # --- Fallback Definitions (Fixed syntax errors) ---
     _LOGGER = logging.getLogger(__name__)
     _LOGGER.error(f"ImportError in coordinator_stats: {import_err}. Using fallback definitions.")
     DOMAIN = "lumentree"
     DEFAULT_STATS_INTERVAL = 1800
     CONF_DEVICE_SN = "device_sn"
 
-    # Fallback Class API (Đã sửa lỗi cú pháp)
+    # Fallback Class API (Fixed syntax errors)
     class LumentreeHttpApiClient:
         def __init__(self, session=None):
             pass
-        # Định nghĩa async def đúng cách (thụt lề)
+        # Define async def correctly (indented)
         async def get_daily_stats(self, sn, date):
             _LOGGER.warning("Using fallback get_daily_stats - returning empty dict.")
             return {}
 
-    # Fallback cho Exceptions (Tách dòng)
+    # Fallback for Exceptions (Separate lines)
     class ApiException(Exception):
         pass
     class AuthException(ApiException):
@@ -43,19 +43,19 @@ except ImportError as import_err:
 
     try:
         from homeassistant.helpers.update_coordinator import UpdateFailed
-    # Tách except và class fallback ra dòng riêng
+    # Separate except and fallback class to different lines
     except ImportError:
         class UpdateFailed(Exception):
             pass
     try:
         from homeassistant.exceptions import ConfigEntryAuthFailed
-    # Tách except và class fallback ra dòng riêng
+    # Separate except and fallback class to different lines
     except ImportError:
         class ConfigEntryAuthFailed(Exception):
             pass
-    # --- Hết phần Fallback ---
+    # --- End of Fallback section ---
 
-# --- Định nghĩa Lớp Coordinator ---
+# --- Coordinator Class Definition ---
 class LumentreeStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]]):
     """Coordinator to fetch daily statistics via HTTP API."""
 
@@ -65,11 +65,11 @@ class LumentreeStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]
         self.device_sn = device_sn
         update_interval = datetime.timedelta(seconds=DEFAULT_STATS_INTERVAL)
 
-        # Gọi super().__init__
+        # Call super().__init__
         super().__init__(
             hass,
             _LOGGER,
-            name=f"{DOMAIN}_stats_{device_sn}", # Tên để debug
+            name=f"{DOMAIN}_stats_{device_sn}", # Name for debugging
             update_interval=update_interval,
         )
         _LOGGER.info(
@@ -81,7 +81,7 @@ class LumentreeStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Fetching daily stats via HTTP for %s", self.device_sn)
         try:
-            # Lấy timezone và ngày hiện tại (Đã sửa lỗi TypeError)
+            # Get timezone and current date (Fixed TypeError)
             timezone = None
             try:
                 tz_string = self.hass.config.time_zone
@@ -101,11 +101,11 @@ class LumentreeStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Querying daily stats for date: %s", today_str)
 
-            # Gọi API
+            # Call API
             async with asyncio.timeout(60):
                 stats_data = await self.api_client.get_daily_stats(self.device_sn, today_str)
 
-            # Xử lý kết quả
+            # Process results
             if stats_data is None:
                  _LOGGER.warning(f"API client returned None stats data for {self.device_sn} on {today_str}")
                  raise UpdateFailed("API client failed to return stats data")
@@ -117,7 +117,7 @@ class LumentreeStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]
                 _LOGGER.debug("Successfully fetched daily stats: %s", stats_data)
             return stats_data
 
-        # Xử lý lỗi
+        # Handle errors
         except AuthException as err:
             _LOGGER.error(f"Authentication error fetching stats: {err}. Please reconfigure integration.")
             raise ConfigEntryAuthFailed(f"Authentication error: {err}") from err

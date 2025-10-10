@@ -7,7 +7,7 @@ from typing import Any, Dict
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-# Đảm bảo import từ thư mục hiện tại (.) hoặc tên component (lumentree)
+# Ensure import from current directory (.) or component name (lumentree)
 try:
     from .api import LumentreeHttpApiClient, ApiException, AuthException
     from .const import DOMAIN, _LOGGER, UPDATE_INTERVAL_SECONDS, CONF_DEVICE_SN
@@ -36,11 +36,11 @@ class LightEarthDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         """Fetch data from API endpoint."""
         _LOGGER.debug(f"Coordinator: Attempting to update data for device SN: {self.device_sn}")
         try:
-            # Gọi hàm trong API client để lấy dữ liệu
+            # Call function in API client to get data
             data = await self.api_client.get_device_data(self.device_sn)
 
             # --- LOG DEBUG DỮ LIỆU CUỐI CÙNG ---
-            # Log dữ liệu mà coordinator sẽ cung cấp cho entities
+            # Log data that coordinator will provide to entities
             _LOGGER.debug(f"Coordinator: Successfully fetched and processed data for {self.device_sn}. Providing to entities: {data}")
             # --- KẾT THÚC LOG DEBUG ---
 
@@ -48,7 +48,7 @@ class LightEarthDataUpdateCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
         except AuthException as err:
              _LOGGER.error(f"Coordinator: Authentication error during data update for {self.device_sn}: {err}. Re-authentication might be needed.")
-             # Có thể trigger reauth flow ở đây nếu cần
+             # Can trigger reauth flow here if needed
              # self.hass.async_create_task(self.config_entry.async_start_reauth(self.hass))
              raise UpdateFailed(f"Authentication error: {err}") from err
         except ApiException as err:

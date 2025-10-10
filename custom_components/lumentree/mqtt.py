@@ -17,23 +17,17 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
 
-try:
-    from .const import (
-        DOMAIN, _LOGGER, MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD,
-        MQTT_SUB_TOPIC_FORMAT, MQTT_PUB_TOPIC_FORMAT,
-        SIGNAL_UPDATE_FORMAT, # Removed INITIAL signal
-        CONF_DEVICE_SN, CONF_DEVICE_ID,
-        MQTT_CLIENT_ID_FORMAT, MQTT_KEEPALIVE, KEY_ONLINE_STATUS,
-        KEY_LAST_RAW_MQTT, DEFAULT_POLLING_INTERVAL,
-        REG_ADDR_CELL_START, REG_ADDR_CELL_COUNT
-    )
-    from .parser import parse_mqtt_payload, generate_modbus_read_command
-except ImportError:
-    _LOGGER = logging.getLogger(__name__); _LOGGER.warning("ImportError mqtt.py")
-    DOMAIN = "lumentree"; MQTT_BROKER = "lesvr.suntcn.com"; MQTT_PORT = 1886; MQTT_USERNAME = "appuser"; MQTT_PASSWORD = "app666"; MQTT_KEEPALIVE = 20; MQTT_SUB_TOPIC_FORMAT = "reportApp/{device_sn}"; MQTT_PUB_TOPIC_FORMAT = "listenApp/{device_sn}"; SIGNAL_UPDATE_FORMAT = f"{DOMAIN}_mqtt_update_{{device_sn}}"; CONF_DEVICE_SN = "device_sn"; CONF_DEVICE_ID = "device_id"; MQTT_CLIENT_ID_FORMAT = "android-{device_id}-{timestamp}"; KEY_ONLINE_STATUS="online_status"; KEY_LAST_RAW_MQTT = "last_raw_mqtt_hex"; DEFAULT_POLLING_INTERVAL=5; REG_ADDR_CELL_START=250; REG_ADDR_CELL_COUNT=50;
-    def parse_mqtt_payload(ph:str)->Optional[Dict[str,Any]]: return None
-    def generate_modbus_read_command(sid:int,fc:int,addr:int,num:int)->Optional[str]: return None
-    def async_call_later(hass, delay, target): pass
+# Import required components - remove fallback code
+from .const import (
+    DOMAIN, _LOGGER, MQTT_BROKER, MQTT_PORT, MQTT_USERNAME, MQTT_PASSWORD,
+    MQTT_SUB_TOPIC_FORMAT, MQTT_PUB_TOPIC_FORMAT,
+    SIGNAL_UPDATE_FORMAT, # Removed INITIAL signal
+    CONF_DEVICE_SN, CONF_DEVICE_ID,
+    MQTT_CLIENT_ID_FORMAT, MQTT_KEEPALIVE, KEY_ONLINE_STATUS,
+    KEY_LAST_RAW_MQTT, DEFAULT_POLLING_INTERVAL,
+    REG_ADDR_CELL_START, REG_ADDR_CELL_COUNT
+)
+from .parser import parse_mqtt_payload, generate_modbus_read_command
 
 RECONNECT_DELAY_SECONDS = 5
 MAX_RECONNECT_ATTEMPTS = 10
@@ -42,26 +36,35 @@ OFFLINE_TIMEOUT_SECONDS = DEFAULT_POLLING_INTERVAL * 2.5
 NUM_MAIN_REGISTERS_TO_READ = 95 # Read registers 0-94
 
 class LumentreeMqttClient:
-    """Manages MQTT connection, messages, and online status."""
+    """Manages MQTT connection, messages, and online status với __slots__ và batch updates."""
+    __slots__ = ('hass', 'entry', '_device_sn', '_device_id', '_mqttc', 
+                 '_client_id', '_signal_update', '_topic_sub', '_topic_pub',
+                 '_connect_lock', '_reconnect_attempts', '_is_connected', '_stopping',
+                 '_connected_event', '_online', '_offline_timer_unsub',
+                 '_update_queue', '_batch_timer', '_pending_updates')
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, device_sn: str, device_id: str):
-        """Initialize the MQTT client."""
+        """Initialize the MQTT client với batch updates."""
         self.hass = hass
         self.entry = entry
         self._device_sn = device_sn
         self._device_id = device_id
         self._mqttc: Optional[paho.Client] = None
+        
         timestamp = int(time.time())
         try:
             self._client_id = MQTT_CLIENT_ID_FORMAT.format(device_id=self._device_id, timestamp=timestamp)
         except KeyError:
             _LOGGER.error("Failed format MQTT Client ID.")
             self._client_id = f"ha-lumentree-{self._device_sn}-{timestamp}"
+        
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("MQTT Client ID: %s", self._client_id)
+        
         self._signal_update = SIGNAL_UPDATE_FORMAT.format(device_sn=self._device_sn)
         self._topic_sub = MQTT_SUB_TOPIC_FORMAT.format(device_sn=self._device_sn)
         self._topic_pub = MQTT_PUB_TOPIC_FORMAT.format(device_sn=self._device_sn)
+        
         self._connect_lock = asyncio.Lock()
         self._reconnect_attempts = 0
         self._is_connected = False
@@ -69,6 +72,11 @@ class LumentreeMqttClient:
         self._connected_event = asyncio.Event()
         self._online: bool = False
         self._offline_timer_unsub: Optional[Callable] = None
+        
+        # Batch update optimization
+        self._update_queue: asyncio.Queue = asyncio.Queue()
+        self._batch_timer: Optional[asyncio.Task] = None
+        self._pending_updates: Dict[str, Any] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -84,6 +92,43 @@ class LumentreeMqttClient:
             except Exception as e:
                  _LOGGER.warning(f"Error cancelling timer {self._client_id}: {e}")
             self._offline_timer_unsub = None
+    
+    async def _start_batch_timer(self):
+        """Start timer to process batch updates."""
+        if self._batch_timer is not None:
+            self._batch_timer.cancel()
+        
+        self._batch_timer = asyncio.create_task(self._process_batch_updates())
+    
+    async def _process_batch_updates(self):
+        """Process batch updates every 100ms to reduce overhead."""
+        try:
+            await asyncio.sleep(0.1)  # 100ms delay
+            
+            if self._pending_updates:
+                # Send all updates at once
+                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
+                self._pending_updates.clear()
+                
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug("Sent batch update for %s", self._device_sn)
+        except asyncio.CancelledError:
+            # Timer cancelled, send remaining updates
+            if self._pending_updates:
+                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
+                self._pending_updates.clear()
+        except Exception as e:
+            _LOGGER.error(f"Error in batch update processing: {e}")
+        finally:
+            self._batch_timer = None
+    
+    def _queue_update(self, data: Dict[str, Any]):
+        """Add update to queue for batch processing."""
+        self._pending_updates.update(data)
+        
+        # Start timer if not already running
+        if self._batch_timer is None:
+            asyncio.create_task(self._start_batch_timer())
 
     @callback
     def _set_offline(self, *args):
@@ -112,7 +157,7 @@ class LumentreeMqttClient:
                 return
             self._stopping = False
             self._connected_event.clear()
-            self._mqttc = paho.Client(client_id=self._client_id, protocol=paho.MQTTv311, callback_api_version=paho.CallbackAPIVersion.VERSION1)
+            self._mqttc = paho.Client(client_id=self._client_id, protocol=paho.MQTTv311)
             self._mqttc.username_pw_set(username=MQTT_USERNAME, password=MQTT_PASSWORD)
             self._mqttc.on_connect=self._on_connect
             self._mqttc.on_disconnect=self._on_disconnect
@@ -236,8 +281,8 @@ class LumentreeMqttClient:
                     except NameError:
                         pass
 
-                    # Dispatch the parsed data (only regular updates now)
-                    self.hass.loop.call_soon_threadsafe(async_dispatcher_send, self.hass, self._signal_update, parsed_data)
+                    # Use batch update instead of immediate dispatch
+                    self.hass.loop.call_soon_threadsafe(self._queue_update, parsed_data)
 
             else:
                 _LOGGER.warning(f"Unexpected topic {self._client_id}: {topic}")

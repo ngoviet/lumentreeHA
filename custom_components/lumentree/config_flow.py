@@ -55,37 +55,37 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     _LOGGER.error("Failed to get aiohttp client session! (session is None)")
                     raise ApiException("Could not get client session")
 
-                # Tạo instance trong try/except riêng
+                # Create instance in separate try/except
                 try:
-                    # Log trước khi tạo để biết trạng thái session
+                    # Log before creating to know session status
                     _LOGGER.debug("Creating LumentreeHttpApiClient with session: %s", getattr(session, 'cookie_jar', 'no-cookie-jar'))
                     self._api_client = LumentreeHttpApiClient(session)
                     _LOGGER.debug("Created new API client instance: %s", type(self._api_client))
                 except Exception as create_exc:
-                    # Ghi stacktrace chi tiết để debug lỗi tạo client
+                    # Write detailed stacktrace to debug client creation error
                     _LOGGER.exception("Error creating LumentreeHttpApiClient instance: %s", create_exc)
                     raise ApiException("Failed to create API client instance") from create_exc
 
             except Exception as session_exc:
-                # Bắt lỗi từ get session hoặc lỗi tạo client
+                # Catch errors from get session or client creation
                 _LOGGER.error(f"Failed to initialize API client: {session_exc}")
-                # Raise ApiException để báo lỗi cho các bước sau
+                # Raise ApiException to report error for next steps
                 _LOGGER.debug("Raising ApiException from initialization failure with repr: %s", repr(session_exc))
                 raise ApiException(f"API Client Initialization failed: {session_exc}") from session_exc
         else:
             _LOGGER.debug(f"Reusing existing API client instance: {type(self._api_client)}")
 
-        # Kiểm tra lại lần nữa trước khi set token và return
+        # Check again before setting token and return
         if self._api_client is None:
-            # Trường hợp này không nên xảy ra nếu logic trên đúng
+            # This case should not happen if above logic is correct
             _LOGGER.critical("API client is unexpectedly None after initialization attempt!")
             raise ApiException("API client is None after creation attempt")
 
-        # Gán token nếu có
+        # Assign token if available
         if self._http_token:
             if hasattr(self._api_client, "set_token"):
                 try:
-                    # Set token và log (ẩn phần lớn token để bảo mật)
+                    # Set token and log (hide most of token for security)
                     self._api_client.set_token(self._http_token)
                     masked = (self._http_token[:6] + '...') if len(self._http_token) > 6 else '***'
                     _LOGGER.debug("Set token on API client (masked): %s", masked)
@@ -99,15 +99,15 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     # --- HẾT PHẦN SỬA ---
 
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        errors: Dict[str, str] = {}; api: Optional[LumentreeHttpApiClient] = None # Khởi tạo api là None
+        errors: Dict[str, str] = {}; api: Optional[LumentreeHttpApiClient] = None # Initialize api as None
         if user_input is not None:
             self._device_id_input = user_input[CONF_DEVICE_ID].strip()
             try:
-                # Lấy API client, hàm này giờ sẽ raise ApiException nếu thất bại
+                # Get API client, this function will now raise ApiException if failed
                 api = await self._get_api_client()
                 _LOGGER.info("Authenticating with Device ID: %s", self._device_id_input)
                 _LOGGER.debug("Using API client instance: %s", type(api))
-                token = await api.authenticate_device(self._device_id_input) # Gọi method trên instance đã được xác nhận khác None
+                token = await api.authenticate_device(self._device_id_input) # Call method on confirmed non-None instance
                 self._http_token = token
                 masked_token = (token[:6] + '...') if token and len(token) > 6 else '***'
                 _LOGGER.info("Auth success for %s (token masked: %s)", self._device_id_input, masked_token)
@@ -120,10 +120,10 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "cannot_connect"
             except Exception as exc:
                 _LOGGER.exception(f"Unexpected auth error {self._device_id_input}: {exc}")
-                errors["base"] = "unknown" # Bắt lỗi khác nếu có
+                errors["base"] = "unknown" # Catch other errors if any
 
         schema = vol.Schema({vol.Required(CONF_DEVICE_ID, default=self._device_id_input or ""): str})
-        # Nếu có lỗi, hiển thị lại form user
+        # If there are errors, show user form again
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
 
@@ -131,19 +131,19 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: Dict[str, str] = {}; api: Optional[LumentreeHttpApiClient] = None
         if not self._http_token: _LOGGER.error("Token missing"); return self.async_abort(reason="token_missing")
 
-        try: # Thêm try bao quanh việc lấy api client ở bước này
-            api = await self._get_api_client() # Lấy client (đã có token được set bên trong)
-        except ApiException as exc: # Bắt lỗi nếu không lấy được client ở bước confirm
+        try: # Add try around getting api client at this step
+            api = await self._get_api_client() # Get client (already has token set inside)
+        except ApiException as exc: # Catch error if cannot get client at confirm step
             _LOGGER.exception("Failed to get API client in confirm step: %s", exc)
             errors["base"] = "cannot_connect"
-            # Hiển thị lại form user
+            # Show user form again
             return self.async_show_form(step_id="confirm_device", description_placeholders={"device_name": "Error", "device_sn": "Error"}, errors=errors)
 
         if user_input is None:
             if not self._device_id_input: _LOGGER.error("Device ID missing"); return self.async_abort(reason="cannot_connect")
             try:
                 _LOGGER.info("Fetching device info for %s via API...", self._device_id_input)
-                device_info_api = await api.get_device_info(self._device_id_input) # api chắc chắn không None ở đây
+                device_info_api = await api.get_device_info(self._device_id_input) # api is definitely not None here
                 _LOGGER.debug("Device info raw response: %s", device_info_api)
 
                 if isinstance(device_info_api, dict) and "_error" in device_info_api:

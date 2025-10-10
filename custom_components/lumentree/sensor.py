@@ -51,7 +51,7 @@ except ImportError:
     def slugify(text): return re.sub(r"[^a-z0-9_]+", "_", text.lower())
 
 
-# --- Sensor Descriptions (MQTT Realtime - Chỉ chứa các key đọc được từ 0-94) ---
+# --- Sensor Descriptions (MQTT Realtime - Only keys read from 0-94) ---
 REALTIME_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     SensorEntityDescription(key=KEY_PV_POWER, name="PV Power", native_unit_of_measurement=UnitOfPower.WATT, device_class=SensorDeviceClass.POWER, state_class=SensorStateClass.MEASUREMENT, icon="mdi:solar-power"),
     SensorEntityDescription(key=KEY_BATTERY_POWER, name="Battery Power (Absolute)", native_unit_of_measurement=UnitOfPower.WATT, device_class=SensorDeviceClass.POWER, state_class=SensorStateClass.MEASUREMENT, icon="mdi:battery"),
@@ -103,7 +103,7 @@ async def async_setup_entry(
         device_sn = entry.data[CONF_DEVICE_SN]
         device_name = entry.data[CONF_DEVICE_NAME]
         device_api_info = entry_data.get('device_api_info', {})
-        # Không cần initial_data nữa
+        # No longer need initial_data
     except KeyError as e: _LOGGER.error(f"Missing key {e} in entry data."); return
 
     device_info = DeviceInfo(
@@ -117,13 +117,13 @@ async def async_setup_entry(
     entities_to_add: list[SensorEntity] = []
     for description in REALTIME_SENSOR_DESCRIPTIONS:
         if description.key == KEY_BATTERY_CELL_INFO:
-            # <<< Truyền dict rỗng cho initial_data >>>
+            # Pass empty dict for initial_data
             entities_to_add.append(LumentreeBatteryCellSensor(hass, entry, device_info, description, {}))
         elif description.key == KEY_TOTAL_LOAD_POWER:
-            # Tạo sensor tính toán cho Total Load Power
+            # Create calculated sensor for Total Load Power
             entities_to_add.append(LumentreeTotalLoadPowerSensor(hass, entry, device_info, description, {}))
         else:
-            # <<< Truyền dict rỗng cho initial_data >>>
+            # Pass empty dict for initial_data
             entities_to_add.append(LumentreeMqttSensor(hass, entry, device_info, description, {}))
     _LOGGER.info(f"Adding {len(REALTIME_SENSOR_DESCRIPTIONS)} real-time sensors for {device_sn}")
     if coordinator_stats:
@@ -154,7 +154,7 @@ class LumentreeMqttSensor(SensorEntity):
             _LOGGER.debug("Init MQTT sensor: uid=%s, name=%s, initial_state=%s", 
                          self.unique_id, self.name, self._attr_native_value)
 
-    def _process_value(self, value: Any) -> Any: # Giữ nguyên
+    def _process_value(self, value: Any) -> Any: # Keep unchanged
         processed_value: Any = None
         if value is not None:
             desc = self.entity_description
@@ -223,7 +223,7 @@ class LumentreeBatteryCellSensor(SensorEntity):
                          self.unique_id, self.name, self._attr_native_value)
 
     @callback
-    def _handle_update(self, data: Dict[str, Any]) -> None: # Giữ nguyên
+    def _handle_update(self, data: Dict[str, Any]) -> None: # Keep unchanged
         if KEY_BATTERY_CELL_INFO in data:
             cell_info_dict = data[KEY_BATTERY_CELL_INFO];
             if isinstance(cell_info_dict, dict):
@@ -303,11 +303,11 @@ class LumentreeTotalLoadPowerSensor(SensorEntity):
         self._attr_device_info = device_info
         self._remove_dispatcher: Optional[Callable[[], None]] = None
         
-        # Lưu trữ giá trị của Load Power và AC Output Power
+        # Store values of Load Power and AC Output Power
         self._load_power: Optional[float] = None
         self._ac_output_power: Optional[float] = None
         
-        # Tính toán giá trị ban đầu
+        # Calculate initial value
         self._load_power = self._safe_float(initial_data.get(KEY_LOAD_POWER))
         self._ac_output_power = self._safe_float(initial_data.get(KEY_AC_OUT_POWER))
         self._calculate_total_load_power()
@@ -337,21 +337,21 @@ class LumentreeTotalLoadPowerSensor(SensorEntity):
         """Xử lý cập nhật dữ liệu từ MQTT"""
         updated = False
         
-        # Cập nhật Load Power nếu có
+        # Update Load Power if available
         if KEY_LOAD_POWER in data:
             new_load_power = self._safe_float(data[KEY_LOAD_POWER])
             if self._load_power != new_load_power:
                 self._load_power = new_load_power
                 updated = True
         
-        # Cập nhật AC Output Power nếu có
+        # Update AC Output Power if available
         if KEY_AC_OUT_POWER in data:
             new_ac_output_power = self._safe_float(data[KEY_AC_OUT_POWER])
             if self._ac_output_power != new_ac_output_power:
                 self._ac_output_power = new_ac_output_power
                 updated = True
         
-        # Tính toán lại và cập nhật state nếu có thay đổi
+        # Recalculate and update state if changed
         if updated:
             old_value = self._attr_native_value
             self._calculate_total_load_power()

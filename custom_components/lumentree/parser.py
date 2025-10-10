@@ -32,7 +32,7 @@ except ImportError:
 except KeyError: _LOGGER = logging.getLogger(__name__); _LOGGER.warning("KeyError parser.py const")
 
 
-# --- CRC Functions --- (Giữ nguyên)
+# --- CRC Functions ---
 def calculate_crc16_modbus(pb: bytes) -> Optional[int]:
     if crc16_modbus_func:
         try: return crc16_modbus_func(pb)
@@ -66,13 +66,13 @@ def generate_modbus_read_command(sid: int, fc: int, addr: int, num: int) -> Opti
         pdu = bytearray([fc]) + addr.to_bytes(2,'big') + num.to_bytes(2,'big')
         adu = bytearray([sid]) + pdu
         crc = calculate_crc16_modbus(bytes(adu))
-        # <<< Tách kiểm tra None và gán giá trị >>>
+        # Separate None check and value assignment
         if crc is None:
             _LOGGER.error("CRC calculation failed.")
             return None
         full = adu + crc.to_bytes(2,'little')
         command_hex = full.hex()
-        # <<< Tách log và return >>>
+        # Separate log and return
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Generated Modbus command: %s", command_hex)
         return command_hex
@@ -81,7 +81,7 @@ def generate_modbus_read_command(sid: int, fc: int, addr: int, num: int) -> Opti
         return None
 # --- HẾT PHẦN SỬA ---
 
-# --- Helper Functions --- (Giữ nguyên)
+# --- Helper Functions ---
 def _read_register(db: bytes, ra: int, s: bool, f: float = 1.0, bc: int = 2) -> Optional[float]:
     offset_bytes = ra * 2
     if offset_bytes + bc <= len(db):
@@ -157,7 +157,7 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
 
         expected_cell_bytes = REG_ADDR_CELL_COUNT * 2
         expected_main_bytes = 95 * 2
-        # Thiết bị có thể gửi thêm 12 bytes metadata (202 bytes thay vì 190)
+        # Device may send additional 12 bytes metadata (202 bytes instead of 190)
         expected_main_bytes_extended = expected_main_bytes + 12
 
         if bc==expected_cell_bytes and len(db)==expected_cell_bytes: 
@@ -167,7 +167,7 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             is_cell=False
             if len(db) == expected_main_bytes_extended:
                 _LOGGER.info("Main data (95 regs + 12 bytes metadata).")
-                # Bỏ qua 12 bytes cuối (metadata) và chỉ parse 95 registers đầu
+                # Skip last 12 bytes (metadata) and only parse first 95 registers
                 db = db[:expected_main_bytes]
             else:
                 _LOGGER.info("Main data (95 regs).")
