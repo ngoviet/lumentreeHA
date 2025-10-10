@@ -1,6 +1,6 @@
 {
   "domain": "lumentree",
-  "name": "Lumentree Inverter",
+  "name": "Lumentree Inverter (Optimized)",
   "config_flow": true,
   "documentation": "https://github.com/ngoviet/lumentreeHA",
   "issue_tracker": "https://github.com/ngoviet/lumentreeHA/issues",
@@ -10,8 +10,9 @@
     "crcmod>=1.7"
   ],
   "codeowners": ["@ngoviet"],
-  "version": "2.0",
+  "version": "2.4.0",
   "iot_class": "local_polling",
+  "integration_type": "device",
   "loggers": [
     "paho",
     "custom_components.lumentree"
