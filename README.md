@@ -62,24 +62,27 @@ Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real
 
 ## Configuration
 
-### Getting Your HTTP Token
-
-1. Open the **Lumentree mobile app**
-2. Navigate to your device settings
-3. Find the **HTTP Token** or **API Key** section
-4. Copy the token for use in Home Assistant
-
 ### Adding the Integration
 
 1. Go to **Configuration** → **Integrations**
 2. Click **Add Integration**
 3. Search for **"Lumentree Inverter"**
 4. Enter your device information:
-   - **Device SN**: Serial number of your inverter (e.g., `H240909079`)
+   - **Device SN**: Serial number of your inverter (e.g., `H240909099`)
    - **Device ID**: Device ID (usually same as SN)
    - **Device Name**: Friendly name for your device
    - **HTTP Token**: Authentication token from Lumentree app
 5. Click **Submit**
+
+### Getting Your HTTP Token (Optional)
+
+If you need to find your HTTP Token:
+1. Open the **Lumentree mobile app**
+2. Navigate to your device settings
+3. Find the **HTTP Token** or **API Key** section
+4. Copy the token for use in Home Assistant
+
+**Note**: The integration will work with just the Device SN in most cases.
 
 ## Requirements
 
