@@ -39,3 +39,6 @@ backup/
 # OS
 .DS_Store
 Thumbs.db
+
+# Documentation (internal only, not for GitHub)
+CAU-TRUC-CODE-VA-LOGIC.md
