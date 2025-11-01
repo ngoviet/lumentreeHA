@@ -126,6 +126,119 @@ Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real
 - **Online Status**: Device connectivity status
 - **UPS Mode**: Whether device is in UPS mode
 
+## Services
+
+The integration provides several services for managing statistics cache and data backfill:
+
+### `lumentree.backfill_now`
+Backfill daily statistics for the last N days.
+
+**Parameters:**
+- `days` (optional): Number of past days to backfill (default: 365, max: 3650)
+
+**Example:**
+```yaml
+service: lumentree.backfill_now
+data:
+  days: 30
+```
+
+### `lumentree.backfill_all`
+Backfill all historical data (stops when encountering consecutive empty days or max years reached).
+
+**Parameters:**
+- `max_years` (optional): Maximum years to scan (default: 10)
+- `empty_streak` (optional): Consecutive empty days threshold to stop (default: 14)
+
+**Example:**
+```yaml
+service: lumentree.backfill_all
+data:
+  max_years: 5
+  empty_streak: 14
+```
+
+### `lumentree.backfill_gaps`
+Fill missing days in cache gradually (limited per run).
+
+**Parameters:**
+- `max_years` (optional): Recent years to check (default: 3)
+- `max_days_per_run` (optional): Maximum days to fetch per run (default: 30)
+
+**Example:**
+```yaml
+service: lumentree.backfill_gaps
+data:
+  max_years: 2
+  max_days_per_run: 50
+```
+
+### `lumentree.recompute_month_year`
+Recalculate monthly arrays and yearly totals from cached daily data for the current year.
+
+**Example:**
+```yaml
+service: lumentree.recompute_month_year
+```
+
+### `lumentree.purge_cache`
+Delete cached statistics for a specific year.
+
+**Parameters:**
+- `year` (optional): Year to purge (defaults to current year)
+
+**Example:**
+```yaml
+service: lumentree.purge_cache
+data:
+  year: 2024
+```
+
+### `lumentree.mark_empty_dates`
+Mark specific dates as empty in cache to skip them permanently.
+
+**Parameters:**
+- `year` (required): Year of dates to mark
+- `dates` (required): List of dates in YYYY-MM-DD format
+
+**Example:**
+```yaml
+service: lumentree.mark_empty_dates
+data:
+  year: 2025
+  dates:
+    - "2025-01-01"
+    - "2025-12-31"
+```
+
+### `lumentree.mark_coverage_range`
+Set the coverage range (earliest/latest dates) for a year.
+
+**Parameters:**
+- `year` (required): Year to set coverage range
+- `earliest` (optional): Earliest date with complete data (YYYY-MM-DD)
+- `latest` (optional): Latest date with complete data (YYYY-MM-DD)
+
+**Example:**
+```yaml
+service: lumentree.mark_coverage_range
+data:
+  year: 2025
+  earliest: "2025-01-15"
+  latest: "2025-11-02"
+```
+
+## Cache Management
+
+Statistics data is cached locally to reduce API calls and improve performance:
+
+- **Cache Location**: `.storage/lumentree_stats/{device_id}/{year}.json`
+- **Auto Backfill**: 
+  - Full history backfill runs automatically on first setup (background)
+  - Nightly incremental updates fill gaps for the previous day
+- **Cache Structure**: Daily data, monthly arrays, yearly totals, and metadata
+- **Manual Management**: Use services above to manage cache manually
+
 ## Troubleshooting
 
 ### Common Issues
@@ -150,6 +263,18 @@ Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real
 - Check internet connectivity
 - Verify MQTT broker is accessible
 - Review firewall settings
+
+**Statistics sensors not updating:**
+- Statistics update on first setup (auto backfill in background)
+- Daily statistics update via HTTP API (not real-time)
+- Check cache location: `.storage/lumentree_stats/{device_id}/`
+- Use `lumentree.backfill_now` service to fetch missing data
+- Verify HTTP token is valid and device is online
+
+**Monthly/Yearly sensors showing zeros:**
+- Run `lumentree.recompute_month_year` service to recalculate aggregates
+- Ensure daily data exists in cache for the period
+- Check logs for cache loading errors
 
 ### Debug Logging
 
