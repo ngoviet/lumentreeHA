@@ -5,5 +5,5 @@
   "country": ["VN", "US", "GB", "AU", "CA", "DE", "FR", "IT", "ES", "NL", "SE", "NO", "DK", "FI", "PL", "CZ", "HU", "RO", "BG", "HR", "SI", "SK", "LT", "LV", "EE", "IE", "PT", "GR", "CY", "MT", "LU", "BE", "AT", "CH", "LI", "IS", "JP", "KR", "CN", "TW", "HK", "SG", "MY", "TH", "ID", "PH", "IN", "BD", "PK", "LK", "NP", "MM", "KH", "LA", "VN", "BR", "AR", "CL", "CO", "MX", "PE", "VE", "UY", "PY", "BO", "EC", "GY", "SR", "GF", "ZA", "NG", "KE", "EG", "MA", "TN", "DZ", "LY", "SD", "ET", "GH", "UG", "TZ", "ZM", "ZW", "BW", "NA", "SZ", "LS", "MW", "MZ", "MG", "MU", "SC", "KM", "DJ", "SO", "ER", "SS", "CF", "TD", "NE", "ML", "BF", "CI", "LR", "SL", "GN", "GW", "GM", "SN", "MR", "CV", "ST", "GQ", "GA", "CG", "CD", "AO", "CM", "TD", "NE", "ML", "BF", "CI", "LR", "SL", "GN", "GW", "GM", "SN", "MR", "CV", "ST", "GQ", "GA", "CG", "CD", "AO", "CM"],
   "homeassistant": "2023.1.0",
   "render_readme": true,
-  "iot_class": "Local Polling"
+  "iot_class": "Cloud Polling"
 }

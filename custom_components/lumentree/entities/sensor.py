@@ -67,8 +67,29 @@ from ..const import (
     KEY_DAILY_LOAD_KWH,
     KEY_TOTAL_LOAD_POWER,
     KEY_LAST_RAW_MQTT,
+    KEY_MONTHLY_PV_KWH,
+    KEY_MONTHLY_GRID_IN_KWH,
+    KEY_MONTHLY_LOAD_KWH,
+    KEY_MONTHLY_ESSENTIAL_KWH,
+    KEY_MONTHLY_CHARGE_KWH,
+    KEY_MONTHLY_DISCHARGE_KWH,
+    KEY_YEARLY_PV_KWH,
+    KEY_YEARLY_GRID_IN_KWH,
+    KEY_YEARLY_LOAD_KWH,
+    KEY_YEARLY_ESSENTIAL_KWH,
+    KEY_YEARLY_CHARGE_KWH,
+    KEY_YEARLY_DISCHARGE_KWH,
+    KEY_TOTAL_PV_KWH,
+    KEY_TOTAL_GRID_IN_KWH,
+    KEY_TOTAL_LOAD_KWH,
+    KEY_TOTAL_ESSENTIAL_KWH,
+    KEY_TOTAL_CHARGE_KWH,
+    KEY_TOTAL_DISCHARGE_KWH,
 )
-from ..coordinators.stats_coordinator import LumentreeStatsCoordinator
+from ..coordinators.daily_coordinator import DailyStatsCoordinator
+from ..coordinators.monthly_coordinator import MonthlyStatsCoordinator
+from ..coordinators.yearly_coordinator import YearlyStatsCoordinator
+from ..coordinators.total_coordinator import TotalStatsCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -341,6 +362,165 @@ STATS_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
 )
 
+MONTH_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key=KEY_MONTHLY_PV_KWH,
+        name="PV Generation This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:solar-power",
+    ),
+    SensorEntityDescription(
+        key=KEY_MONTHLY_CHARGE_KWH,
+        name="Battery Charge This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:battery-plus-variant",
+    ),
+    SensorEntityDescription(
+        key=KEY_MONTHLY_DISCHARGE_KWH,
+        name="Battery Discharge This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:battery-minus-variant",
+    ),
+    SensorEntityDescription(
+        key=KEY_MONTHLY_GRID_IN_KWH,
+        name="Grid Input This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:transmission-tower-import",
+    ),
+    SensorEntityDescription(
+        key=KEY_MONTHLY_LOAD_KWH,
+        name="Load Consumption This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:home-lightning-bolt",
+    ),
+    SensorEntityDescription(
+        key=KEY_MONTHLY_ESSENTIAL_KWH,
+        name="Essential Load This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:power-plug",
+    ),
+)
+
+YEAR_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key=KEY_YEARLY_PV_KWH,
+        name="PV Generation This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:solar-power",
+    ),
+    SensorEntityDescription(
+        key=KEY_YEARLY_CHARGE_KWH,
+        name="Battery Charge This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:battery-plus-variant",
+    ),
+    SensorEntityDescription(
+        key=KEY_YEARLY_DISCHARGE_KWH,
+        name="Battery Discharge This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:battery-minus-variant",
+    ),
+    SensorEntityDescription(
+        key=KEY_YEARLY_GRID_IN_KWH,
+        name="Grid Input This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:transmission-tower-import",
+    ),
+    SensorEntityDescription(
+        key=KEY_YEARLY_LOAD_KWH,
+        name="Load Consumption This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:home-lightning-bolt",
+    ),
+    SensorEntityDescription(
+        key=KEY_YEARLY_ESSENTIAL_KWH,
+        name="Essential Load This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:power-plug",
+    ),
+)
+
+# Sensor Descriptions (HTTP Total Stats - Lifetime)
+TOTAL_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
+    SensorEntityDescription(
+        key=KEY_TOTAL_PV_KWH,
+        name="PV Generation Total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:solar-power",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_TOTAL_CHARGE_KWH,
+        name="Battery Charge Total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:battery-plus-variant",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_TOTAL_DISCHARGE_KWH,
+        name="Battery Discharge Total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:battery-minus-variant",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_TOTAL_GRID_IN_KWH,
+        name="Grid Input Total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:transmission-tower-import",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_TOTAL_LOAD_KWH,
+        name="Load Consumption Total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:home-lightning-bolt",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_TOTAL_ESSENTIAL_KWH,
+        name="Essential Load Total",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:power-plug",
+        suggested_display_precision=1,
+    ),
+)
 
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
@@ -350,7 +530,10 @@ async def async_setup_entry(
 
     try:
         entry_data = hass.data[DOMAIN][entry.entry_id]
-        coordinator_stats: Optional[LumentreeStatsCoordinator] = entry_data.get("coordinator_stats")
+        daily_coord: Optional[DailyStatsCoordinator] = entry_data.get("daily_coordinator")
+        monthly_coord: Optional[MonthlyStatsCoordinator] = entry_data.get("monthly_coordinator")
+        yearly_coord: Optional[YearlyStatsCoordinator] = entry_data.get("yearly_coordinator")
+        total_coord: Optional[TotalStatsCoordinator] = entry_data.get("total_coordinator")
         device_sn = entry.data[CONF_DEVICE_SN]
         device_name = entry.data[CONF_DEVICE_NAME]
         device_api_info = entry_data.get("device_api_info", {})
@@ -386,14 +569,43 @@ async def async_setup_entry(
 
     _LOGGER.info(f"Adding {len(REALTIME_SENSOR_DESCRIPTIONS)} real-time sensors for {device_sn}")
 
-    if coordinator_stats:
+    if daily_coord:
         for description in STATS_SENSOR_DESCRIPTIONS:
             entities_to_add.append(
-                LumentreeDailyStatsSensor(coordinator_stats, device_info, description)
+                LumentreeDailyStatsSensor(daily_coord, device_info, description)
             )
         _LOGGER.info(f"Adding {len(STATS_SENSOR_DESCRIPTIONS)} daily stats sensors for {device_sn}")
     else:
-        _LOGGER.warning(f"Stats coordinator not available for {device_sn}")
+        _LOGGER.warning(f"Daily coordinator not available for {device_sn}")
+
+    if monthly_coord:
+        for description in MONTH_SENSOR_DESCRIPTIONS:
+            entities_to_add.append(
+                LumentreeMonthlyStatsSensor(monthly_coord, device_info, description)
+            )
+        _LOGGER.info(f"Adding {len(MONTH_SENSOR_DESCRIPTIONS)} monthly stats sensors for {device_sn}")
+    else:
+        _LOGGER.warning(f"Monthly coordinator not available for {device_sn}")
+
+    if yearly_coord:
+        for description in YEAR_SENSOR_DESCRIPTIONS:
+            entities_to_add.append(
+                LumentreeYearlyStatsSensor(yearly_coord, device_info, description)
+            )
+        _LOGGER.info(f"Adding {len(YEAR_SENSOR_DESCRIPTIONS)} yearly stats sensors for {device_sn}")
+    else:
+        _LOGGER.warning(f"Yearly coordinator not available for {device_sn}")
+
+    # Add total sensors
+    _LOGGER.info(f"Total coordinator available: {total_coord is not None}")
+    if total_coord:
+        for description in TOTAL_SENSOR_DESCRIPTIONS:
+            entities_to_add.append(
+                LumentreeTotalStatsSensor(total_coord, device_info, description)
+            )
+        _LOGGER.info(f"Adding {len(TOTAL_SENSOR_DESCRIPTIONS)} total stats sensors for {device_sn}")
+    else:
+        _LOGGER.warning(f"Total coordinator not available for {device_sn}")
 
     if entities_to_add:
         async_add_entities(entities_to_add)
@@ -597,7 +809,7 @@ class LumentreeBatteryCellSensor(SensorEntity):
             _LOGGER.debug("Cell sensor %s unregistered", self.unique_id)
 
 
-class LumentreeDailyStatsSensor(CoordinatorEntity[LumentreeStatsCoordinator], SensorEntity):
+class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], SensorEntity):
     """Daily statistics sensor entity."""
 
     __slots__ = (
@@ -616,7 +828,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[LumentreeStatsCoordinator], Se
 
     def __init__(
         self,
-        coordinator: LumentreeStatsCoordinator,
+        coordinator: DailyStatsCoordinator,
         device_info: DeviceInfo,
         description: SensorEntityDescription,
     ) -> None:
@@ -780,3 +992,75 @@ class LumentreeTotalLoadPowerSensor(SensorEntity):
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Total Load Power sensor %s unregistered", self.unique_id)
 
+
+class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, coordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._device_sn = getattr(coordinator, "device_sn", "unknown")
+        self._attr_unique_id = f"{self._device_sn}_{description.key}"
+        object_id = f"device_{self._device_sn}_{slugify(description.key)}"
+        self._attr_object_id = object_id
+        self.entity_id = generate_entity_id("sensor.{}", self._attr_object_id, hass=coordinator.hass)
+        self._attr_device_info = device_info
+        self._attr_native_value = None
+        self._update_state_from_coordinator()
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        self._update_state_from_coordinator()
+        self.async_write_ha_state()
+
+    def _update_state_from_coordinator(self) -> None:
+        key = self.entity_description.key
+        value = self.coordinator.data.get(key) if self.coordinator.data else None
+        self._attr_native_value = round(value, 2) if isinstance(value, (int, float)) else None
+
+
+class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
+    def __init__(self, coordinator: MonthlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+        super().__init__(coordinator, device_info, description)
+    
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        """Return extra state attributes for charting."""
+        if not self.coordinator.data:
+            return {}
+        
+        return {
+            "daily_pv": self.coordinator.data.get("daily_pv", []),
+            "daily_charge": self.coordinator.data.get("daily_charge", []),
+            "daily_discharge": self.coordinator.data.get("daily_discharge", []),
+            "daily_grid": self.coordinator.data.get("daily_grid", []),
+            "daily_load": self.coordinator.data.get("daily_load", []),
+            "daily_essential": self.coordinator.data.get("daily_essential", []),
+            "days_in_month": self.coordinator.data.get("days_in_month", 31),
+            "year": self.coordinator.data.get("year"),
+            "month": self.coordinator.data.get("month"),
+        }
+
+
+class LumentreeYearlyStatsSensor(_BaseCoordinatorSensor):
+    def __init__(self, coordinator: YearlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+        super().__init__(coordinator, device_info, description)
+
+
+class LumentreeTotalStatsSensor(_BaseCoordinatorSensor):
+    def __init__(self, coordinator: TotalStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+        super().__init__(coordinator, device_info, description)
+    
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        """Return extra state attributes for total statistics."""
+        if not self.coordinator.data:
+            return {}
+        
+        return {
+            "years_processed": self.coordinator.data.get("years_processed", 0),
+            "earliest_year": self.coordinator.data.get("earliest_year"),
+            "latest_year": self.coordinator.data.get("latest_year"),
+            "last_updated": self.coordinator.data.get("last_updated"),
+        }

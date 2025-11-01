@@ -16,11 +16,16 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .const import (
     DOMAIN, _LOGGER, CONF_DEVICE_SN, CONF_DEVICE_ID, CONF_HTTP_TOKEN,
-    DEFAULT_POLLING_INTERVAL, DEFAULT_STATS_INTERVAL
+    DEFAULT_POLLING_INTERVAL
 )
 from .core.api_client import LumentreeHttpApiClient, AuthException, ApiException
 from .core.mqtt_client import LumentreeMqttClient
-from .coordinators.stats_coordinator import LumentreeStatsCoordinator
+from .coordinators.daily_coordinator import DailyStatsCoordinator
+from .coordinators.monthly_coordinator import MonthlyStatsCoordinator
+from .coordinators.yearly_coordinator import YearlyStatsCoordinator
+from .coordinators.total_coordinator import TotalStatsCoordinator
+from .services.aggregator import StatsAggregator
+from .services import cache as cache_io
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
@@ -33,6 +38,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     api_client: Optional[LumentreeHttpApiClient] = None
     mqtt_client: Optional[LumentreeMqttClient] = None
     remove_interval: Optional[Callable] = None
+    remove_nightly: Optional[Callable] = None
 
     try:
         device_sn = entry.data[CONF_DEVICE_SN]
@@ -68,19 +74,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN][entry.entry_id]["mqtt_client"] = mqtt_client
         await mqtt_client.connect()
 
-        coordinator_stats = LumentreeStatsCoordinator(hass, api_client, device_sn)
-        hass.data[DOMAIN][entry.entry_id]["coordinator_stats"] = coordinator_stats
-        try:
-            await coordinator_stats.async_config_entry_first_refresh()
-            _LOGGER.debug(f"Initial stats fetch {device_sn}: Success={coordinator_stats.last_update_success}")
-            if not coordinator_stats.last_update_success:
-                _LOGGER.warning(f"Initial stats fetch failed {device_sn}.")
-        except ConfigEntryAuthFailed:
-            _LOGGER.error(f"HTTP Auth failed for stats {device_sn}."); pass
-        except UpdateFailed:
-            _LOGGER.warning(f"Initial stats fetch failed {device_sn}.")
-        except Exception:
-            _LOGGER.exception(f"Unexpected initial stats error {device_sn}")
+        # Create aggregators and coordinators
+        aggregator = StatsAggregator(hass, api_client, device_id)
+        hass.data[DOMAIN][entry.entry_id]["aggregator"] = aggregator
+
+        daily_coord = DailyStatsCoordinator(hass, api_client, device_sn)
+        monthly_coord = MonthlyStatsCoordinator(hass, aggregator, device_sn)
+        yearly_coord = YearlyStatsCoordinator(hass, aggregator, device_sn)
+        total_coord = TotalStatsCoordinator(hass, aggregator, device_sn)
+        hass.data[DOMAIN][entry.entry_id].update({
+            "daily_coordinator": daily_coord,
+            "monthly_coordinator": monthly_coord,
+            "yearly_coordinator": yearly_coord,
+            "total_coordinator": total_coord,
+        })
+        _LOGGER.info(f"Created total coordinator for {device_sn}")
+
+        # Prime daily coordinator (non-blocking)
+        hass.async_create_task(daily_coord.async_config_entry_first_refresh())
+        hass.async_create_task(monthly_coord.async_config_entry_first_refresh())
+        hass.async_create_task(yearly_coord.async_config_entry_first_refresh())
+        hass.async_create_task(total_coord.async_config_entry_first_refresh())
 
         polling_interval = datetime.timedelta(seconds=DEFAULT_POLLING_INTERVAL)
 
@@ -145,6 +159,91 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.async_on_unload(_cancel_timer_on_unload)
         entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop_mqtt))
 
+        # Services: backfill_now, recompute_month_year, purge_cache, backfill_all, backfill_gaps,
+        #            mark_empty_dates, mark_coverage_range
+        async def _svc_backfill(call):
+            days = int(call.data.get("days", 365))
+            await aggregator.backfill_last_n_days(days)
+
+        async def _svc_recompute(call):
+            # Recompute aggregates for the current year
+            now = datetime.datetime.now()
+            c = cache_io.load_year(device_id, now.year)
+            cache_io.recompute_aggregates(c)
+            cache_io.save_year(device_id, now.year, c)
+
+        async def _svc_purge(call):
+            year = int(call.data.get("year", datetime.datetime.now().year))
+            cache_io.purge_year(device_id, year)
+
+        async def _svc_backfill_all(call):
+            max_years = int(call.data.get("max_years", 10))
+            empty_streak = int(call.data.get("empty_streak", 14))
+            await aggregator.backfill_all(max_years=max_years, empty_streak=empty_streak)
+
+        async def _svc_backfill_gaps(call):
+            max_years = int(call.data.get("max_years", 3))
+            max_days_per_run = int(call.data.get("max_days_per_run", 30))
+            await aggregator.backfill_gaps(max_years=max_years, max_days_per_run=max_days_per_run)
+
+        async def _svc_mark_empty_dates(call):
+            year = int(call.data["year"])  # required
+            dates = list(call.data.get("dates", []))
+            c = cache_io.load_year(device_id, year)
+            for ds in dates:
+                c = cache_io.mark_empty(c, ds)
+            cache_io.save_year(device_id, year, c)
+
+        async def _svc_mark_coverage_range(call):
+            year = int(call.data["year"])  # required
+            earliest = call.data.get("earliest")
+            latest = call.data.get("latest")
+            c = cache_io.load_year(device_id, year)
+            meta = c.setdefault("meta", {})
+            cov = meta.setdefault("coverage", {"earliest": None, "latest": None})
+            if earliest is not None:
+                cov["earliest"] = earliest
+            if latest is not None:
+                cov["latest"] = latest
+            cache_io.save_year(device_id, year, c)
+
+        hass.services.async_register(DOMAIN, "backfill_now", _svc_backfill)
+        hass.services.async_register(DOMAIN, "recompute_month_year", _svc_recompute)
+        hass.services.async_register(DOMAIN, "purge_cache", _svc_purge)
+        hass.services.async_register(DOMAIN, "backfill_all", _svc_backfill_all)
+        hass.services.async_register(DOMAIN, "backfill_gaps", _svc_backfill_gaps)
+        hass.services.async_register(DOMAIN, "mark_empty_dates", _svc_mark_empty_dates)
+        hass.services.async_register(DOMAIN, "mark_coverage_range", _svc_mark_coverage_range)
+
+        # Auto backfill: first-run (background) and nightly delta
+        async def _first_run_backfill() -> None:
+            try:
+                _LOGGER.info("Auto backfill: starting FULL history (background)")
+                await aggregator.backfill_all(max_years=10, empty_streak=14)
+                _LOGGER.info("Auto backfill: completed FULL history")
+            except Exception as err:
+                _LOGGER.error(f"Auto backfill initial failed: {err}")
+
+        async def _nightly_delta(now=None):
+            try:
+                today = datetime.date.today()
+                yesterday = today - datetime.timedelta(days=1)
+                _LOGGER.info("Nightly backfill: %s → %s", yesterday, today)
+                await aggregator.backfill_days(yesterday, today)
+                # Lấp các ngày còn thiếu dần dần (giới hạn để tránh quá tải)
+                filled = await aggregator.backfill_gaps(max_years=3, max_days_per_run=30)
+                if filled:
+                    _LOGGER.info("Nightly gap fill: added %s missing days", filled)
+            except Exception as err:
+                _LOGGER.error(f"Nightly backfill error: {err}")
+
+        # Kick off initial backfill without blocking setup
+        hass.async_create_task(_first_run_backfill())
+
+        # Schedule nightly job every 24h
+        remove_nightly = async_track_time_interval(hass, _nightly_delta, datetime.timedelta(hours=24))
+        hass.data[DOMAIN][entry.entry_id]["remove_nightly"] = remove_nightly
+
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
         _LOGGER.info(f"Setup complete for {entry.title} (SN/ID: {device_sn})")
         return True
@@ -175,6 +274,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Disconnecting MQTT %s.", entry.data.get(CONF_DEVICE_SN))
             hass.async_create_task(mqtt_client.disconnect())
+        # Cancel nightly timer if any
+        rm = entry_data.get("remove_nightly")
+        if callable(rm):
+            try:
+                rm()
+            except Exception:
+                pass
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Removed entry data %s.", entry.entry_id)
     else:

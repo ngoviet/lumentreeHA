@@ -44,6 +44,48 @@ class LumentreeHttpApiClient:
         self._session = session
         self._token: Optional[str] = None
 
+    # ---------------------------
+    # Helpers for statistics
+    # ---------------------------
+
+    @staticmethod
+    def _to_float_list(vals: Any) -> List[float]:
+        if isinstance(vals, list):
+            out: List[float] = []
+            for v in vals:
+                try:
+                    out.append(float(v))
+                except Exception:
+                    # Skip invalid entries
+                    continue
+            return out
+        return []
+
+    @staticmethod
+    def _series_5min_kwh(series_w: List[float]) -> List[float]:
+        # Convert W (5‑minute interval) → kWh for each step
+        factor = (5.0 / 60.0) / 1000.0
+        return [round(w * factor, 6) for w in series_w]
+
+    @staticmethod
+    def _series_hour_kwh(series_kwh5: List[float]) -> List[float]:
+        # 12 steps of 5‑min per hour
+        if not series_kwh5:
+            return []
+        hours = []
+        for h in range(24):
+            start = h * 12
+            end = start + 12
+            if start >= len(series_kwh5):
+                hours.append(0.0)
+            else:
+                hours.append(round(sum(series_kwh5[start:end]), 6))
+        return hours
+
+    @staticmethod
+    def _sum(series: List[float]) -> float:
+        return round(sum(series), 6) if series else 0.0
+
     def set_token(self, token: Optional[str]) -> None:
         """Set the authentication token.
 
@@ -352,8 +394,27 @@ class LumentreeHttpApiClient:
             resp = await self._request("GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True)
             data = resp.get("data", {})
             pv_data = data.get("pv", {})
+
+            result: Dict[str, Optional[float]] = {}
+
             val = pv_data.get("tableValue")
-            return {"pv_today": float(val) / 10.0 if val is not None else None}
+            result["pv_today"] = float(val) / 10.0 if val is not None else None
+
+            # Optional series (5‑minute W)
+            series_w = self._to_float_list(pv_data.get("tableValueInfo"))
+            if series_w:
+                series_kwh5 = self._series_5min_kwh(series_w)
+                series_hour = self._series_hour_kwh(series_kwh5)
+                result.update(
+                    {
+                        "pv_series_5min_w": series_w,
+                        "pv_series_5min_kwh": series_kwh5,
+                        "pv_series_hour_kwh": series_hour,
+                        "pv_sum_kwh": self._sum(series_kwh5),
+                    }
+                )
+
+            return result
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed PV stats ({type(exc).__name__}): {exc}")
             return {"pv_today": None}
@@ -375,13 +436,26 @@ class LumentreeHttpApiClient:
             data = resp.get("data", {})
             bats_data = data.get("bats", [])
 
-            result = {"charge_today": None, "discharge_today": None}
+            result: Dict[str, Optional[float]] = {"charge_today": None, "discharge_today": None}
 
             if isinstance(bats_data, list):
                 if len(bats_data) > 0 and "tableValue" in bats_data[0]:
                     result["charge_today"] = float(bats_data[0]["tableValue"]) / 10.0
                 if len(bats_data) > 1 and "tableValue" in bats_data[1]:
                     result["discharge_today"] = float(bats_data[1]["tableValue"]) / 10.0
+
+            # Signed power series → split charge/discharge
+            series_w = self._to_float_list(data.get("tableValueInfo"))
+            if series_w:
+                charge_kwh5 = self._series_5min_kwh([w if w > 0 else 0.0 for w in series_w])
+                discharge_kwh5 = self._series_5min_kwh([(-w) if w < 0 else 0.0 for w in series_w])
+                result.update(
+                    {
+                        "battery_series_5min_w": series_w,
+                        "battery_charge_series_hour_kwh": self._series_hour_kwh(charge_kwh5),
+                        "battery_discharge_series_hour_kwh": self._series_hour_kwh(discharge_kwh5),
+                    }
+                )
 
             return result
         except (ApiException, AuthException) as exc:
@@ -404,19 +478,47 @@ class LumentreeHttpApiClient:
             resp = await self._request("GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True)
             data = resp.get("data", {})
 
-            result = {"grid_in_today": None, "load_today": None}
+            result: Dict[str, Optional[float]] = {"grid_in_today": None, "load_today": None}
 
-            # Process grid data
+            # Grid
             grid_data = data.get("grid", {})
             grid_val = grid_data.get("tableValue")
             if grid_val is not None:
                 result["grid_in_today"] = float(grid_val) / 10.0
+            grid_series_w = self._to_float_list(grid_data.get("tableValueInfo"))
+            if grid_series_w:
+                g5 = self._series_5min_kwh(grid_series_w)
+                result.update({
+                    "grid_series_5min_w": grid_series_w,
+                    "grid_series_hour_kwh": self._series_hour_kwh(g5),
+                })
 
-            # Process load data
+            # Home load
             load_data = data.get("homeload", {})
             load_val = load_data.get("tableValue")
             if load_val is not None:
                 result["load_today"] = float(load_val) / 10.0
+            load_series_w = self._to_float_list(load_data.get("tableValueInfo"))
+            if load_series_w:
+                l5 = self._series_5min_kwh(load_series_w)
+                result.update({
+                    "load_series_5min_w": load_series_w,
+                    "load_series_hour_kwh": self._series_hour_kwh(l5),
+                })
+
+            # Essential load (if present)
+            essential_data = data.get("essentialLoad", {})
+            if isinstance(essential_data, dict):
+                e_val = essential_data.get("tableValue")
+                if e_val is not None:
+                    result["essential_today"] = float(e_val) / 10.0
+                e_series_w = self._to_float_list(essential_data.get("tableValueInfo"))
+                if e_series_w:
+                    e5 = self._series_5min_kwh(e_series_w)
+                    result.update({
+                        "essential_series_5min_w": e_series_w,
+                        "essential_series_hour_kwh": self._series_hour_kwh(e5),
+                    })
 
             return result
         except (ApiException, AuthException) as exc:

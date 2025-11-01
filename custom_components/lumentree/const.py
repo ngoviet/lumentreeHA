@@ -45,6 +45,14 @@ CONF_HTTP_TOKEN: Final = "http_token"
 DEFAULT_POLLING_INTERVAL = 5
 DEFAULT_STATS_INTERVAL = 600 # 10 minutes
 
+# New intervals for statistics coordinators
+DEFAULT_DAILY_INTERVAL: Final = 600        # 10 minutes
+DEFAULT_MONTHLY_INTERVAL: Final = 10800    # 3 hours (configurable 2–6h)
+DEFAULT_YEARLY_INTERVAL: Final = 86400     # 24 hours
+
+# --- Savings / Tariffs ---
+DEFAULT_TARIFF_VND_PER_KWH: Final = 3000   # Fixed tariff for savings calculation
+
 # --- Dispatcher Signal ---
 SIGNAL_UPDATE_FORMAT: Final = f"{DOMAIN}_mqtt_update_{{device_sn}}"
 SIGNAL_STATS_UPDATE_FORMAT: Final = f"{DOMAIN}_stats_update_{{device_sn}}"
@@ -113,6 +121,50 @@ KEY_DAILY_GRID_IN_KWH: Final = "grid_in_today"
 KEY_DAILY_LOAD_KWH: Final = "load_today"
 KEY_TOTAL_LOAD_POWER: Final = "total_load_power"
 KEY_LAST_RAW_MQTT: Final = "last_raw_mqtt_hex"
+
+# --- Statistics Keys (Daily / Monthly / Yearly) ---
+# Daily totals already defined above; extend with essential load
+KEY_DAILY_ESSENTIAL_KWH: Final = "essential_today"
+
+# Monthly totals (current year, index 1..12) and yearly totals
+KEY_MONTHLY_PV_KWH: Final = "pv_month"
+KEY_MONTHLY_GRID_IN_KWH: Final = "grid_in_month"
+KEY_MONTHLY_LOAD_KWH: Final = "load_month"
+KEY_MONTHLY_ESSENTIAL_KWH: Final = "essential_month"
+KEY_MONTHLY_CHARGE_KWH: Final = "charge_month"
+KEY_MONTHLY_DISCHARGE_KWH: Final = "discharge_month"
+
+KEY_YEARLY_PV_KWH: Final = "pv_year"
+KEY_YEARLY_GRID_IN_KWH: Final = "grid_in_year"
+KEY_YEARLY_LOAD_KWH: Final = "load_year"
+KEY_YEARLY_ESSENTIAL_KWH: Final = "essential_year"
+KEY_YEARLY_CHARGE_KWH: Final = "charge_year"
+KEY_YEARLY_DISCHARGE_KWH: Final = "discharge_year"
+
+# Total (lifetime) sensors - from device start to now
+KEY_TOTAL_PV_KWH: Final = "pv_total"
+KEY_TOTAL_GRID_IN_KWH: Final = "grid_in_total"
+KEY_TOTAL_LOAD_KWH: Final = "load_total"
+KEY_TOTAL_ESSENTIAL_KWH: Final = "essential_total"
+KEY_TOTAL_CHARGE_KWH: Final = "charge_total"
+KEY_TOTAL_DISCHARGE_KWH: Final = "discharge_total"
+
+# Attribute names for series/metadata
+ATTR_SERIES_5MIN_W: Final = "series_5min_w"
+ATTR_SERIES_5MIN_KWH: Final = "series_5min_kwh"
+ATTR_SERIES_HOUR_KWH: Final = "series_hour_kwh"
+ATTR_DAILY_31_KWH: Final = "daily_31_kwh"
+ATTR_MONTHLY_12_KWH: Final = "monthly_12_kwh"
+ATTR_SOURCE_DATE: Final = "source_date"
+ATTR_SUM_KWH: Final = "sum_kwh"
+
+# Savings attribute keys
+ATTR_TOTAL_USAGE_KWH: Final = "total_usage_kwh"
+ATTR_GRID_USAGE_KWH: Final = "grid_usage_kwh"
+ATTR_SAVED_KWH: Final = "saved_kwh"
+ATTR_COST_WITHOUT_PV_VND: Final = "cost_without_pv_vnd"
+ATTR_COST_WITH_PV_VND: Final = "cost_with_pv_vnd"
+ATTR_SAVINGS_VND: Final = "savings_vnd"
 
 # --- Mappings for Modes ---
 
