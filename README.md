@@ -179,7 +179,7 @@ logger:
 - 🔧 **FIXED**: Updated iot_class to cloud_polling (correct classification)
 - 📊 **ENHANCED**: Better statistics management with automatic backfill and gap filling
 
-### 3.0.0 (2025-10-XX)
+### 3.0.0
 - Major architecture refactoring
 - Improved error handling and stability
 
