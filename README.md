@@ -155,7 +155,7 @@ logger:
 
 ## Changelog
 
-### 3.1.1 (2025-01-XX)
+### 3.1.1 (2025-11-02)
 - 🔧 **REFACTOR**: Extracted all magic numbers to named constants for better maintainability
 - 🔧 **REFACTOR**: Improved error handling with specific exception types and proper logging
 - 🔧 **FIX**: Fixed services to use async executor for cache operations (non-blocking)
@@ -165,7 +165,7 @@ logger:
 - 📚 **DOCS**: Added missing docstrings and improved type hints
 - Version: 3.1.1
 
-### 3.1.0 (2025-01-XX)
+### 3.1.0 (2025-10-15)
 - ✨ **NEW**: Added daily, monthly, yearly, and total (lifetime) statistics tracking
 - ✨ **NEW**: Added DailyStatsCoordinator for real-time daily statistics
 - ✨ **NEW**: Added MonthlyStatsCoordinator with daily arrays for monthly charts
