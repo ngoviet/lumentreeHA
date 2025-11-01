@@ -94,11 +94,23 @@ Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real
 - **AC Output**: Voltage, frequency, power, VA
 - **Device**: Temperature, UPS mode, master/slave status
 
-### Daily Statistics (HTTP API)
+### Statistics Sensors (HTTP API)
+#### Daily Statistics
 - **PV Generation**: Daily solar energy production
 - **Battery Charge/Discharge**: Daily battery energy flow
-- **Grid Import/Export**: Daily grid energy exchange
+- **Grid Import**: Daily grid energy import
 - **Load Consumption**: Daily load energy usage
+- **Essential Load**: Daily essential load consumption
+
+#### Monthly Statistics
+- **Monthly totals** for all categories (PV, Grid, Load, Essential, Charge, Discharge)
+- **Daily arrays** for charting monthly trends
+
+#### Yearly Statistics
+- **Yearly totals** aggregated from monthly data
+
+#### Lifetime Statistics
+- **Total (lifetime) statistics** from device installation to now
 
 ### Binary Sensors
 - **Online Status**: Device connectivity status
