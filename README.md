@@ -153,49 +153,6 @@ logger:
     homeassistant.components.mqtt: debug
 ```
 
-## Changelog
-
-### 3.1.1 (2025-11-02)
-- 🔧 **REFACTOR**: Extracted all magic numbers to named constants for better maintainability
-- 🔧 **REFACTOR**: Improved error handling with specific exception types and proper logging
-- 🔧 **FIX**: Fixed services to use async executor for cache operations (non-blocking)
-- 📝 **IMPROVE**: Reduced excessive logging (INFO → DEBUG in coordinators)
-- 📝 **IMPROVE**: Translated Vietnamese comments to English
-- 🧹 **CLEANUP**: Removed unused imports and fixed code style issues
-- 📚 **DOCS**: Added missing docstrings and improved type hints
-- Version: 3.1.1
-
-### 3.1.0 (2025-10-15)
-- ✨ **NEW**: Added daily, monthly, yearly, and total (lifetime) statistics tracking
-- ✨ **NEW**: Added DailyStatsCoordinator for real-time daily statistics
-- ✨ **NEW**: Added MonthlyStatsCoordinator with daily arrays for monthly charts
-- ✨ **NEW**: Added YearlyStatsCoordinator for yearly statistics aggregation
-- ✨ **NEW**: Added TotalStatsCoordinator for lifetime statistics tracking
-- ✨ **NEW**: Added cache management system with services/aggregator.py and services/cache.py
-- 🚀 **PERFORMANCE**: Optimized API calls with parallel requests (3x faster)
-- 🚀 **PERFORMANCE**: Optimized cache I/O with batch processing (30-50% faster backfill)
-- 🚀 **PERFORMANCE**: Removed duplicate coordinator to reduce API calls by 50%
-- 🚀 **PERFORMANCE**: Added adaptive exponential backoff for rate limiting
-- 🔧 **FIXED**: Updated iot_class to cloud_polling (correct classification)
-- 📊 **ENHANCED**: Better statistics management with automatic backfill and gap filling
-
-### 3.0.0
-- Major architecture refactoring
-- Improved error handling and stability
-
-### 2.0.0 (2025-01-10)
-- ✅ **Fixed MQTT parser** for 202-byte data packets
-- ✅ **Improved error handling** and reconnection logic
-- ✅ **Enhanced logging** with better error messages
-- ✅ **Added support** for extended data format
-- ✅ **Optimized performance** and memory usage
-
-### 1.0.0 (2024-12-01)
-- 🎉 **Initial release**
-- Basic MQTT and HTTP integration
-- Core sensor support
-- Config flow implementation
-
 ## Contributing
 
 We welcome contributions! Here's how you can help:
