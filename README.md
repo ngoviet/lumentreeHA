@@ -13,20 +13,30 @@ Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real
 
 ## Features
 
-- **Real-time monitoring** via MQTT connection
-- **HTTP API integration** for device information and daily statistics
-- **Comprehensive sensor support** for:
-  - PV power generation (PV1, PV2, Total)
-  - Battery status (voltage, current, SOC, power, charging/discharging)
-  - Grid connection (voltage, frequency, power import/export)
-  - Load monitoring and power consumption
-  - Device temperature and health
-  - UPS mode detection
-  - Master/Slave status
-- **Daily statistics tracking** with historical data
-- **Battery cell monitoring** (if supported by device)
-- **Configurable polling intervals**
-- **Robust error handling** and reconnection logic
+- **Real-time monitoring** via MQTT connection (5-second updates)
+- **HTTP API integration** for device information and historical statistics
+- **Comprehensive real-time sensors** (MQTT):
+  - **PV Power**: Total, PV1, PV2 (power, voltage)
+  - **Battery**: Voltage, current, SOC, power (absolute), status, type, cell monitoring
+  - **Grid**: Voltage, frequency, power (import/export), status
+  - **AC Input/Output**: Voltage, frequency, power, apparent power (VA)
+  - **Load**: Power consumption, total load power (calculated)
+  - **Device**: Temperature, master/slave status, device SN
+- **Statistics sensors** (HTTP API with local cache):
+  - **Daily**: PV generation, battery charge/discharge, grid input, load consumption (5 sensors)
+  - **Monthly**: Totals plus daily arrays for charting (6 sensors: PV, Charge, Discharge, Grid, Load, Essential)
+  - **Yearly**: Aggregated monthly totals (6 sensors)
+  - **Lifetime/Total**: Cumulative statistics from device installation (6 sensors)
+- **Binary sensors**: Online status, UPS mode detection
+- **Cache management services**:
+  - Automatic backfill on first setup and nightly updates
+  - Manual services: backfill_now, backfill_all, backfill_gaps, recompute_month_year, purge_cache
+  - Gap detection and filling for missing historical data
+- **Performance optimizations**:
+  - Parallel API calls (3x faster data fetching)
+  - Batch cache I/O operations (30-50% faster backfill)
+  - Adaptive exponential backoff for rate limiting
+- **Robust error handling** with automatic MQTT reconnection
 
 ![LumentreeHA Sensors](2.jpg)
 
