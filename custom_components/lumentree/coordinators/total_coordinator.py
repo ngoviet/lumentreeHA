@@ -16,6 +16,7 @@ from ..services.aggregator import StatsAggregator
 from ..services import cache as cache_io
 from ..const import (
     DEFAULT_YEARLY_INTERVAL,  # Use same interval as yearly
+    MAX_YEARS_FOR_TOTAL,
     KEY_TOTAL_PV_KWH,
     KEY_TOTAL_GRID_IN_KWH,
     KEY_TOTAL_LOAD_KWH,
@@ -40,7 +41,8 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
 
     async def _async_update_data(self) -> Dict[str, Any]:
         try:
-            _LOGGER.info(f"Total coordinator: Calculating lifetime totals for {self.device_sn}")
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(f"Total coordinator: Calculating lifetime totals for {self.device_sn}")
             
             # Calculate totals from all cached years
             total_pv = 0.0
@@ -56,7 +58,7 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             earliest_year = None
             latest_year = None
             
-            for year_offset in range(10):  # Check last 10 years
+            for year_offset in range(MAX_YEARS_FOR_TOTAL):
                 year = current_year - year_offset
                 cache = await self.hass.async_add_executor_job(
                     cache_io.load_year, self.aggregator._device_id, year
@@ -90,10 +92,17 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         total_charge += float(day_data.get("charge", 0.0))
                         total_discharge += float(day_data.get("discharge", 0.0))
                 
-                _LOGGER.debug(f"Total coordinator: Year {year} - PV: {yearly_totals.get('pv', 0.0):.1f} kWh")
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug(
+                        f"Total coordinator: Year {year} - PV: {yearly_totals.get('pv', 0.0):.1f} kWh, "
+                        f"Charge: {yearly_totals.get('charge', 0.0):.1f} kWh"
+                    )
             
-            _LOGGER.info(f"Total coordinator: Processed {years_processed} years ({earliest_year}-{latest_year})")
-            _LOGGER.info(f"Total coordinator: Lifetime totals - PV: {total_pv:.1f} kWh, Charge: {total_charge:.1f} kWh")
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    f"Total coordinator: Processed {years_processed} years ({earliest_year}-{latest_year}) - "
+                    f"Lifetime totals - PV: {total_pv:.1f} kWh, Charge: {total_charge:.1f} kWh"
+                )
             
             return {
                 # Lifetime totals

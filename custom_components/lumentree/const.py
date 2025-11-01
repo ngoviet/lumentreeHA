@@ -53,6 +53,20 @@ DEFAULT_YEARLY_INTERVAL: Final = 86400     # 24 hours
 # --- Savings / Tariffs ---
 DEFAULT_TARIFF_VND_PER_KWH: Final = 3000   # Fixed tariff for savings calculation
 
+# --- Backfill Constants ---
+BACKFILL_BASE_DELAY: Final = 0.2          # Base delay between API calls (seconds)
+BACKFILL_MAX_DELAY: Final = 5.0           # Maximum delay cap for exponential backoff (seconds)
+EMPTY_DATA_THRESHOLD: Final = 1e-6        # Threshold to consider data empty (kWh)
+MAX_DAYS_PER_YEAR: Final = 366            # Maximum days per year (including leap year)
+MAX_YEARS_FOR_TOTAL: Final = 10          # Maximum years to scan for lifetime totals
+
+# --- Data Processing Constants ---
+HOURS_PER_DAY: Final = 24                 # Hours in a day
+STEPS_PER_HOUR: Final = 12                # 5-minute steps per hour (60/5 = 12)
+MONTHS_PER_YEAR: Final = 12               # Months in a year
+MINUTES_PER_STEP: Final = 5               # Minutes per 5-minute interval
+RESP_TEXT_TRUNCATE_LEN: Final = 300       # Response text truncate length for logging
+
 # --- Dispatcher Signal ---
 SIGNAL_UPDATE_FORMAT: Final = f"{DOMAIN}_mqtt_update_{{device_sn}}"
 SIGNAL_STATS_UPDATE_FORMAT: Final = f"{DOMAIN}_stats_update_{{device_sn}}"

@@ -12,6 +12,12 @@ from typing import Dict, Any, Optional, Tuple
 
 from homeassistant.core import HomeAssistant
 from ..core.api_client import LumentreeHttpApiClient
+from ..const import (
+    BACKFILL_BASE_DELAY,
+    BACKFILL_MAX_DELAY,
+    EMPTY_DATA_THRESHOLD,
+    MAX_DAYS_PER_YEAR,
+)
 from . import cache as cache_io
 
 
@@ -70,8 +76,7 @@ class StatsAggregator:
             day += dt.timedelta(days=1)
 
         # Process each year's cache once
-        base_delay = 0.2
-        delay = base_delay
+        delay = BACKFILL_BASE_DELAY
         for year, days in days_by_year.items():
             # Load cache once per year
             cache = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
@@ -86,7 +91,10 @@ class StatsAggregator:
 
                 try:
                     vals = await self.fetch_day(date_str)
-                    is_empty = all(abs(vals.get(k, 0.0)) < 1e-6 for k in ("pv", "grid", "load", "essential", "charge", "discharge"))
+                    is_empty = all(
+                        abs(vals.get(k, 0.0)) < EMPTY_DATA_THRESHOLD
+                        for k in ("pv", "grid", "load", "essential", "charge", "discharge")
+                    )
                     
                     if is_empty:
                         cache = cache_io.mark_empty(cache, date_str)
@@ -97,11 +105,11 @@ class StatsAggregator:
                     cache_dirty = True
                     
                     # Reset delay on success
-                    delay = base_delay
+                    delay = BACKFILL_BASE_DELAY
                     
                 except Exception as err:
                     # Exponential backoff on errors (likely rate limit)
-                    delay = min(delay * 2, 5.0)  # Cap at 5 seconds
+                    delay = min(delay * 2, BACKFILL_MAX_DELAY)
                     # Continue to next day
                     continue
                 
@@ -126,17 +134,16 @@ class StatsAggregator:
         return cache_io.summarize_year(c)
 
     async def backfill_all(self, max_years: int = 10, empty_streak: int = 14) -> None:
-        """Backfill toàn bộ lịch sử lùi theo ngày với batch cache I/O.
+        """Backfill entire history backwards with optimized batch cache I/O.
 
-        Dừng khi gặp `empty_streak` ngày liên tiếp không có dữ liệu
-        hoặc vượt quá `max_years`.
+        Stops when encountering `empty_streak` consecutive days without data
+        or exceeding `max_years`.
         Uses optimized batch processing per year.
         """
         today = dt.date.today()
-        limit_days = max_years * 366
+        limit_days = max_years * MAX_DAYS_PER_YEAR
         empty = 0
-        base_delay = 0.2
-        delay = base_delay
+        delay = BACKFILL_BASE_DELAY
         
         # Track current year cache
         current_year = None
@@ -162,7 +169,10 @@ class StatsAggregator:
 
             try:
                 vals = await self.fetch_day(date_str)
-                is_empty = all(abs(vals.get(k, 0.0)) < 1e-6 for k in ("pv", "grid", "load", "essential", "charge", "discharge"))
+                is_empty = all(
+                    abs(vals.get(k, 0.0)) < EMPTY_DATA_THRESHOLD
+                    for k in ("pv", "grid", "load", "essential", "charge", "discharge")
+                )
                 
                 if is_empty:
                     empty += 1
@@ -177,11 +187,11 @@ class StatsAggregator:
                     cache.setdefault("meta", {})["last_backfill_date"] = date_str
                 
                 # Reset delay on success
-                delay = base_delay
+                delay = BACKFILL_BASE_DELAY
                 
             except Exception as err:
                 # Exponential backoff on errors (likely rate limit)
-                delay = min(delay * 2, 5.0)  # Cap at 5 seconds
+                delay = min(delay * 2, BACKFILL_MAX_DELAY)
                 continue
 
             await asyncio.sleep(delay)
@@ -191,25 +201,26 @@ class StatsAggregator:
             await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, current_year, cache)
 
     async def backfill_gaps(self, max_years: int = 3, max_days_per_run: int = 60) -> int:
-        """Lấp các ngày còn thiếu trong cache theo từng năm với batch I/O.
+        """Fill missing days in cache by year with optimized batch I/O.
 
-        - max_years: số năm gần nhất để kiểm tra (tính từ năm hiện tại lùi lại)
-        - max_days_per_run: giới hạn số ngày được fetch trong một lần chạy
+        Args:
+            max_years: Number of recent years to check (backwards from current year)
+            max_days_per_run: Limit of days to fetch in a single run
 
-        Trả về số ngày đã lấp.
+        Returns:
+            Number of days filled.
         Uses optimized batch cache operations.
         """
         today = dt.date.today()
         filled = 0
-        base_delay = 0.2
-        delay = base_delay
+        delay = BACKFILL_BASE_DELAY
         
         for year_offset in range(max_years):
             if filled >= max_days_per_run:
                 break
                 
             year = today.year - year_offset
-            # Phạm vi ngày của năm
+            # Date range for the year
             start_date = dt.date(year, 1, 1)
             end_date = dt.date(year, 12, 31)
             if year == today.year:
@@ -231,21 +242,24 @@ class StatsAggregator:
                 if date_str not in cache_year.get("daily", {}) and date_str not in set(cache_year.get("meta", {}).get("empty_dates", [])):
                     try:
                         vals = await self.fetch_day(date_str)
-                        is_empty = all(abs(vals.get(k, 0.0)) < 1e-6 for k in ("pv", "grid", "load", "essential", "charge", "discharge"))
+                        is_empty = all(
+                            abs(vals.get(k, 0.0)) < EMPTY_DATA_THRESHOLD
+                            for k in ("pv", "grid", "load", "essential", "charge", "discharge")
+                        )
                         
                         if not is_empty:
                             cache_year, _m, _ = cache_io.update_daily(cache_year, date_str, vals)
                             cache_year.setdefault("meta", {})["last_backfill_date"] = date_str
                             cache_dirty = True
                             filled += 1
-                            delay = base_delay  # Reset on success
+                            delay = BACKFILL_BASE_DELAY  # Reset on success
                         else:
                             cache_year = cache_io.mark_empty(cache_year, date_str)
                             cache_dirty = True
                             
                     except Exception as err:
                         # Exponential backoff on errors
-                        delay = min(delay * 2, 5.0)  # Cap at 5 seconds
+                        delay = min(delay * 2, BACKFILL_MAX_DELAY)
                         continue
                     
                     await asyncio.sleep(delay)

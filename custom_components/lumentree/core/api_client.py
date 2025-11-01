@@ -1,8 +1,9 @@
 """HTTP API client for Lumentree integration."""
 
 import asyncio
-from typing import Any, Dict, Optional, List
 import logging
+import time
+from typing import Any, Dict, Optional, List
 
 import aiohttp
 from aiohttp.client import ClientTimeout
@@ -10,6 +11,10 @@ from aiohttp.client import ClientTimeout
 from ..const import (
     BASE_URL,
     DEFAULT_HEADERS,
+    RESP_TEXT_TRUNCATE_LEN,
+    STEPS_PER_HOUR,
+    HOURS_PER_DAY,
+    MINUTES_PER_STEP,
     URL_GET_SERVER_TIME,
     URL_SHARE_DEVICES,
     URL_DEVICE_MANAGE,
@@ -63,19 +68,20 @@ class LumentreeHttpApiClient:
 
     @staticmethod
     def _series_5min_kwh(series_w: List[float]) -> List[float]:
-        # Convert W (5‑minute interval) → kWh for each step
-        factor = (5.0 / 60.0) / 1000.0
+        """Convert W (5-minute interval) → kWh for each step."""
+        # Convert: W * (minutes/60) / 1000 = kWh
+        factor = (MINUTES_PER_STEP / 60.0) / 1000.0
         return [round(w * factor, 6) for w in series_w]
 
     @staticmethod
     def _series_hour_kwh(series_kwh5: List[float]) -> List[float]:
-        # 12 steps of 5‑min per hour
+        """Aggregate 5-minute kWh values into hourly totals."""
         if not series_kwh5:
             return []
         hours = []
-        for h in range(24):
-            start = h * 12
-            end = start + 12
+        for h in range(HOURS_PER_DAY):
+            start = h * STEPS_PER_HOUR
+            end = start + STEPS_PER_HOUR
             if start >= len(series_kwh5):
                 hours.append(0.0)
             else:
@@ -157,7 +163,7 @@ class LumentreeHttpApiClient:
                     _LOGGER.debug("HTTP %s response: %s", url, response.status)
 
                 resp_text = await response.text()
-                resp_text_short = resp_text[:300]
+                resp_text_short = resp_text[:RESP_TEXT_TRUNCATE_LEN]
 
                 try:
                     resp_json = await response.json(content_type=None)
@@ -305,8 +311,6 @@ class LumentreeHttpApiClient:
             return {"_error": "Device ID missing"}
 
         # Check cache
-        import time
-
         current_time = time.time()
 
         if device_id in _device_info_cache:

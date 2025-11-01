@@ -17,22 +17,31 @@ Structure:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Dict, Any, Tuple
+
+from ..const import MONTHS_PER_YEAR
 
 
 CACHE_BASE_DIR = os.path.join(".storage", "lumentree_stats")
 
 
+_LOGGER = logging.getLogger(__name__)
+
+
 def _ensure_dir(path: str) -> None:
+    """Ensure directory exists, creating if necessary."""
     try:
         os.makedirs(path, exist_ok=True)
-    except Exception:
-        pass
+    except (OSError, PermissionError) as err:
+        # Log only if it's not just a permission issue we can ignore
+        _LOGGER.warning(f"Could not create directory {path}: {err}")
 
 
 def _empty_month() -> list[float]:
-    return [0.0 for _ in range(12)]
+    """Return an empty monthly array (12 zeros)."""
+    return [0.0 for _ in range(MONTHS_PER_YEAR)]
 
 
 def _empty_cache() -> Dict[str, Any]:
@@ -50,9 +59,9 @@ def _empty_cache() -> Dict[str, Any]:
         "meta": {
             "version": 1,
             "last_backfill_date": None,
-            # Phạm vi đã có dữ liệu (bao phủ)
+            # Data coverage range (earliest/latest dates with data)
             "coverage": {"earliest": None, "latest": None},
-            # Những ngày được xác nhận rỗng (để bỏ qua vĩnh viễn)
+            # Dates confirmed as empty (to skip permanently)
             "empty_dates": [],
         },
     }
@@ -65,6 +74,7 @@ def cache_path(device_id: str, year: int) -> str:
 
 
 def load_year(device_id: str, year: int) -> Dict[str, Any]:
+    """Load cache for a specific year, returning empty cache if not found or invalid."""
     path = cache_path(device_id, year)
     if not os.path.exists(path):
         return _empty_cache()
@@ -72,17 +82,19 @@ def load_year(device_id: str, year: int) -> Dict[str, Any]:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
             return data if isinstance(data, dict) else _empty_cache()
-    except Exception:
+    except (json.JSONDecodeError, OSError, IOError) as err:
+        _LOGGER.warning(f"Failed to load cache for {device_id}/{year}: {err}")
         return _empty_cache()
 
 
 def save_year(device_id: str, year: int, data: Dict[str, Any]) -> None:
+    """Save cache for a specific year."""
     path = cache_path(device_id, year)
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except (OSError, IOError, PermissionError) as err:
+        _LOGGER.warning(f"Failed to save cache for {device_id}/{year}: {err}")
 
 
 def update_daily(
@@ -110,14 +122,16 @@ def update_daily(
             cov["earliest"] = date_str
         if cov["latest"] is None or date_str > cov["latest"]:
             cov["latest"] = date_str
-    except Exception:
+    except (KeyError, TypeError):
+        # Coverage structure might be invalid, ignore
         pass
     try:
         empties = set(meta.setdefault("empty_dates", []))
         if date_str in empties:
             empties.discard(date_str)
             meta["empty_dates"] = sorted(list(empties))
-    except Exception:
+    except (KeyError, TypeError):
+        # Empty dates structure might be invalid, ignore
         pass
 
     # Month index from date_str
@@ -152,9 +166,9 @@ def update_daily(
 
 
 def mark_empty(cache: Dict[str, Any], date_str: str) -> Dict[str, Any]:
-    """Đánh dấu một ngày là rỗng để bỏ qua khi backfill/gap-fill.
+    """Mark a date as empty to skip during backfill/gap-fill.
 
-    Không lưu daily cho ngày rỗng, chỉ ghi chú trong meta.empty_dates.
+    Does not store daily data for empty dates, only records in meta.empty_dates.
     """
     meta = cache.setdefault("meta", {})
     empties = set(meta.setdefault("empty_dates", []))

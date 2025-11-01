@@ -3,7 +3,6 @@
 import asyncio
 import datetime
 import logging
-from contextlib import suppress
 from typing import Optional, Callable
 
 from homeassistant.config_entries import ConfigEntry
@@ -104,7 +103,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.debug("MQTT Poll %s.", device_sn)
             domain_data = hass.data.get(DOMAIN)
             if not domain_data:
-                _LOGGER.warning("Lumentree domain data gone. Stop poll."); return
+                _LOGGER.warning("Lumentree domain data gone. Stop poll.")
+                return
             entry_data = domain_data.get(entry.entry_id)
             if not entry_data:
                 _LOGGER.warning(f"Entry data missing {entry.entry_id}. Stop poll.")
@@ -113,14 +113,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if callable(current_timer):
                     try:
                         current_timer()
-                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}."); remove_interval=None
+                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}.")
+                        remove_interval = None
                     except Exception as timer_err:
                         _LOGGER.error(f"Error cancel timer {device_sn}: {timer_err}")
                 return
 
             active_mqtt_client = entry_data.get("mqtt_client")
             if not isinstance(active_mqtt_client, LumentreeMqttClient) or not active_mqtt_client.is_connected:
-                _LOGGER.warning(f"MQTT {device_sn} not ready."); return
+                _LOGGER.warning(f"MQTT {device_sn} not ready.")
+                return
             try:
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("Requesting MQTT (main data) %s...", device_sn)
@@ -166,15 +168,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await aggregator.backfill_last_n_days(days)
 
         async def _svc_recompute(call):
-            # Recompute aggregates for the current year
+            """Recompute aggregates for the current year."""
             now = datetime.datetime.now()
-            c = cache_io.load_year(device_id, now.year)
+            c = await hass.async_add_executor_job(cache_io.load_year, device_id, now.year)
             cache_io.recompute_aggregates(c)
-            cache_io.save_year(device_id, now.year, c)
+            await hass.async_add_executor_job(cache_io.save_year, device_id, now.year, c)
 
         async def _svc_purge(call):
+            """Purge cache for a specific year."""
             year = int(call.data.get("year", datetime.datetime.now().year))
-            cache_io.purge_year(device_id, year)
+            await hass.async_add_executor_job(cache_io.purge_year, device_id, year)
 
         async def _svc_backfill_all(call):
             max_years = int(call.data.get("max_years", 10))
@@ -187,25 +190,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await aggregator.backfill_gaps(max_years=max_years, max_days_per_run=max_days_per_run)
 
         async def _svc_mark_empty_dates(call):
+            """Mark specific dates as empty in cache."""
             year = int(call.data["year"])  # required
             dates = list(call.data.get("dates", []))
-            c = cache_io.load_year(device_id, year)
+            c = await hass.async_add_executor_job(cache_io.load_year, device_id, year)
             for ds in dates:
                 c = cache_io.mark_empty(c, ds)
-            cache_io.save_year(device_id, year, c)
+            await hass.async_add_executor_job(cache_io.save_year, device_id, year, c)
 
         async def _svc_mark_coverage_range(call):
+            """Mark coverage range (earliest/latest dates) for a year."""
             year = int(call.data["year"])  # required
             earliest = call.data.get("earliest")
             latest = call.data.get("latest")
-            c = cache_io.load_year(device_id, year)
+            c = await hass.async_add_executor_job(cache_io.load_year, device_id, year)
             meta = c.setdefault("meta", {})
             cov = meta.setdefault("coverage", {"earliest": None, "latest": None})
             if earliest is not None:
                 cov["earliest"] = earliest
             if latest is not None:
                 cov["latest"] = latest
-            cache_io.save_year(device_id, year, c)
+            await hass.async_add_executor_job(cache_io.save_year, device_id, year, c)
 
         hass.services.async_register(DOMAIN, "backfill_now", _svc_backfill)
         hass.services.async_register(DOMAIN, "recompute_month_year", _svc_recompute)
@@ -230,7 +235,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 yesterday = today - datetime.timedelta(days=1)
                 _LOGGER.info("Nightly backfill: %s → %s", yesterday, today)
                 await aggregator.backfill_days(yesterday, today)
-                # Lấp các ngày còn thiếu dần dần (giới hạn để tránh quá tải)
+                # Fill missing days gradually (limited to avoid overload)
                 filled = await aggregator.backfill_gaps(max_years=3, max_days_per_run=30)
                 if filled:
                     _LOGGER.info("Nightly gap fill: added %s missing days", filled)

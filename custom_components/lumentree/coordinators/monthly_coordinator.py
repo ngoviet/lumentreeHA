@@ -51,14 +51,17 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
                 cache_io.load_year, self.aggregator._device_id, year
             )
             
-            _LOGGER.info(f"Monthly coordinator: Using device_id: {self.aggregator._device_id}")
-            _LOGGER.info(f"Monthly coordinator: Cache loaded for {year}: {len(cache.get('daily', {}))} days")
-            _LOGGER.info(f"Monthly coordinator: Cache sample dates: {list(cache.get('daily', {}).keys())[:5]}")
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    f"Monthly coordinator: Cache loaded for {year}: {len(cache.get('daily', {}))} days, "
+                    f"sample dates: {list(cache.get('daily', {}).keys())[:5]}"
+                )
             
             # Check if we have data for current month
             month_dates = [f"{year}-{month:02d}-{day:02d}" for day in range(1, 32)]
             month_data_count = sum(1 for date in month_dates if date in cache.get("daily", {}))
-            _LOGGER.info(f"Monthly coordinator: Found {month_data_count} days with data for {year}-{month:02d}")
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(f"Monthly coordinator: Found {month_data_count} days with data for {year}-{month:02d}")
 
             # Build daily arrays for the current month (1-31)
             days_in_month = calendar.monthrange(year, month)[1]
@@ -79,12 +82,20 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
                 daily_load.append(float(day_data.get("load", 0.0)))
                 daily_essential.append(float(day_data.get("essential", 0.0)))
 
-            _LOGGER.info(f"Monthly coordinator: Daily arrays built - PV first 5: {daily_pv[:5]}, Charge first 5: {daily_charge[:5]}")
-            _LOGGER.info(f"Monthly coordinator: Daily arrays built - PV last 5: {daily_pv[-5:]}, Charge last 5: {daily_charge[-5:]}")
-
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    f"Monthly coordinator: Built daily arrays for {year}-{month:02d} - "
+                    f"PV: {daily_pv[:3]}...{daily_pv[-3:]}, "
+                    f"Charge: {daily_charge[:3]}...{daily_charge[-3:]}"
+                )
+            
             # Summarize the month and map to integration keys
             m = await self.aggregator.summarize_month(year, month)
-            _LOGGER.info(f"Monthly coordinator: Summary for {year}-{month:02d}: PV={m.get('pv', 0.0)}, Charge={m.get('charge', 0.0)}")
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    f"Monthly coordinator: Summary for {year}-{month:02d}: "
+                    f"PV={m.get('pv', 0.0):.2f} kWh, Charge={m.get('charge', 0.0):.2f} kWh"
+                )
             
             return {
                 # Monthly totals
