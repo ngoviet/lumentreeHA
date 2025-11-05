@@ -68,61 +68,54 @@ def find_earliest_data_from_cache(
 
 
 async def find_earliest_data_from_api(api_client, device_id: str, max_years: int = 10) -> Optional[Tuple[int, int]]:
-    """Find earliest month with data from getYearData API.
+    """Find earliest month with data from getYearData API (only current year).
     
-    Uses getYearData API to quickly scan years and find earliest month with data.
-    This is much faster than checking daily data.
+    ⚠️ IMPORTANT: getYearData API only returns current year data, regardless of year parameter.
+    This function only checks current year. For historical years, use cache-based detection.
     
     Args:
         api_client: LumentreeHttpApiClient instance
         device_id: Device ID
-        max_years: Maximum years to look back
+        max_years: Maximum years to look back (ignored - only current year is checked)
         
     Returns:
         Tuple of (year, month) or None if no data found
         month: 1-12
+        Only returns current year data.
     """
     today = dt.date.today()
+    current_year = today.year
     earliest_year = None
     earliest_month = None
     
-    # Scan years from most recent to oldest
-    for year_offset in range(max_years):
-        year = today.year - year_offset
-        if year < 2000:  # Safety limit
-            break
+    # API limitation: only works for current year
+    try:
+        # Get year data from API (only returns current year)
+        year_data = await api_client.get_year_data(device_id, current_year)
         
-        try:
-            # Get year data from API (one call per year - very fast)
-            year_data = await api_client.get_year_data(device_id, year)
+        # Check each month for data (scan 12 months in memory - instant)
+        pv_data = year_data.get("pv", [0.0] * 12)
+        grid_data = year_data.get("grid", [0.0] * 12)
+        load_data = year_data.get("homeload", [0.0] * 12)
+        
+        # Scan months from January to December
+        for month_idx in range(12):
+            month = month_idx + 1
             
-            # Check each month for data (scan 12 months in memory - instant)
-            pv_data = year_data.get("pv", [0.0] * 12)
-            grid_data = year_data.get("grid", [0.0] * 12)
-            load_data = year_data.get("homeload", [0.0] * 12)
+            # Check if has real data (any value > 0)
+            has_data = (
+                pv_data[month_idx] > 0.0 or
+                grid_data[month_idx] > 0.0 or
+                load_data[month_idx] > 0.0
+            )
             
-            # Scan months from January to December
-            for month_idx in range(12):
-                month = month_idx + 1
-                
-                # Check if has real data (any value > 0)
-                has_data = (
-                    pv_data[month_idx] > 0.0 or
-                    grid_data[month_idx] > 0.0 or
-                    load_data[month_idx] > 0.0
-                )
-                
-                if has_data:
-                    # Update earliest if this is earlier
-                    if earliest_year is None or year < earliest_year or (year == earliest_year and month < earliest_month):
-                        earliest_year = year
-                        earliest_month = month
-            
-            # If we found data in this year, we can stop early (years are scanned newest to oldest)
-            # But we need to continue to find the earliest year, so we don't stop here
-        except Exception as err:
-            _LOGGER.debug(f"Error checking year {year} from API: {err}")
-            continue
+            if has_data:
+                # Update earliest if this is earlier
+                if earliest_year is None or month < earliest_month:
+                    earliest_year = current_year
+                    earliest_month = month
+    except Exception as err:
+        _LOGGER.debug(f"Error checking current year {current_year} from API: {err}")
     
     if earliest_year and earliest_month:
         return (earliest_year, earliest_month)

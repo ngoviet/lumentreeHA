@@ -101,8 +101,8 @@ purge_and_backfill:
 
 
 smart_backfill:
-  name: Smart backfill (tối ưu)
-  description: "Backfill thông minh sử dụng getYearData/getMonthData API - nhanh hơn 10-100x so với daily backfill. Tự động phát hiện gaps và optimize cache."
+  name: Smart backfill (chỉ năm/tháng hiện tại)
+  description: "⚠️ CHỈ hoạt động cho năm/tháng hiện tại! getYearData/getMonthData API chỉ trả về data hiện tại. Để backfill năm 2024, dùng backfill_all."
   fields:
     max_years:
       name: Max years

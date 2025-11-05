@@ -1,0 +1,94 @@
+# Dashboard: Thống kê theo tháng - ApexCharts
+type: custom:apexcharts-card
+header:
+  title: "Thống kê theo tháng (kWh)"
+  show: true
+apex_config:
+  chart:
+    type: column
+    height: 350
+    animations:
+      enabled: false
+  xaxis:
+    categories:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+      - "5"
+      - "6"
+      - "7"
+      - "8"
+      - "9"
+      - "10"
+      - "11"
+      - "12"
+      - "13"
+      - "14"
+      - "15"
+      - "16"
+      - "17"
+      - "18"
+      - "19"
+      - "20"
+      - "21"
+      - "22"
+      - "23"
+      - "24"
+      - "25"
+      - "26"
+      - "27"
+      - "28"
+      - "29"
+      - "30"
+      - "31"
+  yaxis:
+    - min: 0
+      labels:
+        formatter: |
+          function(val) {
+            return val.toFixed(1);
+          }
+all_series_config:
+  type: column
+series:
+  - entity: sensor.device_h240909079_pv_month
+    name: "PV Generation"
+    type: column
+    data_generator: |
+      const ent = states['sensor.device_h240909079_pv_month'];
+      const days = ent?.attributes?.days_in_month || 30;
+      const defaultData = Array(days).fill(0);
+      
+      if (!ent || !ent.attributes || !ent.attributes.daily_pv) {
+        return defaultData;
+      }
+      
+      const data = ent.attributes.daily_pv;
+      let values = [];
+      
+      // Parse STRING format: "2.5, 0, 0, ..."
+      if (typeof data === 'string') {
+        values = data.split(',').map(v => {
+          const num = parseFloat(v.trim());
+          return isNaN(num) ? 0 : num;
+        });
+      }
+      // Parse ARRAY format: [2.5, 0, 0, ...]
+      else if (Array.isArray(data)) {
+        values = data.map(v => {
+          const num = Number(v);
+          return isNaN(num) ? 0 : num;
+        });
+      }
+      else {
+        return defaultData;
+      }
+      
+      // Ensure we have exactly 'days' values
+      while (values.length < days) {
+        values.push(0);
+      }
+      
+      return values.slice(0, days);
+    color: "#f9a825"
