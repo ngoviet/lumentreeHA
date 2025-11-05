@@ -9,7 +9,11 @@
 
 Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real-time monitoring via MQTT and HTTP API.
 
-![LumentreeHA Dashboard](1.jpg)
+![Sensors and Diagnostic Overview](images/sensors_entity_overview.png)
+
+![Energy Monitoring Dashboard - 24h Charts](images/dashboard_energy_charts_24h.png)
+
+![Statistics Summary Dashboard](images/dashboard_statistics_summary.png)
 
 ## Features
 
@@ -37,8 +41,6 @@ Home Assistant integration for Lumentree Solar Inverters (SUNT series) with real
   - Batch cache I/O operations (30-50% faster backfill)
   - Adaptive exponential backoff for rate limiting
 - **Robust error handling** with automatic MQTT reconnection
-
-![LumentreeHA Sensors](2.jpg)
 
 ## Supported Devices
 
