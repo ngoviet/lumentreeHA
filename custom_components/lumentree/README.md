@@ -23,7 +23,41 @@ A high-performance Home Assistant integration for Lumentree solar inverters with
 - **Grid Import**: Daily grid consumption
 - **Load Consumption**: Daily energy usage
 
-### 🚀 Performance Optimizations (v3.0.0)
+### 📈 Advanced Statistics (v4.0.0)
+
+#### Monthly Statistics
+- **PV Generation Month**: Current month's solar production (kWh)
+- **Grid Import Month**: Current month's grid consumption (kWh)
+- **Load Consumption Month**: Current month's load usage (kWh)
+- **Battery Charge/Discharge Month**: Current month's battery energy flow (kWh)
+- **Energy Saved Month**: Current month's energy savings (kWh)
+- **Cost Savings Month**: Current month's cost savings (VND)
+
+#### Yearly Statistics
+- **PV Generation Year**: Current year's solar production (kWh)
+- **Grid Import Year**: Current year's grid consumption (kWh)
+- **Load Consumption Year**: Current year's load usage (kWh)
+- **Battery Charge/Discharge Year**: Current year's battery energy flow (kWh)
+- **Energy Saved Year**: Current year's energy savings (kWh)
+- **Cost Savings Year**: Current year's cost savings (VND)
+- **Monthly Arrays**: 12-month breakdown arrays for charting and visualization
+
+#### Total/Lifetime Statistics
+- **PV Generation Total**: Lifetime solar production (kWh)
+- **Grid Import Total**: Lifetime grid consumption (kWh)
+- **Load Consumption Total**: Lifetime load usage (kWh)
+- **Battery Charge/Discharge Total**: Lifetime battery energy flow (kWh)
+- **Energy Saved Total**: Lifetime energy savings (kWh)
+- **Cost Savings Total**: Lifetime cost savings (VND)
+
+**Statistics Features:**
+- Automatic aggregation from daily data
+- Cache-based computation for performance
+- Monthly arrays for advanced dashboard visualization
+- Automatic period finalization when months/years change
+- Historical data support across multiple years
+
+### 🚀 Performance Optimizations (v4.0.0)
 - **40-50% faster parsing** with struct caching
 - **3x faster API calls** with concurrent requests
 - **20-30% memory reduction** with `__slots__`
@@ -135,7 +169,7 @@ The integration includes robust error handling:
 
 ## 📈 Performance
 
-### v3.0.0 Improvements
+### v4.0.0 Improvements
 
 - **Parser Speed**: 40-50% faster with struct caching
 - **API Calls**: 3x faster with concurrent requests
@@ -205,16 +239,16 @@ logger:
 
 See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for detailed upgrade instructions.
 
-**Important**: v3.0.0 requires reconfiguration due to architectural changes.
+**Important**: v4.0.0 includes major statistics enhancements. Existing configurations remain valid.
 
 ## 📁 Architecture
 
-### v3.0.0 Structure
+### v4.0.0 Structure
 
 ```
 custom_components/lumentree/
 ├── __init__.py                 # Integration entry point
-├── manifest.json               # v3.0.0 metadata
+├── manifest.json               # v4.0.0 metadata
 ├── const.py                    # Constants
 ├── config_flow.py              # Configuration flow
 ├── strings.json                # UI strings
@@ -224,7 +258,11 @@ custom_components/lumentree/
 │   ├── modbus_parser.py       # Modbus parser
 │   └── exceptions.py          # Custom exceptions
 ├── coordinators/               # Data coordinators
-│   └── stats_coordinator.py   # Daily stats
+│   ├── daily_coordinator.py   # Daily stats
+│   ├── monthly_coordinator.py # Monthly stats
+│   ├── yearly_coordinator.py  # Yearly stats
+│   ├── total_coordinator.py   # Total/lifetime stats
+│   └── stats_coordinator.py   # Legacy stats
 ├── entities/                   # Entity implementations
 │   ├── sensor.py              # Sensor entities
 │   ├── binary_sensor.py       # Binary sensors

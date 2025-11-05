@@ -65,24 +65,29 @@ from ..const import (
     KEY_DAILY_DISCHARGE_KWH,
     KEY_DAILY_GRID_IN_KWH,
     KEY_DAILY_LOAD_KWH,
+    KEY_DAILY_ESSENTIAL_KWH,
+    KEY_DAILY_TOTAL_LOAD_KWH,
     KEY_TOTAL_LOAD_POWER,
     KEY_LAST_RAW_MQTT,
     KEY_MONTHLY_PV_KWH,
     KEY_MONTHLY_GRID_IN_KWH,
     KEY_MONTHLY_LOAD_KWH,
     KEY_MONTHLY_ESSENTIAL_KWH,
+    KEY_MONTHLY_TOTAL_LOAD_KWH,
     KEY_MONTHLY_CHARGE_KWH,
     KEY_MONTHLY_DISCHARGE_KWH,
     KEY_YEARLY_PV_KWH,
     KEY_YEARLY_GRID_IN_KWH,
     KEY_YEARLY_LOAD_KWH,
     KEY_YEARLY_ESSENTIAL_KWH,
+    KEY_YEARLY_TOTAL_LOAD_KWH,
     KEY_YEARLY_CHARGE_KWH,
     KEY_YEARLY_DISCHARGE_KWH,
     KEY_TOTAL_PV_KWH,
     KEY_TOTAL_GRID_IN_KWH,
     KEY_TOTAL_LOAD_KWH,
     KEY_TOTAL_ESSENTIAL_KWH,
+    KEY_TOTAL_TOTAL_LOAD_KWH,
     KEY_TOTAL_CHARGE_KWH,
     KEY_TOTAL_DISCHARGE_KWH,
 )
@@ -360,6 +365,24 @@ STATS_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:home-lightning-bolt",
         suggested_display_precision=1,
     ),
+    SensorEntityDescription(
+        key=KEY_DAILY_ESSENTIAL_KWH,
+        name="Essential Load Today",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:power-plug",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_DAILY_TOTAL_LOAD_KWH,
+        name="Total Load Today",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:lightning-bolt-circle",
+        suggested_display_precision=1,
+    ),
 )
 
 MONTH_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
@@ -411,6 +434,14 @@ MONTH_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         state_class=SensorStateClass.TOTAL,
         icon="mdi:power-plug",
     ),
+    SensorEntityDescription(
+        key=KEY_MONTHLY_TOTAL_LOAD_KWH,
+        name="Total Load This Month",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:lightning-bolt-circle",
+    ),
 )
 
 YEAR_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
@@ -461,6 +492,14 @@ YEAR_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL,
         icon="mdi:power-plug",
+    ),
+    SensorEntityDescription(
+        key=KEY_YEARLY_TOTAL_LOAD_KWH,
+        name="Total Load This Year",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:lightning-bolt-circle",
     ),
 )
 
@@ -518,6 +557,15 @@ TOTAL_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.ENERGY,
         state_class=SensorStateClass.TOTAL,
         icon="mdi:power-plug",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_TOTAL_TOTAL_LOAD_KWH,
+        name="Total Load (Total)",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:lightning-bolt-circle",
         suggested_display_precision=1,
     ),
 )
@@ -869,6 +917,93 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         """Return availability."""
         return self.coordinator.last_update_success
 
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        """Return extra state attributes with hourly and 5-minute series data."""
+        if not self.coordinator.data:
+            return {}
+        
+        key = self.entity_description.key
+        attrs: Dict[str, Any] = {}
+        
+        # Map sensor keys to series data keys
+        series_mapping = {
+            KEY_DAILY_PV_KWH: {
+                "series_5min_w": "pv_series_5min_w",
+                "series_5min_kwh": "pv_series_5min_kwh",
+                "series_hour_kwh": "pv_series_hour_kwh",
+            },
+            KEY_DAILY_GRID_IN_KWH: {
+                "series_5min_w": "grid_series_5min_w",
+                "series_5min_kwh": "grid_series_5min_kwh",
+                "series_hour_kwh": "grid_series_hour_kwh",
+            },
+            KEY_DAILY_LOAD_KWH: {
+                "series_5min_w": "load_series_5min_w",
+                "series_5min_kwh": "load_series_5min_kwh",
+                "series_hour_kwh": "load_series_hour_kwh",
+            },
+            KEY_DAILY_ESSENTIAL_KWH: {
+                "series_5min_w": "essential_series_5min_w",
+                "series_5min_kwh": "essential_series_5min_kwh",
+                "series_hour_kwh": "essential_series_hour_kwh",
+            },
+            KEY_DAILY_TOTAL_LOAD_KWH: {
+                "series_5min_w": "total_load_series_5min_w",
+                "series_5min_kwh": "total_load_series_5min_kwh",
+                "series_hour_kwh": "total_load_series_hour_kwh",
+            },
+            KEY_DAILY_CHARGE_KWH: {
+                "series_hour_kwh": "battery_charge_series_hour_kwh",
+            },
+            KEY_DAILY_DISCHARGE_KWH: {
+                "series_hour_kwh": "battery_discharge_series_hour_kwh",
+            },
+        }
+        
+        # Get mapping for this sensor key
+        if key in series_mapping:
+            mapping = series_mapping[key]
+            for attr_key, data_key in mapping.items():
+                value = self.coordinator.data.get(data_key)
+                if value is not None:
+                    attrs[attr_key] = value
+            
+            # For battery sensors, also include 5min_w if available (charge/discharge separated)
+            if key in (KEY_DAILY_CHARGE_KWH, KEY_DAILY_DISCHARGE_KWH):
+                battery_series = self.coordinator.data.get("battery_series_5min_w")
+                if battery_series and isinstance(battery_series, list):
+                    # Extract only positive (charge) or negative (discharge) values
+                    if key == KEY_DAILY_CHARGE_KWH:
+                        attrs["series_5min_w"] = [w if w > 0 else 0.0 for w in battery_series]
+                    else:  # discharge
+                        attrs["series_5min_w"] = [(-w) if w < 0 else 0.0 for w in battery_series]
+                    
+                    # Convert to kWh
+                    if attrs.get("series_5min_w"):
+                        attrs["series_5min_kwh"] = [
+                            round(w * (5.0 / 60.0) / 1000.0, 6) 
+                            for w in attrs["series_5min_w"]
+                        ]
+        
+        # Add source date if available (from coordinator update time or query_date)
+        # Try to get from data first, otherwise use current date from coordinator
+        if "source_date" in self.coordinator.data:
+            attrs["source_date"] = self.coordinator.data["source_date"]
+        else:
+            # Fallback: use today's date (coordinator fetches today's data)
+            from homeassistant.util import dt as dt_util
+            timezone = dt_util.get_time_zone(self.coordinator.hass.config.time_zone) or dt_util.get_default_time_zone()
+            attrs["source_date"] = dt_util.now(timezone).strftime("%Y-%m-%d")
+        
+        # Add savings data if available (calculated in daily coordinator)
+        if "saved_kwh" in self.coordinator.data:
+            attrs["saved_kwh"] = self.coordinator.data["saved_kwh"]
+        if "savings_vnd" in self.coordinator.data:
+            attrs["savings_vnd"] = self.coordinator.data["savings_vnd"]
+        
+        return attrs
+
 
 class LumentreeTotalLoadPowerSensor(SensorEntity):
     """Total load power sensor (calculated)."""
@@ -1037,6 +1172,9 @@ class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
             "daily_grid": self.coordinator.data.get("daily_grid", []),
             "daily_load": self.coordinator.data.get("daily_load", []),
             "daily_essential": self.coordinator.data.get("daily_essential", []),
+            "daily_total_load": self.coordinator.data.get("daily_total_load", []),
+            "daily_saved_kwh": self.coordinator.data.get("daily_saved_kwh", []),
+            "daily_savings_vnd": self.coordinator.data.get("daily_savings_vnd", []),
             "days_in_month": self.coordinator.data.get("days_in_month", 31),
             "year": self.coordinator.data.get("year"),
             "month": self.coordinator.data.get("month"),
@@ -1046,6 +1184,25 @@ class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
 class LumentreeYearlyStatsSensor(_BaseCoordinatorSensor):
     def __init__(self, coordinator: YearlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
         super().__init__(coordinator, device_info, description)
+    
+    @property
+    def extra_state_attributes(self) -> Dict[str, Any]:
+        """Return extra state attributes for yearly charting."""
+        if not self.coordinator.data:
+            return {}
+        
+        return {
+            "monthly_pv": self.coordinator.data.get("monthly_pv", []),
+            "monthly_grid": self.coordinator.data.get("monthly_grid", []),
+            "monthly_load": self.coordinator.data.get("monthly_load", []),
+            "monthly_essential": self.coordinator.data.get("monthly_essential", []),
+            "monthly_total_load": self.coordinator.data.get("monthly_total_load", []),
+            "monthly_charge": self.coordinator.data.get("monthly_charge", []),
+            "monthly_discharge": self.coordinator.data.get("monthly_discharge", []),
+            "monthly_saved_kwh": self.coordinator.data.get("monthly_saved_kwh", []),
+            "monthly_savings_vnd": self.coordinator.data.get("monthly_savings_vnd", []),
+            "year": self.coordinator.data.get("year"),
+        }
 
 
 class LumentreeTotalStatsSensor(_BaseCoordinatorSensor):

@@ -18,6 +18,45 @@ recompute_month_year:
   description: Recalculate monthly arrays and yearly totals from cached daily data for the current year.
   fields: {}
 
+optimize_cache:
+  name: Optimize cache
+  description: Normalize cache by removing empty days (all zeros) to reduce size and improve performance.
+  fields:
+    year:
+      name: Year
+      description: Year to optimize (defaults to current year if omitted).
+      required: false
+      example: 2025
+      selector:
+        number:
+          min: 2000
+          max: 2100
+          mode: box
+    all_years:
+      name: All years
+      description: If true, optimize all years (up to max_years).
+      required: false
+      default: false
+      selector:
+        boolean:
+    max_years:
+      name: Max years
+      description: Maximum years to optimize when all_years is true.
+      required: false
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 50
+          mode: box
+    dry_run:
+      name: Dry run
+      description: If true, don't save changes, just return stats.
+      required: false
+      default: false
+      selector:
+        boolean:
+
 purge_cache:
   name: Purge cached statistics
   description: Delete cached statistics file for a specific year of the configured device.
@@ -33,24 +72,73 @@ purge_cache:
           max: 2100
           mode: box
 
+purge_all_cache:
+  name: Purge toàn bộ cache
+  description: Xóa tất cả cache files (.json) cho device này.
+  fields: {}
 
-backfill_all:
-  name: Backfill toàn bộ dữ liệu
-  description: Quét lùi toàn bộ dữ liệu (dừng khi gặp số ngày liên tiếp không có dữ liệu hoặc quá giới hạn năm).
+purge_and_backfill:
+  name: Xóa cache và backfill lại (Smart)
+  description: "Xóa toàn bộ cache cũ và smart backfill lại dữ liệu từ đầu - nhanh hơn 10-100x so với backfill cũ."
   fields:
     max_years:
       name: Max years
-      description: Tối đa số năm cần quét (mặc định 10).
+      description: Số năm cần backfill (mặc định 5).
+      required: false
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 100
+          mode: box
+    optimize_cache:
+      name: Optimize cache
+      description: Nếu true, tự động optimize cache sau khi backfill.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+
+smart_backfill:
+  name: Smart backfill (tối ưu)
+  description: "Backfill thông minh sử dụng getYearData/getMonthData API - nhanh hơn 10-100x so với daily backfill. Tự động phát hiện gaps và optimize cache."
+  fields:
+    max_years:
+      name: Max years
+      description: Số năm tối đa để backfill (mặc định 10).
       required: false
       example: 10
       selector:
         number:
           min: 1
-          max: 30
+          max: 50
+          mode: box
+    optimize_cache:
+      name: Optimize cache
+      description: Nếu true, tự động optimize cache sau khi backfill.
+      required: false
+      default: true
+      selector:
+        boolean:
+
+backfill_all:
+  name: Backfill toàn bộ dữ liệu (cũ)
+  description: "Quét lùi dữ liệu từ hiện tại về quá khứ. Nếu chỉ định max_years: quét đủ số năm đó (KHÔNG dừng vì empty_streak, hữu ích khi có khoảng thời gian dài thiết bị nghỉ). Nếu để trống max_years: quét không giới hạn cho đến khi gặp empty_streak."
+  fields:
+    max_years:
+      name: Max years
+      description: "Tối đa số năm cần quét (mặc định 5). Nếu chỉ định: sẽ quét đủ số năm, bỏ qua empty_streak. Để trống = không giới hạn, chỉ dừng theo empty_streak."
+      required: false
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 100
           mode: box
     empty_streak:
       name: Empty streak threshold
-      description: Số ngày liên tiếp không có dữ liệu để dừng (mặc định 14).
+      description: "Số ngày liên tiếp không có dữ liệu để dừng (mặc định 14, chỉ áp dụng khi max_years không được chỉ định)."
       required: false
       example: 14
       selector:
@@ -82,6 +170,31 @@ backfill_gaps:
         number:
           min: 1
           max: 200
+          mode: box
+
+backfill_empty_dates:
+  name: Backfill lại các ngày đã đánh dấu empty
+  description: "Re-check các ngày đã bị đánh dấu empty với logic mới (có fallback và cải thiện). Hữu ích sau khi cải thiện logic fetch/parse để phát hiện các ngày bị đánh dấu empty nhầm."
+  fields:
+    max_years:
+      name: Max years
+      description: Số năm gần nhất để kiểm tra (mặc định 5).
+      required: false
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: box
+    max_days_per_run:
+      name: Max days per run
+      description: Giới hạn số ngày được re-check mỗi lần chạy (mặc định 100).
+      required: false
+      example: 100
+      selector:
+        number:
+          min: 1
+          max: 500
           mode: box
 
 mark_empty_dates:
@@ -132,4 +245,14 @@ mark_coverage_range:
       required: false
       selector:
         text:
+
+enable_purge_on_startup:
+  name: Enable purge and backfill on startup
+  description: "Bật flag để tự động xóa cache và backfill lại khi restart Home Assistant. Flag sẽ tự động tắt sau khi backfill hoàn tất."
+  fields: {}
+
+disable_purge_on_startup:
+  name: Disable purge and backfill on startup
+  description: "Tắt flag purge và backfill tự động khi startup."
+  fields: {}
 

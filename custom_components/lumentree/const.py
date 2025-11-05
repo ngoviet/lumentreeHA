@@ -15,6 +15,8 @@ URL_DEVICE_MANAGE: Final = "/lesvr/deviceManage"
 URL_GET_OTHER_DAY_DATA: Final = "/lesvr/getOtherDayData"
 URL_GET_PV_DAY_DATA: Final = "/lesvr/getPVDayData"
 URL_GET_BAT_DAY_DATA: Final = "/lesvr/getBatDayData"
+URL_GET_YEAR_DATA: Final = "/lesvr/getYearData"
+URL_GET_MONTH_DATA: Final = "/lesvr/getMonthData"
 
 DEFAULT_HEADERS: Final = {
     "versionCode": "1.6.3",
@@ -46,26 +48,12 @@ DEFAULT_POLLING_INTERVAL = 5
 DEFAULT_STATS_INTERVAL = 600 # 10 minutes
 
 # New intervals for statistics coordinators
-DEFAULT_DAILY_INTERVAL: Final = 600        # 10 minutes
-DEFAULT_MONTHLY_INTERVAL: Final = 10800    # 3 hours (configurable 2–6h)
-DEFAULT_YEARLY_INTERVAL: Final = 86400     # 24 hours
+DEFAULT_DAILY_INTERVAL: Final = 300        # 5 minutes (server updates every 5 minutes)
+DEFAULT_MONTHLY_INTERVAL: Final = 300      # 5 minutes (to match daily update frequency)
+DEFAULT_YEARLY_INTERVAL: Final = 300       # 5 minutes (to match daily update frequency)
 
 # --- Savings / Tariffs ---
-DEFAULT_TARIFF_VND_PER_KWH: Final = 3000   # Fixed tariff for savings calculation
-
-# --- Backfill Constants ---
-BACKFILL_BASE_DELAY: Final = 0.2          # Base delay between API calls (seconds)
-BACKFILL_MAX_DELAY: Final = 5.0           # Maximum delay cap for exponential backoff (seconds)
-EMPTY_DATA_THRESHOLD: Final = 1e-6        # Threshold to consider data empty (kWh)
-MAX_DAYS_PER_YEAR: Final = 366            # Maximum days per year (including leap year)
-MAX_YEARS_FOR_TOTAL: Final = 10          # Maximum years to scan for lifetime totals
-
-# --- Data Processing Constants ---
-HOURS_PER_DAY: Final = 24                 # Hours in a day
-STEPS_PER_HOUR: Final = 12                # 5-minute steps per hour (60/5 = 12)
-MONTHS_PER_YEAR: Final = 12               # Months in a year
-MINUTES_PER_STEP: Final = 5               # Minutes per 5-minute interval
-RESP_TEXT_TRUNCATE_LEN: Final = 300       # Response text truncate length for logging
+DEFAULT_TARIFF_VND_PER_KWH: Final = 2900   # Fixed tariff for savings calculation (2.9k/kWh - average for ~400 kWh/month)
 
 # --- Dispatcher Signal ---
 SIGNAL_UPDATE_FORMAT: Final = f"{DOMAIN}_mqtt_update_{{device_sn}}"
@@ -133,35 +121,47 @@ KEY_DAILY_CHARGE_KWH: Final = "charge_today"
 KEY_DAILY_DISCHARGE_KWH: Final = "discharge_today"
 KEY_DAILY_GRID_IN_KWH: Final = "grid_in_today"
 KEY_DAILY_LOAD_KWH: Final = "load_today"
+KEY_DAILY_TOTAL_LOAD_KWH: Final = "total_load_today"
 KEY_TOTAL_LOAD_POWER: Final = "total_load_power"
 KEY_LAST_RAW_MQTT: Final = "last_raw_mqtt_hex"
 
 # --- Statistics Keys (Daily / Monthly / Yearly) ---
 # Daily totals already defined above; extend with essential load
 KEY_DAILY_ESSENTIAL_KWH: Final = "essential_today"
+KEY_DAILY_SAVED_KWH: Final = "saved_today"
+KEY_DAILY_SAVINGS_VND: Final = "savings_vnd_today"
 
 # Monthly totals (current year, index 1..12) and yearly totals
 KEY_MONTHLY_PV_KWH: Final = "pv_month"
 KEY_MONTHLY_GRID_IN_KWH: Final = "grid_in_month"
 KEY_MONTHLY_LOAD_KWH: Final = "load_month"
 KEY_MONTHLY_ESSENTIAL_KWH: Final = "essential_month"
+KEY_MONTHLY_TOTAL_LOAD_KWH: Final = "total_load_month"
 KEY_MONTHLY_CHARGE_KWH: Final = "charge_month"
 KEY_MONTHLY_DISCHARGE_KWH: Final = "discharge_month"
+KEY_MONTHLY_SAVED_KWH: Final = "saved_month"
+KEY_MONTHLY_SAVINGS_VND: Final = "savings_vnd_month"
 
 KEY_YEARLY_PV_KWH: Final = "pv_year"
 KEY_YEARLY_GRID_IN_KWH: Final = "grid_in_year"
 KEY_YEARLY_LOAD_KWH: Final = "load_year"
 KEY_YEARLY_ESSENTIAL_KWH: Final = "essential_year"
+KEY_YEARLY_TOTAL_LOAD_KWH: Final = "total_load_year"
 KEY_YEARLY_CHARGE_KWH: Final = "charge_year"
 KEY_YEARLY_DISCHARGE_KWH: Final = "discharge_year"
+KEY_YEARLY_SAVED_KWH: Final = "saved_year"
+KEY_YEARLY_SAVINGS_VND: Final = "savings_vnd_year"
 
 # Total (lifetime) sensors - from device start to now
 KEY_TOTAL_PV_KWH: Final = "pv_total"
 KEY_TOTAL_GRID_IN_KWH: Final = "grid_in_total"
 KEY_TOTAL_LOAD_KWH: Final = "load_total"
 KEY_TOTAL_ESSENTIAL_KWH: Final = "essential_total"
+KEY_TOTAL_TOTAL_LOAD_KWH: Final = "total_load_total"
 KEY_TOTAL_CHARGE_KWH: Final = "charge_total"
 KEY_TOTAL_DISCHARGE_KWH: Final = "discharge_total"
+KEY_TOTAL_SAVED_KWH: Final = "saved_total"
+KEY_TOTAL_SAVINGS_VND: Final = "savings_vnd_total"
 
 # Attribute names for series/metadata
 ATTR_SERIES_5MIN_W: Final = "series_5min_w"

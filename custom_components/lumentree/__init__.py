@@ -3,6 +3,7 @@
 import asyncio
 import datetime
 import logging
+from contextlib import suppress
 from typing import Optional, Callable
 
 from homeassistant.config_entries import ConfigEntry
@@ -77,10 +78,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         aggregator = StatsAggregator(hass, api_client, device_id)
         hass.data[DOMAIN][entry.entry_id]["aggregator"] = aggregator
 
-        daily_coord = DailyStatsCoordinator(hass, api_client, device_sn)
-        monthly_coord = MonthlyStatsCoordinator(hass, aggregator, device_sn)
-        yearly_coord = YearlyStatsCoordinator(hass, aggregator, device_sn)
-        total_coord = TotalStatsCoordinator(hass, aggregator, device_sn)
+        daily_coord = DailyStatsCoordinator(hass, api_client, aggregator, device_sn)
+        monthly_coord = MonthlyStatsCoordinator(hass, aggregator, device_sn, entry.entry_id)
+        yearly_coord = YearlyStatsCoordinator(hass, aggregator, device_sn, entry.entry_id)
+        total_coord = TotalStatsCoordinator(hass, aggregator, device_sn, entry.entry_id)
         hass.data[DOMAIN][entry.entry_id].update({
             "daily_coordinator": daily_coord,
             "monthly_coordinator": monthly_coord,
@@ -103,8 +104,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.debug("MQTT Poll %s.", device_sn)
             domain_data = hass.data.get(DOMAIN)
             if not domain_data:
-                _LOGGER.warning("Lumentree domain data gone. Stop poll.")
-                return
+                _LOGGER.warning("Lumentree domain data gone. Stop poll."); return
             entry_data = domain_data.get(entry.entry_id)
             if not entry_data:
                 _LOGGER.warning(f"Entry data missing {entry.entry_id}. Stop poll.")
@@ -113,16 +113,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if callable(current_timer):
                     try:
                         current_timer()
-                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}.")
-                        remove_interval = None
+                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}."); remove_interval=None
                     except Exception as timer_err:
                         _LOGGER.error(f"Error cancel timer {device_sn}: {timer_err}")
                 return
 
             active_mqtt_client = entry_data.get("mqtt_client")
             if not isinstance(active_mqtt_client, LumentreeMqttClient) or not active_mqtt_client.is_connected:
-                _LOGGER.warning(f"MQTT {device_sn} not ready.")
-                return
+                _LOGGER.warning(f"MQTT {device_sn} not ready."); return
             try:
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("Requesting MQTT (main data) %s...", device_sn)
@@ -168,19 +166,78 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await aggregator.backfill_last_n_days(days)
 
         async def _svc_recompute(call):
-            """Recompute aggregates for the current year."""
+            # Recompute aggregates for the current year
             now = datetime.datetime.now()
-            c = await hass.async_add_executor_job(cache_io.load_year, device_id, now.year)
+            c = cache_io.load_year(device_id, now.year)
             cache_io.recompute_aggregates(c)
-            await hass.async_add_executor_job(cache_io.save_year, device_id, now.year, c)
+            cache_io.save_year(device_id, now.year, c)
+
+        async def _svc_optimize_cache(call):
+            """Optimize cache by removing empty days."""
+            from .services import cache_optimizer
+            
+            all_years = call.data.get("all_years", False)
+            dry_run = call.data.get("dry_run", False)
+            
+            if all_years:
+                max_years = int(call.data.get("max_years", 10))
+                result = await hass.async_add_executor_job(
+                    cache_optimizer.optimize_all_years, device_id, max_years, dry_run
+                )
+                summary = result["summary"]
+                _LOGGER.info(
+                    f"Optimize cache (all years): removed {summary['total_removed']} empty days, "
+                    f"kept {summary['total_kept']} days, "
+                    f"size reduction: {summary['total_size_reduction_percent']:.1f}%"
+                )
+            else:
+                year = int(call.data.get("year", datetime.datetime.now().year))
+                result = await hass.async_add_executor_job(
+                    cache_optimizer.optimize_year_cache, device_id, year, dry_run
+                )
+                if result["status"] == "optimized":
+                    _LOGGER.info(
+                        f"Optimize cache ({year}): removed {result['removed']} empty days, "
+                        f"kept {result['kept']} days, "
+                        f"size reduction: {result['size_reduction_percent']:.1f}%"
+                    )
+                else:
+                    _LOGGER.warning(f"Optimize cache ({year}): {result['status']}")
 
         async def _svc_purge(call):
-            """Purge cache for a specific year."""
             year = int(call.data.get("year", datetime.datetime.now().year))
-            await hass.async_add_executor_job(cache_io.purge_year, device_id, year)
+            cache_io.purge_year(device_id, year)
+
+        async def _svc_purge_all(call):
+            """Purge all cache files for this device."""
+            _LOGGER.info(f"Purging all cache for device {device_id}")
+            result = await hass.async_add_executor_job(cache_io.purge_device, device_id)
+            _LOGGER.info(f"Purge all cache result: {result}")
+
+        async def _svc_purge_and_backfill(call):
+            """Purge all cache and backfill from scratch using smart backfill."""
+            max_years_val = call.data.get("max_years")
+            max_years = int(max_years_val) if max_years_val is not None else 5
+            optimize_cache = call.data.get("optimize_cache", True)
+            
+            _LOGGER.warning(f"Purging ALL cache for device {device_id} and starting fresh smart backfill...")
+            result = await hass.async_add_executor_job(cache_io.purge_device, device_id)
+            _LOGGER.info(f"Purge result: {result}")
+            
+            _LOGGER.info(f"Starting smart backfill for {max_years} years...")
+            stats = await aggregator.smart_backfill(max_years=max_years, optimize_cache=optimize_cache)
+            _LOGGER.info(f"Purge and smart backfill completed: {stats}")
+
+        async def _svc_smart_backfill(call):
+            """Smart backfill using getYearData/getMonthData APIs."""
+            max_years = int(call.data.get("max_years", 10))
+            optimize_cache = call.data.get("optimize_cache", True)
+            stats = await aggregator.smart_backfill(max_years=max_years, optimize_cache=optimize_cache)
+            _LOGGER.info(f"Smart backfill completed: {stats}")
 
         async def _svc_backfill_all(call):
-            max_years = int(call.data.get("max_years", 10))
+            max_years_val = call.data.get("max_years")
+            max_years = int(max_years_val) if max_years_val is not None else None
             empty_streak = int(call.data.get("empty_streak", 14))
             await aggregator.backfill_all(max_years=max_years, empty_streak=empty_streak)
 
@@ -189,43 +246,95 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             max_days_per_run = int(call.data.get("max_days_per_run", 30))
             await aggregator.backfill_gaps(max_years=max_years, max_days_per_run=max_days_per_run)
 
+        async def _svc_backfill_empty_dates(call):
+            max_years = int(call.data.get("max_years", 5))
+            max_days_per_run = int(call.data.get("max_days_per_run", 100))
+            result = await aggregator.backfill_empty_dates(max_years=max_years, max_days_per_run=max_days_per_run)
+            _LOGGER.info(
+                f"backfill_empty_dates service completed: "
+                f"recovered={result.get('recovered', 0)}, "
+                f"confirmed_empty={result.get('confirmed_empty', 0)}, "
+                f"errors={result.get('errors', 0)}"
+            )
+        
+        async def _svc_enable_purge_on_startup(call):
+            """Enable purge and backfill on next startup."""
+            new_options = entry.options.copy()
+            new_options["purge_and_backfill_on_startup"] = True
+            hass.config_entries.async_update_entry(entry, options=new_options)
+            _LOGGER.warning("purge_and_backfill_on_startup has been enabled. It will run on next restart and auto-disable after completion.")
+        
+        async def _svc_disable_purge_on_startup(call):
+            """Disable purge and backfill on startup."""
+            new_options = entry.options.copy()
+            new_options["purge_and_backfill_on_startup"] = False
+            hass.config_entries.async_update_entry(entry, options=new_options)
+            _LOGGER.info("purge_and_backfill_on_startup has been disabled.")
+
         async def _svc_mark_empty_dates(call):
-            """Mark specific dates as empty in cache."""
             year = int(call.data["year"])  # required
             dates = list(call.data.get("dates", []))
-            c = await hass.async_add_executor_job(cache_io.load_year, device_id, year)
+            c = cache_io.load_year(device_id, year)
             for ds in dates:
                 c = cache_io.mark_empty(c, ds)
-            await hass.async_add_executor_job(cache_io.save_year, device_id, year, c)
+            cache_io.save_year(device_id, year, c)
 
         async def _svc_mark_coverage_range(call):
-            """Mark coverage range (earliest/latest dates) for a year."""
             year = int(call.data["year"])  # required
             earliest = call.data.get("earliest")
             latest = call.data.get("latest")
-            c = await hass.async_add_executor_job(cache_io.load_year, device_id, year)
+            c = cache_io.load_year(device_id, year)
             meta = c.setdefault("meta", {})
             cov = meta.setdefault("coverage", {"earliest": None, "latest": None})
             if earliest is not None:
                 cov["earliest"] = earliest
             if latest is not None:
                 cov["latest"] = latest
-            await hass.async_add_executor_job(cache_io.save_year, device_id, year, c)
+            cache_io.save_year(device_id, year, c)
 
         hass.services.async_register(DOMAIN, "backfill_now", _svc_backfill)
         hass.services.async_register(DOMAIN, "recompute_month_year", _svc_recompute)
+        hass.services.async_register(DOMAIN, "optimize_cache", _svc_optimize_cache)
+        hass.services.async_register(DOMAIN, "smart_backfill", _svc_smart_backfill)
         hass.services.async_register(DOMAIN, "purge_cache", _svc_purge)
+        hass.services.async_register(DOMAIN, "purge_all_cache", _svc_purge_all)
+        hass.services.async_register(DOMAIN, "purge_and_backfill", _svc_purge_and_backfill)
         hass.services.async_register(DOMAIN, "backfill_all", _svc_backfill_all)
         hass.services.async_register(DOMAIN, "backfill_gaps", _svc_backfill_gaps)
+        hass.services.async_register(DOMAIN, "backfill_empty_dates", _svc_backfill_empty_dates)
         hass.services.async_register(DOMAIN, "mark_empty_dates", _svc_mark_empty_dates)
         hass.services.async_register(DOMAIN, "mark_coverage_range", _svc_mark_coverage_range)
+        hass.services.async_register(DOMAIN, "enable_purge_on_startup", _svc_enable_purge_on_startup)
+        hass.services.async_register(DOMAIN, "disable_purge_on_startup", _svc_disable_purge_on_startup)
 
         # Auto backfill: first-run (background) and nightly delta
+        # Check if we need to purge and backfill on startup (from entry options or default False)
+        should_purge_on_startup = entry.options.get("purge_and_backfill_on_startup", False)
+        
         async def _first_run_backfill() -> None:
             try:
-                _LOGGER.info("Auto backfill: starting FULL history (background)")
-                await aggregator.backfill_all(max_years=10, empty_streak=14)
-                _LOGGER.info("Auto backfill: completed FULL history")
+                if should_purge_on_startup:
+                    _LOGGER.warning("PURGE_AND_BACKFILL_ON_STARTUP is enabled - purging all cache...")
+                    result = await hass.async_add_executor_job(cache_io.purge_device, device_id)
+                    _LOGGER.info(f"Purge result: {result}")
+                    _LOGGER.warning("Starting smart backfill for 5 years...")
+                    # Use smart backfill for faster performance
+                    stats = await aggregator.smart_backfill(max_years=5, optimize_cache=True)
+                    _LOGGER.info(f"Smart backfill completed: {stats}")
+                else:
+                    _LOGGER.info("Auto backfill: starting smart backfill for last 5 years (background)")
+                    # Use smart backfill - much faster than daily backfill
+                    stats = await aggregator.smart_backfill(max_years=5, optimize_cache=True)
+                    _LOGGER.info(f"Auto backfill: completed 5-year history - {stats}")
+                
+                # Auto-disable purge_and_backfill_on_startup after successful backfill
+                if should_purge_on_startup:
+                    _LOGGER.info("Backfill completed successfully. Auto-disabling PURGE_AND_BACKFILL_ON_STARTUP...")
+                    # Update entry options to disable the flag
+                    new_options = entry.options.copy()
+                    new_options["purge_and_backfill_on_startup"] = False
+                    hass.config_entries.async_update_entry(entry, options=new_options)
+                    _LOGGER.info("PURGE_AND_BACKFILL_ON_STARTUP has been automatically set to False")
             except Exception as err:
                 _LOGGER.error(f"Auto backfill initial failed: {err}")
 
@@ -234,11 +343,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 today = datetime.date.today()
                 yesterday = today - datetime.timedelta(days=1)
                 _LOGGER.info("Nightly backfill: %s → %s", yesterday, today)
+                # Backfill yesterday and today using daily API (for accuracy)
                 await aggregator.backfill_days(yesterday, today)
-                # Fill missing days gradually (limited to avoid overload)
-                filled = await aggregator.backfill_gaps(max_years=3, max_days_per_run=30)
-                if filled:
-                    _LOGGER.info("Nightly gap fill: added %s missing days", filled)
+                # Use smart backfill to fill gaps in recent months (much faster)
+                # Only check last 3 months for gaps
+                stats = await aggregator.smart_backfill(max_years=1, optimize_cache=False)
+                if stats.get("days_added", 0) > 0:
+                    _LOGGER.info(f"Nightly smart backfill: added {stats['days_added']} days")
             except Exception as err:
                 _LOGGER.error(f"Nightly backfill error: {err}")
 
@@ -278,7 +389,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if isinstance(mqtt_client, LumentreeMqttClient):
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Disconnecting MQTT %s.", entry.data.get(CONF_DEVICE_SN))
-            hass.async_create_task(mqtt_client.disconnect())
+            try:
+                await mqtt_client.disconnect()
+            except Exception as disconnect_err:
+                _LOGGER.warning(f"Error disconnecting MQTT during unload: {disconnect_err}")
         # Cancel nightly timer if any
         rm = entry_data.get("remove_nightly")
         if callable(rm):
@@ -286,6 +400,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 rm()
             except Exception:
                 pass
+        # Cleanup API client reference (session is managed by HA)
+        entry_data.pop("api_client", None)
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Removed entry data %s.", entry.entry_id)
     else:

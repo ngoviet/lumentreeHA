@@ -1,26 +1,24 @@
 """HTTP API client for Lumentree integration."""
 
 import asyncio
-import logging
-import time
 from typing import Any, Dict, Optional, List
+import logging
 
 import aiohttp
 from aiohttp.client import ClientTimeout
+from aiohttp import ClientConnectorError, ServerConnectionError
 
 from ..const import (
     BASE_URL,
     DEFAULT_HEADERS,
-    RESP_TEXT_TRUNCATE_LEN,
-    STEPS_PER_HOUR,
-    HOURS_PER_DAY,
-    MINUTES_PER_STEP,
     URL_GET_SERVER_TIME,
     URL_SHARE_DEVICES,
     URL_DEVICE_MANAGE,
     URL_GET_OTHER_DAY_DATA,
     URL_GET_PV_DAY_DATA,
     URL_GET_BAT_DAY_DATA,
+    URL_GET_YEAR_DATA,
+    URL_GET_MONTH_DATA,
 )
 from .exceptions import ApiException, AuthException
 
@@ -29,6 +27,11 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_TIMEOUT = ClientTimeout(total=30)
 AUTH_RETRY_DELAY = 0.5
 AUTH_MAX_RETRIES = 3
+
+# Retry configuration for API requests
+API_MAX_RETRIES = 3
+API_RETRY_BASE_DELAY = 1.0  # Start with 1 second
+API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 
 # Cache for device info (device info rarely changes)
 _device_info_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
@@ -68,29 +71,29 @@ class LumentreeHttpApiClient:
 
     @staticmethod
     def _series_5min_kwh(series_w: List[float]) -> List[float]:
-        """Convert W (5-minute interval) → kWh for each step."""
-        # Convert: W * (minutes/60) / 1000 = kWh
-        factor = (MINUTES_PER_STEP / 60.0) / 1000.0
-        return [round(w * factor, 6) for w in series_w]
+        # Convert W (5‑minute interval) → kWh for each step - keep full precision
+        factor = (5.0 / 60.0) / 1000.0
+        return [w * factor for w in series_w]
 
     @staticmethod
     def _series_hour_kwh(series_kwh5: List[float]) -> List[float]:
-        """Aggregate 5-minute kWh values into hourly totals."""
+        # 12 steps of 5‑min per hour
         if not series_kwh5:
             return []
         hours = []
-        for h in range(HOURS_PER_DAY):
-            start = h * STEPS_PER_HOUR
-            end = start + STEPS_PER_HOUR
+        for h in range(24):
+            start = h * 12
+            end = start + 12
             if start >= len(series_kwh5):
                 hours.append(0.0)
             else:
-                hours.append(round(sum(series_kwh5[start:end]), 6))
+                hours.append(sum(series_kwh5[start:end]))  # Keep full precision
         return hours
 
     @staticmethod
     def _sum(series: List[float]) -> float:
-        return round(sum(series), 6) if series else 0.0
+        # Keep full precision
+        return sum(series) if series else 0.0
 
     def set_token(self, token: Optional[str]) -> None:
         """Set the authentication token.
@@ -110,6 +113,7 @@ class LumentreeHttpApiClient:
         data: Optional[Dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         requires_auth: bool = True,
+        max_retries: int = API_MAX_RETRIES,
     ) -> Dict[str, Any]:
         """Make HTTP request to API.
 
@@ -120,6 +124,7 @@ class LumentreeHttpApiClient:
             data: Request body data
             extra_headers: Additional headers
             requires_auth: Whether authentication is required
+            max_retries: Maximum number of retry attempts for network/server errors
 
         Returns:
             Response JSON data
@@ -155,60 +160,119 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("HTTP %s %s", method, url)
 
-        try:
-            async with self._session.request(
-                method, url, headers=headers, params=params, data=data, timeout=DEFAULT_TIMEOUT
-            ) as response:
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("HTTP %s response: %s", url, response.status)
+        last_exc = None
+        delay = API_RETRY_BASE_DELAY
 
-                resp_text = await response.text()
-                resp_text_short = resp_text[:RESP_TEXT_TRUNCATE_LEN]
+        for attempt in range(max_retries):
+            try:
+                async with self._session.request(
+                    method, url, headers=headers, params=params, data=data, timeout=DEFAULT_TIMEOUT
+                ) as response:
+                    if _LOGGER.isEnabledFor(logging.DEBUG):
+                        _LOGGER.debug("HTTP %s response: %s", url, response.status)
 
-                try:
-                    resp_json = await response.json(content_type=None)
-                except (aiohttp.ContentTypeError, ValueError) as json_err:
-                    _LOGGER.error(f"Invalid JSON from {url}: {resp_text_short}")
-                    raise ApiException(f"Invalid JSON: {resp_text_short}") from json_err
+                    resp_text = await response.text()
+                    resp_text_short = resp_text[:300]
 
-                if not response.ok and not resp_json:
-                    response.raise_for_status()
+                    try:
+                        resp_json = await response.json(content_type=None)
+                    except (aiohttp.ContentTypeError, ValueError) as json_err:
+                        _LOGGER.error(f"Invalid JSON from {url}: {resp_text_short}")
+                        raise ApiException(f"Invalid JSON: {resp_text_short}") from json_err
 
-                return_value = resp_json.get("returnValue")
+                    if not response.ok and not resp_json:
+                        response.raise_for_status()
 
-                # Server time endpoint has different structure
-                if endpoint == URL_GET_SERVER_TIME and "data" in resp_json:
+                    return_value = resp_json.get("returnValue")
+
+                    # Server time endpoint has different structure
+                    if endpoint == URL_GET_SERVER_TIME and "data" in resp_json:
+                        return resp_json
+
+                    if return_value != 1:
+                        msg = resp_json.get("msg", "Unknown")
+                        _LOGGER.error(f"API error {url}: code={return_value}, msg='{msg}'")
+
+                        if return_value == 203 or response.status in [401, 403]:
+                            raise AuthException(
+                                f"Auth failed (code={return_value}, status={response.status}): {msg}"
+                            )
+
+                        raise ApiException(f"API error: {msg} (code={return_value})")
+
+                    # Success - reset delay for next request
+                    delay = API_RETRY_BASE_DELAY
                     return resp_json
 
-                if return_value != 1:
-                    msg = resp_json.get("msg", "Unknown")
-                    _LOGGER.error(f"API error {url}: code={return_value}, msg='{msg}'")
+            except (AuthException, ApiException):
+                # Don't retry auth or API errors (except network issues)
+                raise
+            except (asyncio.TimeoutError, ClientConnectorError, ServerConnectionError) as exc:
+                # Network/connection errors - retry with exponential backoff
+                last_exc = exc
+                error_type = type(exc).__name__
+                
+                if attempt < max_retries - 1:
+                    _LOGGER.warning(
+                        f"Network error {url} (attempt {attempt + 1}/{max_retries}): {error_type}: {exc}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, API_RETRY_MAX_DELAY)  # Exponential backoff
+                else:
+                    _LOGGER.error(
+                        f"Network error {url} after {max_retries} attempts: {error_type}: {exc}"
+                    )
+            except aiohttp.ClientResponseError as exc:
+                # HTTP status errors - don't retry except for server errors (5xx)
+                if exc.status in [401, 403]:
+                    raise AuthException(f"Auth error ({exc.status}): {exc.message}") from exc
+                
+                # Retry on 5xx server errors
+                if 500 <= exc.status < 600 and attempt < max_retries - 1:
+                    _LOGGER.warning(
+                        f"Server error {url}: {exc.status} (attempt {attempt + 1}/{max_retries}). "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    last_exc = exc
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, API_RETRY_MAX_DELAY)
+                else:
+                    _LOGGER.error(f"HTTP error {url}: {exc.status}")
+                    raise ApiException(f"HTTP error: {exc.status}") from exc
+            except aiohttp.ClientError as exc:
+                # Other client errors - retry
+                last_exc = exc
+                if attempt < max_retries - 1:
+                    _LOGGER.warning(
+                        f"Client error {url} (attempt {attempt + 1}/{max_retries}): {exc}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, API_RETRY_MAX_DELAY)
+                else:
+                    _LOGGER.error(f"Client error {url} after {max_retries} attempts: {exc}")
+            except Exception as exc:
+                # Unexpected errors - log but don't retry
+                _LOGGER.exception(f"Unexpected HTTP error {url}")
+                raise ApiException(f"Unexpected error: {exc}") from exc
 
-                    if return_value == 203 or response.status in [401, 403]:
-                        raise AuthException(
-                            f"Auth failed (code={return_value}, status={response.status}): {msg}"
-                        )
-
-                    raise ApiException(f"API error: {msg} (code={return_value})")
-
-                return resp_json
-
-        except asyncio.TimeoutError as exc:
-            _LOGGER.error(f"Timeout {url}")
-            raise ApiException("Request timeout") from exc
-        except aiohttp.ClientResponseError as exc:
-            if exc.status in [401, 403]:
-                raise AuthException(f"Auth error ({exc.status}): {exc.message}") from exc
-            _LOGGER.error(f"HTTP error {url}: {exc.status}")
-            raise ApiException(f"HTTP error: {exc.status}") from exc
-        except aiohttp.ClientError as exc:
-            _LOGGER.error(f"Client error {url}: {exc}")
-            raise ApiException(f"Client error: {exc}") from exc
-        except (AuthException, ApiException):
-            raise
-        except Exception as exc:
-            _LOGGER.exception(f"Unexpected HTTP error {url}")
-            raise ApiException(f"Unexpected error: {exc}") from exc
+        # All retries exhausted
+        if last_exc:
+            if isinstance(last_exc, (ClientConnectorError, ServerConnectionError)):
+                raise ApiException(
+                    f"Connection failed after {max_retries} attempts: Server may be down or network unavailable"
+                ) from last_exc
+            elif isinstance(last_exc, asyncio.TimeoutError):
+                raise ApiException(
+                    f"Request timeout after {max_retries} attempts: Server may be slow or unreachable"
+                ) from last_exc
+            else:
+                raise ApiException(
+                    f"Request failed after {max_retries} attempts: {last_exc}"
+                ) from last_exc
+        
+        raise ApiException(f"Request failed after {max_retries} attempts (unknown error)")
 
     async def _get_server_time(self) -> Optional[int]:
         """Get server time from API.
@@ -311,6 +375,8 @@ class LumentreeHttpApiClient:
             return {"_error": "Device ID missing"}
 
         # Check cache
+        import time
+
         current_time = time.time()
 
         if device_id in _device_info_cache:
@@ -384,6 +450,105 @@ class LumentreeHttpApiClient:
 
         # Merge results
         return self._merge_stats_results(results)
+
+    async def get_year_data(self, device_identifier: str, year: int) -> Dict[str, Any]:
+        """Get yearly statistics data (12 months aggregated).
+
+        Args:
+            device_identifier: Device ID or serial number
+            year: Year (e.g., 2025)
+
+        Returns:
+            Dictionary with yearly data containing monthly arrays (12 values each)
+            Format: {
+                "pv": [12 values in 0.1 kWh],
+                "grid": [12 values in 0.1 kWh],
+                "homeload": [12 values in 0.1 kWh],
+                "essentialLoad": [12 values in 0.1 kWh],
+                "bat": [12 values in 0.1 kWh],
+                ...
+            }
+        """
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Fetching year data for %s @ %s", device_identifier, year)
+
+        try:
+            params = {"deviceId": device_identifier, "year": str(year)}
+            resp = await self._request("GET", URL_GET_YEAR_DATA, params=params, requires_auth=True)
+            data = resp.get("data", {})
+            
+            # Convert tableValueInfo arrays from 0.1 kWh to kWh
+            result: Dict[str, Any] = {}
+            for key in ["pv", "grid", "homeload", "essentialLoad", "bat", "batF"]:
+                if key in data:
+                    item = data[key]
+                    table_value_info = self._to_float_list(item.get("tableValueInfo", []))
+                    # Convert from 0.1 kWh to kWh (divide by 10)
+                    result[key] = [v / 10.0 for v in table_value_info] if table_value_info else [0.0] * 12
+                else:
+                    result[key] = [0.0] * 12
+            
+            return result
+        except Exception as exc:
+            _LOGGER.error(f"Error fetching year data for {device_identifier} @ {year}: {exc}")
+            # Return empty arrays on error
+            return {
+                "pv": [0.0] * 12,
+                "grid": [0.0] * 12,
+                "homeload": [0.0] * 12,
+                "essentialLoad": [0.0] * 12,
+                "bat": [0.0] * 12,
+            }
+
+    async def get_month_data(self, device_identifier: str, year: int, month: int) -> Dict[str, Any]:
+        """Get monthly statistics data (daily data for a month).
+
+        Args:
+            device_identifier: Device ID or serial number
+            year: Year (e.g., 2025)
+            month: Month (1-12)
+
+        Returns:
+            Dictionary with monthly data containing daily arrays (up to 31 values)
+            Format: {
+                "pv": [31 values in 0.1 kWh],
+                "grid": [31 values in 0.1 kWh],
+                "homeload": [31 values in 0.1 kWh],
+                "essentialLoad": [31 values in 0.1 kWh],
+                "bat": [31 values in 0.1 kWh],
+                ...
+            }
+        """
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Fetching month data for %s @ %s-%02d", device_identifier, year, month)
+
+        try:
+            params = {"deviceId": device_identifier, "year": str(year), "month": str(month)}
+            resp = await self._request("GET", URL_GET_MONTH_DATA, params=params, requires_auth=True)
+            data = resp.get("data", {})
+            
+            # Convert tableValueInfo arrays from 0.1 kWh to kWh
+            result: Dict[str, Any] = {}
+            for key in ["pv", "grid", "homeload", "essentialLoad", "bat"]:
+                if key in data:
+                    item = data[key]
+                    table_value_info = self._to_float_list(item.get("tableValueInfo", []))
+                    # Convert from 0.1 kWh to kWh (divide by 10)
+                    result[key] = [v / 10.0 for v in table_value_info] if table_value_info else []
+                else:
+                    result[key] = []
+            
+            return result
+        except Exception as exc:
+            _LOGGER.error(f"Error fetching month data for {device_identifier} @ {year}-{month:02d}: {exc}")
+            # Return empty arrays on error
+            return {
+                "pv": [],
+                "grid": [],
+                "homeload": [],
+                "essentialLoad": [],
+                "bat": [],
+            }
 
     async def _fetch_pv_data(self, base_params: Dict[str, str]) -> Dict[str, Optional[float]]:
         """Fetch PV generation data.
@@ -494,35 +659,71 @@ class LumentreeHttpApiClient:
                 g5 = self._series_5min_kwh(grid_series_w)
                 result.update({
                     "grid_series_5min_w": grid_series_w,
+                    "grid_series_5min_kwh": g5,
                     "grid_series_hour_kwh": self._series_hour_kwh(g5),
                 })
 
-            # Home load
+            # Load and Essential (read together, process together)
             load_data = data.get("homeload", {})
-            load_val = load_data.get("tableValue")
+            essential_data = data.get("essentialLoad", {})
+            
+            # Extract daily totals
+            load_val = load_data.get("tableValue") if load_data else None
+            e_val = essential_data.get("tableValue") if isinstance(essential_data, dict) else None
+            
             if load_val is not None:
                 result["load_today"] = float(load_val) / 10.0
-            load_series_w = self._to_float_list(load_data.get("tableValueInfo"))
+            if e_val is not None:
+                result["essential_today"] = float(e_val) / 10.0
+            
+            # Calculate total_load_today immediately when we have both values
+            load_value = result.get("load_today")
+            essential_value = result.get("essential_today")
+            if load_value is not None or essential_value is not None:
+                total_load_value = (float(load_value or 0.0) + float(essential_value or 0.0))
+                if total_load_value > 0 or (load_value is not None and essential_value is not None):
+                    result["total_load_today"] = total_load_value
+            
+            # Extract and process series data in parallel
+            load_series_w = self._to_float_list(load_data.get("tableValueInfo")) if load_data else []
+            e_series_w = self._to_float_list(essential_data.get("tableValueInfo")) if isinstance(essential_data, dict) else []
+            
+            # Process load series
             if load_series_w:
                 l5 = self._series_5min_kwh(load_series_w)
                 result.update({
                     "load_series_5min_w": load_series_w,
+                    "load_series_5min_kwh": l5,
                     "load_series_hour_kwh": self._series_hour_kwh(l5),
                 })
-
-            # Essential load (if present)
-            essential_data = data.get("essentialLoad", {})
-            if isinstance(essential_data, dict):
-                e_val = essential_data.get("tableValue")
-                if e_val is not None:
-                    result["essential_today"] = float(e_val) / 10.0
-                e_series_w = self._to_float_list(essential_data.get("tableValueInfo"))
-                if e_series_w:
-                    e5 = self._series_5min_kwh(e_series_w)
-                    result.update({
-                        "essential_series_5min_w": e_series_w,
-                        "essential_series_hour_kwh": self._series_hour_kwh(e5),
-                    })
+            
+            # Process essential series
+            if e_series_w:
+                e5 = self._series_5min_kwh(e_series_w)
+                result.update({
+                    "essential_series_5min_w": e_series_w,
+                    "essential_series_5min_kwh": e5,
+                    "essential_series_hour_kwh": self._series_hour_kwh(e5),
+                })
+            
+            # Calculate total_load series immediately when we have both series
+            load_w = result.get("load_series_5min_w", [])
+            essential_w = result.get("essential_series_5min_w", [])
+            if load_w and essential_w:
+                total_load_w = [float(l or 0) + float(e or 0) for l, e in zip(load_w, essential_w)]
+                load_5min_kwh = result.get("load_series_5min_kwh", [])
+                essential_5min_kwh = result.get("essential_series_5min_kwh", [])
+                total_load_5min_kwh = [float(l or 0) + float(e or 0) for l, e in zip(load_5min_kwh, essential_5min_kwh)]
+                
+                result.update({
+                    "total_load_series_5min_w": total_load_w,
+                    "total_load_series_5min_kwh": total_load_5min_kwh,
+                    "total_load_series_hour_kwh": self._series_hour_kwh(total_load_5min_kwh),
+                })
+                
+                # If we have series but no daily total yet, calculate from series sum
+                if "total_load_today" not in result and total_load_5min_kwh:
+                    result["total_load_today"] = self._sum(total_load_5min_kwh)
 
             return result
         except (ApiException, AuthException) as exc:

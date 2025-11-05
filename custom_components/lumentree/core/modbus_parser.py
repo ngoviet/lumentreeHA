@@ -337,13 +337,46 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
                 db = db[:expected_main_bytes]
             else:
                 _LOGGER.info("Main data (95 regs)")
-        else:
-            _LOGGER.error(
-                f"Unrecognized length ({len(db)}/{bc}). Expected: "
-                f"{expected_main_bytes} or {expected_main_bytes_extended} for main, "
-                f"{expected_cell_bytes} for cells"
+        elif len(db) == 198 and bc == 198:
+            # 198 bytes = 99 registers, likely main data with partial metadata (missing 4 bytes)
+            # Try parsing as main data (190 bytes) - skip last 8 bytes
+            is_cell_data = False
+            _LOGGER.debug("Main data (198 bytes, likely 99 regs - treating as 95 regs)")
+            db = db[:expected_main_bytes]
+        elif len(db) == 2:
+            # 2 bytes = Modbus exception response or error
+            _LOGGER.debug(
+                f"Modbus exception/error response (2 bytes): {resp_hex[:20]}... "
+                f"(function_code={resp_hex[2:4] if len(resp_hex) >= 4 else 'N/A'})"
             )
             return None
+        elif len(db) <= 20:
+            # Very short responses - likely error or control messages
+            _LOGGER.debug(
+                f"Short response ({len(db)} bytes) - likely error/control: "
+                f"{resp_hex[:min(50, len(resp_hex))]}..."
+            )
+            return None
+        else:
+            # Unknown length - log with more context but try to parse if it's close to expected
+            _LOGGER.warning(
+                f"Unrecognized length ({len(db)}/{bc}). Expected: "
+                f"{expected_main_bytes} or {expected_main_bytes_extended} for main, "
+                f"{expected_cell_bytes} for cells. "
+                f"Payload preview: {resp_hex[:min(60, len(resp_hex))]}..."
+            )
+            # If length is close to main data (within 20 bytes), try parsing as main data
+            if abs(len(db) - expected_main_bytes) <= 20 and len(db) >= expected_main_bytes - 10:
+                _LOGGER.debug(f"Attempting to parse {len(db)} bytes as main data (truncating if needed)")
+                is_cell_data = False
+                if len(db) > expected_main_bytes:
+                    # Truncate to expected length
+                    db = db[:expected_main_bytes]
+                else:
+                    # Pad with zeros (shouldn't happen often)
+                    db = db + b'\x00' * (expected_main_bytes - len(db))
+            else:
+                return None
 
         if is_cell_data:
             cell_result = _parse_battery_cells(db)

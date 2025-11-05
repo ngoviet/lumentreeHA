@@ -1,20 +1,22 @@
-{
-  "domain": "lumentree",
-  "name": "Lumentree Inverter (Production Ready)",
-  "config_flow": true,
-  "documentation": "https://github.com/ngoviet/lumentreeHA",
-  "issue_tracker": "https://github.com/ngoviet/lumentreeHA/issues",
-  "requirements": [
-    "aiohttp>=3.8.0",
-    "paho-mqtt>=1.6.0",
-    "crcmod>=1.7"
-  ],
-  "codeowners": ["@ngoviet"],
-  "version": "3.1.1",
-  "iot_class": "cloud_polling",
-  "integration_type": "device",
-  "loggers": [
-    "paho",
-    "custom_components.lumentree"
-  ]
+﻿{
+    "domain":  "lumentree",
+    "name":  "Lumentree Inverter (Production Ready)",
+    "config_flow":  true,
+    "documentation":  "https://github.com/ngoviet/lumentreeHA",
+    "issue_tracker":  "https://github.com/ngoviet/lumentreeHA/issues",
+    "requirements":  [
+                         "aiohttp\u003e=3.8.0",
+                         "paho-mqtt\u003e=1.6.0",
+                         "crcmod\u003e=1.7"
+                     ],
+    "codeowners":  [
+                       "@ngoviet"
+                   ],
+    "version": "4.0.0",
+    "iot_class":  "cloud_polling",
+    "integration_type":  "device",
+    "loggers":  [
+                    "paho",
+                    "custom_components.lumentree"
+                ]
 }
