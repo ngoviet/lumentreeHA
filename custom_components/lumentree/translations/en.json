@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Lumentree Device Authentication",
+        "description": "Enter your device information",
+        "data": {
+          "device_id": "Device ID",
+          "device_sn": "Device Serial Number",
+          "http_token": "HTTP Token"
+        }
+      },
+      "confirm": {
+        "title": "Confirm Device",
+        "description": "Lumentree device found!\n\n**Name:** {device_name}\n**ID (SN):** {device_sn}\n\nPress SUBMIT to finish adding the device."
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "Device is already configured",
+      "cannot_connect": "Cannot connect",
+      "invalid_auth": "Invalid authentication"
+    }
+  }
+}
+

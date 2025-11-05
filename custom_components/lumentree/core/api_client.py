@@ -425,7 +425,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception(f"Unexpected error getting device info for {device_id}")
             return {"_error": f"Unexpected error: {exc}"}
 
-    async def get_daily_stats(self, device_identifier: str, query_date: str) -> Dict[str, Optional[float]]:
+    async def get_daily_stats(self, device_identifier: str, query_date: str) -> Dict[str, Any]:
         """Get daily statistics with concurrent API calls.
 
         Args:
@@ -550,7 +550,7 @@ class LumentreeHttpApiClient:
                 "bat": [],
             }
 
-    async def _fetch_pv_data(self, base_params: Dict[str, str]) -> Dict[str, Optional[float]]:
+    async def _fetch_pv_data(self, base_params: Dict[str, str]) -> Dict[str, Any]:
         """Fetch PV generation data.
 
         Args:
@@ -564,7 +564,7 @@ class LumentreeHttpApiClient:
             data = resp.get("data", {})
             pv_data = data.get("pv", {})
 
-            result: Dict[str, Optional[float]] = {}
+            result: Dict[str, Any] = {}
 
             val = pv_data.get("tableValue")
             result["pv_today"] = float(val) / 10.0 if val is not None else None
@@ -591,7 +591,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected PV stats error")
             return {"pv_today": None}
 
-    async def _fetch_battery_data(self, base_params: Dict[str, str]) -> Dict[str, Optional[float]]:
+    async def _fetch_battery_data(self, base_params: Dict[str, str]) -> Dict[str, Any]:
         """Fetch battery charge/discharge data.
 
         Args:
@@ -634,7 +634,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected battery stats error")
             return {"charge_today": None, "discharge_today": None}
 
-    async def _fetch_other_data(self, base_params: Dict[str, str]) -> Dict[str, Optional[float]]:
+    async def _fetch_other_data(self, base_params: Dict[str, str]) -> Dict[str, Any]:
         """Fetch grid and load data.
 
         Args:
@@ -710,10 +710,19 @@ class LumentreeHttpApiClient:
             load_w = result.get("load_series_5min_w", [])
             essential_w = result.get("essential_series_5min_w", [])
             if load_w and essential_w:
-                total_load_w = [float(l or 0) + float(e or 0) for l, e in zip(load_w, essential_w)]
+                # Handle different lengths by padding with zeros
+                max_len = max(len(load_w), len(essential_w))
+                load_w_padded = list(load_w) + [0.0] * (max_len - len(load_w))
+                essential_w_padded = list(essential_w) + [0.0] * (max_len - len(essential_w))
+                total_load_w = [float(l or 0) + float(e or 0) for l, e in zip(load_w_padded, essential_w_padded)]
+                
                 load_5min_kwh = result.get("load_series_5min_kwh", [])
                 essential_5min_kwh = result.get("essential_series_5min_kwh", [])
-                total_load_5min_kwh = [float(l or 0) + float(e or 0) for l, e in zip(load_5min_kwh, essential_5min_kwh)]
+                # Handle different lengths for kWh series too
+                max_len_kwh = max(len(load_5min_kwh), len(essential_5min_kwh))
+                load_5min_kwh_padded = list(load_5min_kwh) + [0.0] * (max_len_kwh - len(load_5min_kwh))
+                essential_5min_kwh_padded = list(essential_5min_kwh) + [0.0] * (max_len_kwh - len(essential_5min_kwh))
+                total_load_5min_kwh = [float(l or 0) + float(e or 0) for l, e in zip(load_5min_kwh_padded, essential_5min_kwh_padded)]
                 
                 result.update({
                     "total_load_series_5min_w": total_load_w,
@@ -733,16 +742,16 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected other stats error")
             return {"grid_in_today": None, "load_today": None}
 
-    def _merge_stats_results(self, results: List[Any]) -> Dict[str, Optional[float]]:
+    def _merge_stats_results(self, results: List[Any]) -> Dict[str, Any]:
         """Merge results from concurrent API calls.
 
         Args:
             results: List of results from gather()
 
         Returns:
-            Merged statistics dictionary
+            Merged statistics dictionary (may contain float, list, or None values)
         """
-        merged: Dict[str, Optional[float]] = {}
+        merged: Dict[str, Any] = {}
 
         for result in results:
             if isinstance(result, dict):
@@ -753,5 +762,13 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Merged daily stats: %s", merged)
 
-        return {k: v for k, v in merged.items() if v is not None}
+        # Filter out None values but keep lists (series data) and other valid values
+        # This preserves series data even if tableValue is None
+        filtered = {}
+        for k, v in merged.items():
+            # Keep lists (series data) and non-None values, skip None scalar values
+            if isinstance(v, list) or v is not None:
+                filtered[k] = v
+        
+        return filtered
 

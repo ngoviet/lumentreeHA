@@ -29,6 +29,12 @@ from .services import cache as cache_io
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Set up the Lumentree integration."""
+    # Config flow is handled automatically by Home Assistant
+    # when config_flow: true is set in manifest.json
+    return True
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Lumentree from a config entry."""
     _LOGGER.info(f"Setting up Lumentree: {entry.title} ({entry.entry_id})")

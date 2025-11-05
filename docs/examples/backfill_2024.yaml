@@ -1,0 +1,25 @@
+# Example: Backfill năm 2024 vào cache
+# Copy và chạy trong Home Assistant Developer Tools > Services
+
+# Option 1: Backfill năm 2024 cụ thể (366 ngày)
+service: lumentree.backfill_now
+data:
+  days: 731  # 2 năm (2024 có 366 ngày + 2025 có 365 ngày) để đảm bảo có đủ năm 2024
+
+# Option 2: Backfill tất cả (tự động phát hiện năm 2024)
+service: lumentree.backfill_all
+data:
+  max_years: 2  # Backfill 2 năm gần nhất (2024 và 2025)
+  empty_streak: 14  # Dừng khi gặp 14 ngày trống liên tiếp
+
+# Option 3: Smart backfill (CHỈ cho năm/tháng hiện tại)
+# ⚠️ LƯU Ý: getYearData/getMonthData chỉ trả về năm/tháng hiện tại
+# Không thể dùng để backfill năm 2024!
+# service: lumentree.smart_backfill
+# data:
+#   max_years: 2
+#   optimize_cache: true
+
+# Sau khi backfill xong, chạy để tính lại total statistics:
+service: lumentree.recompute_month_year
+

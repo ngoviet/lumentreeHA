@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [4.0.1] - 2025-11-05
+
+### 🐛 Bug Fixes
+- Fixed UTF-8 BOM issue in manifest.json that prevented Home Assistant from discovering the integration
+- Fixed type hints in API client methods to properly support list data (series data)
+- Fixed merge_stats_results to preserve series data when filtering None values
+- Fixed zip handling for different length lists in total_load series calculation
+- Added proper padding for lists of different lengths
+
+### ✨ Improvements
+- Added translations/en.json for better Home Assistant 2025.10 compatibility
+- Added quality_scale.yaml for integration quality standards
+- Improved error handling in data merging operations
+- Enhanced type safety with proper Any types for mixed data structures
+
+### 📝 Documentation
+- Updated manifest.json formatting
+- Fixed integration name for better discoverability
+
 ## [4.0.0] - 2025-11-05
 
 ### 🚀 Major Statistics Enhancement

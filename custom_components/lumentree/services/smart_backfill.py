@@ -18,52 +18,49 @@ async def detect_data_gaps_from_api(
     device_id: str,
     max_years: int = 10
 ) -> Dict[int, List[int]]:
-    """Detect which months have data using getYearData API (only for current year).
-    
-    ⚠️ IMPORTANT: getYearData API only returns current year data, regardless of year parameter.
-    This function only checks current year. For historical years, use cache-based detection.
+    """Detect which months have data using getYearData API (fast scan).
     
     Args:
         api_client: API client
         device_id: Device ID
-        max_years: Maximum years to check (ignored - only current year is checked)
+        max_years: Maximum years to check
         
     Returns:
         Dictionary mapping year to list of months (1-12) that have data
-        Only contains current year.
     """
     today = dt.date.today()
-    current_year = today.year
     years_with_data: Dict[int, List[int]] = {}
     
-    # API limitation: getYearData only returns current year, regardless of year parameter
-    # Only check current year
-    try:
-        year_data = await api_client.get_year_data(device_id, current_year)
+    for year_offset in range(max_years):
+        year = today.year - year_offset
+        if year < 2000:
+            break
         
-        # Check which months have data
-        months_with_data = []
-        pv_data = year_data.get("pv", [0.0] * 12)
-        grid_data = year_data.get("grid", [0.0] * 12)
-        load_data = year_data.get("homeload", [0.0] * 12)
-        
-        for month_idx in range(12):
-            month = month_idx + 1
-            has_data = (
-                pv_data[month_idx] > 0.0 or
-                grid_data[month_idx] > 0.0 or
-                load_data[month_idx] > 0.0
-            )
-            if has_data:
-                months_with_data.append(month)
-        
-        if months_with_data:
-            years_with_data[current_year] = months_with_data
-            _LOGGER.debug(f"Current year {current_year} has data in months: {months_with_data}")
-    except Exception as err:
-        _LOGGER.warning(f"Error checking current year {current_year} from API: {err}")
-    
-    _LOGGER.info(f"API scan: Only current year {current_year} can be checked via API. Historical years must use cache or daily API.")
+        try:
+            year_data = await api_client.get_year_data(device_id, year)
+            
+            # Check which months have data
+            months_with_data = []
+            pv_data = year_data.get("pv", [0.0] * 12)
+            grid_data = year_data.get("grid", [0.0] * 12)
+            load_data = year_data.get("homeload", [0.0] * 12)
+            
+            for month_idx in range(12):
+                month = month_idx + 1
+                has_data = (
+                    pv_data[month_idx] > 0.0 or
+                    grid_data[month_idx] > 0.0 or
+                    load_data[month_idx] > 0.0
+                )
+                if has_data:
+                    months_with_data.append(month)
+            
+            if months_with_data:
+                years_with_data[year] = months_with_data
+                _LOGGER.debug(f"Year {year} has data in months: {months_with_data}")
+        except Exception as err:
+            _LOGGER.debug(f"Error checking year {year} from API: {err}")
+            continue
     
     return years_with_data
 
@@ -75,29 +72,18 @@ async def backfill_month_from_api(
     month: int,
     cache: Dict[str, Any]
 ) -> Tuple[int, int]:
-    """Backfill a month using getMonthData API (only works for current month).
-    
-    ⚠️ IMPORTANT: getMonthData API only returns current month data, regardless of year/month parameters.
-    This function only works for current month. For historical months, use daily API.
+    """Backfill a month using getMonthData API (much faster than daily).
     
     Args:
         api_client: API client
         device_id: Device ID
-        year: Year (only current year works)
-        month: Month (1-12, only current month works)
+        year: Year
+        month: Month (1-12)
         cache: Cache dictionary to update
         
     Returns:
         Tuple of (days_added, days_updated)
     """
-    today = dt.date.today()
-    current_year = today.year
-    current_month = today.month
-    
-    # API limitation: only works for current month
-    if year != current_year or month != current_month:
-        _LOGGER.debug(f"Skipping {year}-{month:02d}: API only works for current month {current_year}-{current_month:02d}")
-        return 0, 0
     try:
         month_data = await api_client.get_month_data(device_id, year, month)
         
@@ -184,18 +170,13 @@ async def smart_backfill(
     max_years: int = 10,
     optimize_cache: bool = True
 ) -> Dict[str, Any]:
-    """Smart backfill using getYearData/getMonthData APIs (only for current year/month).
-    
-    ⚠️ IMPORTANT: getYearData/getMonthData APIs only return current year/month data.
-    This function only backfills current year/month. For historical data, use backfill_all.
+    """Smart backfill using getYearData/getMonthData APIs for optimal performance.
     
     Strategy:
-    1. Use getYearData to check current year months (only current year works)
-    2. Use getMonthData to backfill current month (only current month works)
+    1. Use getYearData to quickly identify which years/months have data
+    2. Use getMonthData to backfill months that have data (much faster than daily)
     3. Only backfill missing days, skip if already has data
     4. Auto-optimize cache after backfill
-    
-    For historical years (like 2024), use lumentree.backfill_all instead.
     
     Args:
         hass: HomeAssistant instance

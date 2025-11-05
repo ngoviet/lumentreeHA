@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -21,7 +21,7 @@ from ..services import cache as cache_io
 _LOGGER = logging.getLogger(__name__)
 
 
-class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]]):
+class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     def __init__(
         self,
         hass: HomeAssistant,
@@ -42,7 +42,7 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Optional[float]]]):
             update_interval=dt.timedelta(seconds=(interval_sec or DEFAULT_DAILY_INTERVAL)),
         )
 
-    async def _async_update_data(self) -> Dict[str, Optional[float]]:
+    async def _async_update_data(self) -> Dict[str, Any]:
         """Fetch today's data from API with error handling and recovery."""
         try:
             timezone = dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.get_default_time_zone()
