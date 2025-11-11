@@ -51,8 +51,35 @@
 - **Method**: `GET`
 - **Auth**: Required
 - **Params**: Same as PV Day Data
-- **Response**:
-  - Battery arrays with charge/discharge data
+- **Response Structure**:
+```json
+{
+  "returnValue": 1,
+  "data": {
+    "bats": [
+      {
+        "tableValue": 290  // Charge total (0.1 kWh units) → 29.0 kWh
+      },
+      {
+        "tableValue": 150  // Discharge total (0.1 kWh units) → 15.0 kWh
+      }
+    ],
+    "tableValueInfo": [
+      // 288 values (24 hours × 12 points/hour, 5-minute intervals)
+      // Signed power series in Watt (W)
+      // Positive (+) = Charge (pin nhận năng lượng)
+      // Negative (-) = Discharge (pin phát năng lượng)
+      500, 500, 450,    // Charge (dương)
+      -200, -300, -400, // Discharge (âm)
+      0, 0, 0,          // Không hoạt động
+      ...
+    ]
+  }
+}
+```
+- **Note**: 
+  - `bats[0]` = Charge total
+  - `bats[1]` = Discharge total
   - `tableValueInfo`: Signed power series (positive = charge, negative = discharge)
 
 #### Get Other Day Data

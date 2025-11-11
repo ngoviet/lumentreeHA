@@ -1,4 +1,4 @@
-{
+﻿{
     "domain": "lumentree",
     "name": "Lumentree Inverter",
     "config_flow": true,
@@ -12,7 +12,7 @@
     "codeowners": [
         "@ngoviet"
     ],
-    "version": "4.0.2",
+    "version": "4.0.3",
     "iot_class": "cloud_polling",
     "integration_type": "device",
     "loggers": [
@@ -20,4 +20,6 @@
         "custom_components.lumentree"
     ]
 }
+
+
 

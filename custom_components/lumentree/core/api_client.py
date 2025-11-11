@@ -614,10 +614,15 @@ class LumentreeHttpApiClient:
                     result["discharge_today"] = float(bats_data[1]["tableValue"]) / 10.0
 
             # Signed power series → split charge/discharge
+            # API returns signed values: positive = charge (pin nhận năng lượng), negative = discharge (pin phát năng lượng)
+            # According to API_PROTOCOL.md: "tableValueInfo: Signed power series (positive = charge, negative = discharge)"
             series_w = self._to_float_list(data.get("tableValueInfo"))
             if series_w:
+                # Charge: keep positive values (pin nhận năng lượng), convert to kWh
                 charge_kwh5 = self._series_5min_kwh([w if w > 0 else 0.0 for w in series_w])
-                discharge_kwh5 = self._series_5min_kwh([(-w) if w < 0 else 0.0 for w in series_w])
+                # Discharge: keep negative values (pin phát năng lượng), convert absolute value to kWh
+                # Note: discharge_kwh5 stores as positive kWh for daily total, but series_w keeps negative for chart
+                discharge_kwh5 = self._series_5min_kwh([abs(w) if w < 0 else 0.0 for w in series_w])
                 result.update(
                     {
                         "battery_series_5min_w": series_w,

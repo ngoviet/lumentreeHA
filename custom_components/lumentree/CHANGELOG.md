@@ -2,14 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## [4.0.2] - 2025-11-05
-
-###  Cleanup
-- XÛa c·c file nh·p v‡ t‡i li?u khÙng c?n thi?t
-- D?n d?p repository d? gi? code s?ch s?
-
- to this project will be documented in this file.
-
 ## [4.0.1] - 2025-11-05
 
 ### üêõ Bug Fixes

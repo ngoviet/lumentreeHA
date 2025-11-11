@@ -50,6 +50,7 @@ timestamp.setHours(hours, minutes, 0, 0);
 
 **Value Processing:**
 - **Battery Charge**: Only positive values, clamped to 0-4000W
+- **Battery Discharge**: Values are already negative from sensor (w < 0), clamp absolute value to 0-3000W, then keep negative sign
   ```javascript
   const val = parseFloat(value) || 0;
   return [timestamp.getTime(), Math.min(Math.max(val, 0), 4000)];

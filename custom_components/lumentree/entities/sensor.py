@@ -974,10 +974,15 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
                 battery_series = self.coordinator.data.get("battery_series_5min_w")
                 if battery_series and isinstance(battery_series, list):
                     # Extract only positive (charge) or negative (discharge) values
+                    # Note: HTTP API returns signed values where positive = charge (pin nhận), negative = discharge (pin phát)
+                    # According to API_PROTOCOL.md: "tableValueInfo: Signed power series (positive = charge, negative = discharge)"
+                    # Charge shows as positive (above 0), Discharge shows as negative (below 0)
                     if key == KEY_DAILY_CHARGE_KWH:
+                        # Charge: keep positive values (show above 0 on chart)
                         attrs["series_5min_w"] = [w if w > 0 else 0.0 for w in battery_series]
                     else:  # discharge
-                        attrs["series_5min_w"] = [(-w) if w < 0 else 0.0 for w in battery_series]
+                        # Discharge: keep negative values (show below 0 on chart)
+                        attrs["series_5min_w"] = [w if w < 0 else 0.0 for w in battery_series]
                     
                     # Convert to kWh
                     if attrs.get("series_5min_w"):

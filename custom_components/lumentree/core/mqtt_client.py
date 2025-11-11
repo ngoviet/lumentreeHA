@@ -327,7 +327,10 @@ class LumentreeMqttClient:
                 f"Scheduling MQTT reconnect {self._reconnect_attempts}/{MAX_RECONNECT_ATTEMPTS} "
                 f"for {self._client_id} in {delay}s"
             )
-            self.hass.async_create_task(self._async_reconnect(delay))
+            # Schedule task creation from event loop thread to avoid thread safety issues
+            self.hass.loop.call_soon_threadsafe(
+                lambda: self.hass.async_create_task(self._async_reconnect(delay))
+            )
         else:
             _LOGGER.error(f"MQTT reconnection failed {self._client_id}")
             self.hass.loop.call_soon_threadsafe(
