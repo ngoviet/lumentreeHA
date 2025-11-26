@@ -67,6 +67,25 @@ def cache_path(device_id: str, year: int) -> str:
     return os.path.join(dev_dir, f"{year}.json")
 
 
+def list_cached_years(device_id: str) -> list[int]:
+    """Return sorted list of years that have cached statistics files."""
+    dev_dir = os.path.join(CACHE_BASE_DIR, device_id)
+    if not os.path.isdir(dev_dir):
+        return []
+    years: list[int] = []
+    try:
+        for entry in os.listdir(dev_dir):
+            if not entry.endswith(".json"):
+                continue
+            try:
+                years.append(int(entry[:-5]))
+            except ValueError:
+                continue
+    except Exception:
+        return []
+    return sorted(years)
+
+
 def load_year(device_id: str, year: int) -> Dict[str, Any]:
     path = cache_path(device_id, year)
     if not os.path.exists(path):

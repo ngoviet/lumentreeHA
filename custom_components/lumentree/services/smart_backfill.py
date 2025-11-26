@@ -102,9 +102,9 @@ async def backfill_month_from_api(
         import calendar
         days_in_month = calendar.monthrange(year, month)[1]
         
-        # Process each day
+        # Process each day (always iterate full calendar month; individual series may be shorter)
         daily = cache.setdefault("daily", {})
-        for day in range(1, min(len(pv_daily), days_in_month) + 1):
+        for day in range(1, days_in_month + 1):
             date_str = f"{year}-{month:02d}-{day:02d}"
             
             # Check if day already exists and has data
