@@ -58,14 +58,17 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             total_saved_kwh = 0.0
             total_savings_vnd = 0.0
             
-            # Get current year and scan backwards
+            # Determine which cached years exist (include current year for live data)
             current_year = dt_util.now().year
+            cached_years = await self.hass.async_add_executor_job(
+                cache_io.list_cached_years, self.aggregator._device_id
+            )
+            years_to_process = sorted(set(cached_years + [current_year]), reverse=True)
             years_processed = 0
             earliest_year = None
             latest_year = None
             
-            for year_offset in range(10):  # Check last 10 years
-                year = current_year - year_offset
+            for year in years_to_process:
                 cache = await self.hass.async_add_executor_job(
                     cache_io.load_year, self.aggregator._device_id, year
                 )
@@ -74,9 +77,10 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     continue
                 
                 years_processed += 1
-                if earliest_year is None:
+                if earliest_year is None or year < earliest_year:
                     earliest_year = year
-                latest_year = year
+                if latest_year is None or year > latest_year:
+                    latest_year = year
                 
                 # Sum from yearly_total if available, otherwise calculate from daily
                 yearly_totals = cache.get("yearly_total", {})
@@ -175,16 +179,22 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     KEY_YEARLY_GRID_IN_KWH,
                     KEY_YEARLY_LOAD_KWH,
                     KEY_YEARLY_ESSENTIAL_KWH,
+                    KEY_YEARLY_TOTAL_LOAD_KWH,
                     KEY_YEARLY_CHARGE_KWH,
                     KEY_YEARLY_DISCHARGE_KWH,
+                    KEY_YEARLY_SAVED_KWH,
+                    KEY_YEARLY_SAVINGS_VND,
                 )
                 return {
                     "pv": float(yearly_coord.data.get(KEY_YEARLY_PV_KWH) or 0.0),
                     "grid": float(yearly_coord.data.get(KEY_YEARLY_GRID_IN_KWH) or 0.0),
                     "load": float(yearly_coord.data.get(KEY_YEARLY_LOAD_KWH) or 0.0),
                     "essential": float(yearly_coord.data.get(KEY_YEARLY_ESSENTIAL_KWH) or 0.0),
+                    "total_load": float(yearly_coord.data.get(KEY_YEARLY_TOTAL_LOAD_KWH) or 0.0),
                     "charge": float(yearly_coord.data.get(KEY_YEARLY_CHARGE_KWH) or 0.0),
                     "discharge": float(yearly_coord.data.get(KEY_YEARLY_DISCHARGE_KWH) or 0.0),
+                    "saved_kwh": float(yearly_coord.data.get(KEY_YEARLY_SAVED_KWH) or 0.0),
+                    "savings_vnd": float(yearly_coord.data.get(KEY_YEARLY_SAVINGS_VND) or 0.0),
                 }
             return None
         except Exception:
