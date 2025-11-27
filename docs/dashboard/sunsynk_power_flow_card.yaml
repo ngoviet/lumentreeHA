@@ -1,0 +1,73 @@
+type: custom:sunsynk-power-flow-card
+title: SUNT 4kW (4280W)
+cardstyle: full
+color_mode: dark
+animation: true
+w_decimals: 0
+kw_decimals: 0
+inverter:
+  modern: true
+  colour: "#93da97"
+  autarky: power
+  auto_scale: false
+  three_phase: false
+layout:
+  grid_pos: top-right
+  load_pos: bottom-right
+solar:
+  mppts: 1
+  show_daily: true
+  auto_scale: false
+  display_mode: 2
+  max_power: 4280
+  efficiency: 3
+  pv1_name: solar
+battery:
+  energy: 14336
+  shutdown_soc: 25
+  show_daily: true
+  auto_scale: false
+  colour: "#cadcae"
+  charge_colour: "#008000"
+  max_power: 3000
+  show_absolute: false
+  invert_power: false
+  invert_flow: true
+  dynamic_colour: true
+  linear_gradient: true
+grid:
+  show_daily_buy: true
+load:
+  show_daily: true
+  essential_name: Tải
+  colour: "#ff0000"
+  additional_loads: 2
+  auto_scale: false
+  load1_name: Load Power
+  load2_name: AC Output
+entities:
+  pv1_power_186: sensor.sunt_4_0kw_h_pv_power
+  pv1_voltage_109: sensor.device_h240909079_pv1_voltage
+  day_pv_energy_108: sensor.device_h240909079_pv_today
+  grid_power_169: sensor.device_h240909079_grid_power
+  grid_voltage_172: sensor.device_h240909079_grid_voltage
+  grid_connected_status_194: binary_sensor.device_h240909079_online_status
+  day_grid_import_76: sensor.device_h240909079_grid_in_today
+  battery_voltage_183: sensor.device_h240909079_battery_voltage
+  battery_soc_184: sensor.device_h240909079_battery_soc
+  battery_current_191: sensor.device_h240909079_battery_current
+  battery_power_190: sensor.device_h240909079_battery_power
+  day_battery_charge_70: sensor.device_h240909079_charge_today
+  day_battery_discharge_71: sensor.device_h240909079_discharge_today
+  inverter_power_175: sensor.sunt_4_0kw_h_total_load_power
+  essential_power: sensor.sunt_4_0kw_h_total_load_power
+  essential_load1: sensor.device_h240909079_load_power
+  essential_load2: sensor.device_h240909079_ac_output_power
+  day_load_energy_84: sensor.device_h240909079_load_today
+  inverter_status_59: sensor.device_h240909079_device_temperature
+  total_pv_generation: sensor.sunt_pv_energy_kwh
+  battery_temp_182: sensor.jk_mosfet_temperature
+  radiator_temp_91: sensor.device_h240909079_device_temperature
+  remaining_solar: sensor.hoa_luoi
+large_font: true
+wide: false

@@ -1,0 +1,142 @@
+type: custom:stack-in-card
+mode: vertical
+gap: 0
+cards:
+  - type: custom:stack-in-card
+    cards:
+      # PV & Grid
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        card_mod:
+          style: |
+            ha-card {
+              background: transparent !important;
+              box-shadow: none !important;
+              --chip-height: 22px;
+              --chip-icon-size: 18px;
+              --chip-font-size: 12px;
+              --chip-spacing: 8px;
+              --chip-border-radius: 10px;
+              padding: 2px 4px;
+            }
+        chips:
+          - type: template
+            icon: mdi:label-variant
+            icon_color: grey
+            content: PV & Grid
+          - type: template
+            entity: sensor.device_YOUR_DEVICE_ID_pv_today
+            icon: mdi:solar-power
+            icon_color: >
+              {% set pv = states('sensor.device_YOUR_DEVICE_ID_pv_today')|float(0) %}
+              {{ 'amber' if pv > 0 else 'grey' }}
+            content: >
+              PV {{ (states('sensor.device_YOUR_DEVICE_ID_pv_today')|float(0))|round(2) }} kWh
+          - type: template
+            entity: sensor.device_YOUR_DEVICE_ID_grid_in_today
+            icon: mdi:transmission-tower-import
+            icon_color: >
+              {% set grid = states('sensor.device_YOUR_DEVICE_ID_grid_in_today')|float(0) %}
+              {{ 'blue' if grid > 0 else 'grey' }}
+            content: >
+              Grid {{ (states('sensor.device_YOUR_DEVICE_ID_grid_in_today')|float(0))|round(2) }} kWh
+      
+      # Tổng tải
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        card_mod:
+          style: |
+            ha-card {
+              background: transparent !important;
+              box-shadow: none !important;
+              --chip-height: 22px;
+              --chip-icon-size: 18px;
+              --chip-font-size: 12px;
+              --chip-spacing: 8px;
+              --chip-border-radius: 10px;
+              padding: 2px 4px;
+            }
+        chips:
+          - type: template
+            icon: mdi:label-variant
+            icon_color: grey
+            content: Tổng tải
+          - type: template
+            entity: sensor.device_YOUR_DEVICE_ID_total_load_today
+            icon: mdi:lightning-bolt-circle
+            icon_color: >
+              {% set total = states('sensor.device_YOUR_DEVICE_ID_total_load_today')|float(0) %}
+              {{ 'red' if total > 0 else 'grey' }}
+            content: >
+              {% set total = states('sensor.device_YOUR_DEVICE_ID_total_load_today')|float(0) %}
+              {% set load = states('sensor.device_YOUR_DEVICE_ID_load_today')|float(0) %}
+              {% set ess = states('sensor.device_YOUR_DEVICE_ID_essential_today')|float(0) %}
+              {{ total|round(2) }} kWh (AC out {{ load|round(2) }} + Hòa lưới {{ ess|round(2) }})
+      
+      # Battery
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        card_mod:
+          style: |
+            ha-card {
+              background: transparent !important;
+              box-shadow: none !important;
+              --chip-height: 22px;
+              --chip-icon-size: 18px;
+              --chip-font-size: 12px;
+              --chip-spacing: 8px;
+              --chip-border-radius: 10px;
+              padding: 2px 4px;
+            }
+        chips:
+          - type: template
+            icon: mdi:label-variant
+            icon_color: grey
+            content: Battery
+          - type: template
+            entity: sensor.device_YOUR_DEVICE_ID_charge_today
+            icon: mdi:battery
+            icon_color: >
+              {% set chg = states('sensor.device_YOUR_DEVICE_ID_charge_today')|float(0) %}
+              {% set dis = states('sensor.device_YOUR_DEVICE_ID_discharge_today')|float(0) %}
+              {{ 'green' if chg > 0 or dis > 0 else 'grey' }}
+            content: >
+              {% set chg = states('sensor.device_YOUR_DEVICE_ID_charge_today')|float(0) %}
+              {% set dis = states('sensor.device_YOUR_DEVICE_ID_discharge_today')|float(0) %}
+              charge/dis: {{ chg|round(2) }}/{{ dis|round(2) }} kWh
+      
+      # Tiết kiệm
+      - type: custom:mushroom-chips-card
+        alignment: justify
+        card_mod:
+          style: |
+            ha-card {
+              background: transparent !important;
+              box-shadow: none !important;
+              --chip-height: 22px;
+              --chip-icon-size: 18px;
+              --chip-font-size: 12px;
+              --chip-spacing: 8px;
+              --chip-border-radius: 10px;
+              padding: 2px 4px;
+            }
+        chips:
+          - type: template
+            icon: mdi:label-variant
+            icon_color: grey
+            content: Tiết kiệm
+          - type: template
+            entity: sensor.device_YOUR_DEVICE_ID_total_load_today
+            icon: mdi:cash-multiple
+            icon_color: >
+              {% set saved = state_attr('sensor.device_YOUR_DEVICE_ID_total_load_today', 'saved_kwh')|float(0) %}
+              {{ 'lime' if saved > 0 else 'grey' }}
+            content: >
+              {% set saved = state_attr('sensor.device_YOUR_DEVICE_ID_total_load_today', 'saved_kwh')|float(0) %}
+              {{ saved|round(2) }} kWh ~{{ '{:,}'.format((state_attr('sensor.device_YOUR_DEVICE_ID_total_load_today', 'savings_vnd')|float(0))|round(0)|int).replace(',', ' ') }} ₫
+    card_mod:
+      style: |
+        ha-card {
+          background: transparent !important;
+          box-shadow: none !important;
+        }

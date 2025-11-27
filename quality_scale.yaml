@@ -1,0 +1,7 @@
+# Quality Scale for Lumentree Integration
+# https://developers.home-assistant.io/docs/integration_quality_scale_index/
+silver:
+  - Integration uses config flow
+  - Integration has device support
+  - Integration has diagnostics support (optional but recommended)
+

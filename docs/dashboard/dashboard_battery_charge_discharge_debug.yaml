@@ -1,0 +1,287 @@
+# Dashboard: Battery Charge & Discharge Debug
+# 
+# MÔ TẢ:
+#   - Hiển thị biểu đồ charge (nạp) và discharge (xả) pin với độ phân giải 5 phút
+#   - Charge hiển thị trên trục 0 (positive values)
+#   - Discharge hiển thị dưới trục 0 (negative values)
+#   - Kết hợp dữ liệu historical (từ API) và real-time (từ MQTT)
+#
+# CÁCH SỬ DỤNG:
+#   1. Thay YOUR_DEVICE_ID bằng device_sn của bạn (ví dụ: h240909079)
+#   2. Copy toàn bộ nội dung vào Home Assistant Dashboard Editor
+#   3. Chọn "Manual" card và paste YAML
+#
+# LOGIC DATA FLOW:
+#   1. API Client: Invert signs từ API (API: + = discharge, - = charge)
+#      → Sau khi invert: + = charge, - = discharge
+#   2. Sensor Entity: Tách charge (positive) và discharge (negative) từ battery_series_5min_w
+#   3. Dashboard: Nhận charge (positive) và discharge (negative) từ sensor attributes
+#
+# ENTITY ID FORMAT:
+#   - Charge: sensor.device_{device_sn}_charge_today
+#   - Discharge: sensor.device_{device_sn}_discharge_today
+#   - Battery Power (real-time): sensor.device_{device_sn}_battery_power
+#   - Battery Status (real-time): sensor.device_{device_sn}_battery_status
+
+type: vertical-stack
+cards:
+  # Debug section: Hiển thị raw attributes để kiểm tra
+  - type: entities
+    title: Debug - Check Entities
+    entities:
+      - entity: sensor.device_YOUR_DEVICE_ID_charge_today
+        name: Charge Today Entity
+        attribute: series_5min_w
+      - entity: sensor.device_YOUR_DEVICE_ID_discharge_today
+        name: Discharge Today Entity
+        attribute: series_5min_w
+      - type: attribute
+        entity: sensor.device_YOUR_DEVICE_ID_charge_today
+        attribute: series_5min_w
+        name: Charge series_5min_w (first 10)
+      - type: attribute
+        entity: sensor.device_YOUR_DEVICE_ID_discharge_today
+        attribute: series_5min_w
+        name: Discharge series_5min_w (first 10)
+
+  # Main chart: Battery Charge & Discharge
+  - type: custom:apexcharts-card
+    header:
+      title: Battery Charge & Discharge
+      show: true
+    graph_span: 24h
+    span:
+      start: day
+    now:
+      show: false
+    apex_config:
+      chart:
+        type: area
+        height: 300
+        toolbar:
+          show: true
+          tools:
+            download: true
+            selection: true
+            zoom: true
+            zoomin: true
+            zoomout: true
+            pan: true
+            reset: true
+      xaxis:
+        type: datetime
+        labels:
+          format: HH:mm
+          rotate: -45
+      yaxis:
+        - title:
+            text: Power (W)
+            style:
+              fontSize: '12px'
+      legend:
+        position: top
+        horizontalAlign: right
+        fontSize: '12px'
+        formatter: |
+          EVAL:function(seriesName, opts) {
+            return seriesName;
+          }
+      tooltip:
+        shared: true
+        intersect: false
+        y:
+          formatter: |
+            EVAL:function(val) {
+              return Math.abs(val) + ' W';
+            }
+      fill:
+        opacity: 0.3
+    card_mod:
+      style: |
+        ha-card {
+          background: var(--card-background-color);
+          border-radius: 12px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+    series:
+      # Charge Series (Positive values, above 0)
+      - entity: sensor.device_YOUR_DEVICE_ID_charge_today
+        name: Charge
+        type: area
+        color: "#FF9800"
+        stroke_width: 2
+        data_generator: |
+          return (function() {
+            // Validate entity and attributes
+            if (!entity || !entity.attributes) return [];
+            const attr = entity.attributes.series_5min_w;
+            if (!attr) return [];
+
+            // Parse series_5min_w attribute (can be string or array)
+            let arr = [];
+            if (typeof attr === 'string') {
+              arr = attr.split(',').map(function(x) { return parseFloat(x.trim()) || 0; });
+            } else if (Array.isArray(attr)) {
+              arr = attr.map(function(x) { return parseFloat(x) || 0; });
+            } else {
+              return [];
+            }
+            if (!arr || arr.length === 0) return [];
+
+            // Calculate start of day and current time
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            const currentTime = now.getTime();
+
+            // Get real-time battery power from MQTT sensor (if available)
+            // Entity IDs: battery_power (absolute value), battery_status (Charging/Discharging)
+            const batteryPowerEntityId = 'sensor.device_YOUR_DEVICE_ID_battery_power';
+            const batteryStatusEntityId = 'sensor.device_YOUR_DEVICE_ID_battery_status';
+            let realtimeCharge = 0;
+
+            try {
+              const batteryPowerState = states[batteryPowerEntityId];
+              const batteryStatusState = states[batteryStatusEntityId];
+
+              // Only use real-time data if both entities are available and valid
+              if (batteryPowerState && batteryStatusState && 
+                  batteryPowerState.state !== 'unavailable' && 
+                  batteryStatusState.state !== 'unavailable') {
+                const batteryPower = parseFloat(batteryPowerState.state) || 0;
+                const batteryStatus = batteryStatusState.state || '';
+
+                // Logic: Charge shows as positive (above 0)
+                // Battery power is absolute value, status tells us charge/discharge
+                if (batteryStatus === 'Charging' && batteryPower > 0) {
+                  // Keep positive for charge (show above 0)
+                  // Clamp to reasonable range (0-4000W)
+                  realtimeCharge = Math.min(Math.max(batteryPower, 0), 4000);
+                }
+              }
+            } catch (e) {
+              // Ignore errors if entities don't exist (graceful degradation)
+            }
+
+            // Convert historical data (5-minute intervals) to chart data points
+            // Each index represents a 5-minute interval starting from 00:00
+            // Formula: hours = Math.floor(index / 12), minutes = (index % 12) * 5
+            const dataPoints = arr.map(function(value, index) {
+              const hours = Math.floor(index / 12);
+              const minutes = (index % 12) * 5;
+              const timestamp = new Date(startOfDay);
+              timestamp.setHours(hours, minutes, 0, 0);
+              const val = parseFloat(value) || 0;
+              
+              // Charge values are positive from backend (show above 0)
+              // Clamp to 0-4000W range for safety
+              // Ensure we always return a valid data point, even if value is 0
+              return [timestamp.getTime(), Math.min(Math.max(val, 0), 4000)];
+            }).filter(function(point) {
+              // Keep all points, even if value is 0, to ensure chart displays correctly
+              return point && point.length === 2 && !isNaN(point[0]) && !isNaN(point[1]);
+            });
+
+            // Add real-time point if we have current data and it's after the last data point
+            // This bridges the gap between last historical data point and current time
+            if (realtimeCharge > 0 && dataPoints.length > 0) {
+              const lastPoint = dataPoints[dataPoints.length - 1];
+              const lastTime = lastPoint[0];
+              // Only add if current time is after last data point (avoid duplicates)
+              if (currentTime > lastTime) {
+                dataPoints.push([currentTime, realtimeCharge]);
+              }
+            }
+
+            return dataPoints;
+          })();
+
+      # Discharge Series (Negative values, below 0)
+      - entity: sensor.device_YOUR_DEVICE_ID_discharge_today
+        name: Discharge
+        type: area
+        color: "#4CAF50"
+        stroke_width: 2
+        data_generator: |
+          return (function() {
+            // Validate entity and attributes
+            if (!entity || !entity.attributes) return [];
+            const attr = entity.attributes.series_5min_w;
+            if (!attr) return [];
+
+            // Parse series_5min_w attribute (can be string or array)
+            let arr = [];
+            if (typeof attr === 'string') {
+              arr = attr.split(',').map(function(x) { return parseFloat(x.trim()) || 0; });
+            } else if (Array.isArray(attr)) {
+              arr = attr.map(function(x) { return parseFloat(x) || 0; });
+            } else {
+              return [];
+            }
+            if (!arr || arr.length === 0) return [];
+
+            // Calculate start of day and current time
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            const currentTime = now.getTime();
+
+            // Get real-time battery power from MQTT sensor (if available)
+            // Entity IDs: battery_power (absolute value), battery_status (Charging/Discharging)
+            const batteryPowerEntityId = 'sensor.device_YOUR_DEVICE_ID_battery_power';
+            const batteryStatusEntityId = 'sensor.device_YOUR_DEVICE_ID_battery_status';
+            let realtimeDischarge = 0;
+
+            try {
+              const batteryPowerState = states[batteryPowerEntityId];
+              const batteryStatusState = states[batteryStatusEntityId];
+
+              // Only use real-time data if both entities are available and valid
+              if (batteryPowerState && batteryStatusState && 
+                  batteryPowerState.state !== 'unavailable' && 
+                  batteryStatusState.state !== 'unavailable') {
+                const batteryPower = parseFloat(batteryPowerState.state) || 0;
+                const batteryStatus = batteryStatusState.state || '';
+
+                // Logic: Discharge shows as negative (below 0)
+                // Battery power is absolute value, status tells us charge/discharge
+                if (batteryStatus === 'Discharging' && batteryPower > 0) {
+                  // Invert to negative for discharge (show below 0)
+                  // Clamp to reasonable range (-3000W to 0)
+                  realtimeDischarge = -Math.min(Math.max(batteryPower, 0), 3000);
+                }
+              }
+            } catch (e) {
+              // Ignore errors if entities don't exist (graceful degradation)
+            }
+
+            // Convert historical data (5-minute intervals) to chart data points
+            // Each index represents a 5-minute interval starting from 00:00
+            // Formula: hours = Math.floor(index / 12), minutes = (index % 12) * 5
+            const dataPoints = arr.map(function(value, index) {
+              const hours = Math.floor(index / 12);
+              const minutes = (index % 12) * 5;
+              const timestamp = new Date(startOfDay);
+              timestamp.setHours(hours, minutes, 0, 0);
+              const val = parseFloat(value) || 0;
+              
+              // Discharge values are negative from backend (show below 0)
+              // Clamp to -3000W to 0 range for safety
+              // Ensure we always return a valid data point, even if value is 0
+              return [timestamp.getTime(), Math.max(Math.min(val, 0), -3000)];
+            }).filter(function(point) {
+              // Keep all points, even if value is 0, to ensure chart displays correctly
+              return point && point.length === 2 && !isNaN(point[0]) && !isNaN(point[1]);
+            });
+
+            // Add real-time point if we have current data and it's after the last data point
+            // This bridges the gap between last historical data point and current time
+            if (realtimeDischarge < 0 && dataPoints.length > 0) {
+              const lastPoint = dataPoints[dataPoints.length - 1];
+              const lastTime = lastPoint[0];
+              // Only add if current time is after last data point (avoid duplicates)
+              if (currentTime > lastTime) {
+                dataPoints.push([currentTime, realtimeDischarge]);
+              }
+            }
+
+            return dataPoints;
+          })();
