@@ -12,7 +12,7 @@
     "codeowners": [
         "@ngoviet"
     ],
-    "version": "4.1.0",
+    "version": "5.0.0",
     "iot_class": "cloud_polling",
     "integration_type": "device",
     "loggers": [

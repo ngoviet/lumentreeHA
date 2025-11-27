@@ -237,18 +237,46 @@ logger:
 
 ## 🔄 Migration from v2.x
 
-See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for detailed upgrade instructions.
+**Important**: v5.0.0 includes major improvements and fixes. Existing configurations remain valid. No migration steps required.
 
-**Important**: v4.0.0 includes major statistics enhancements. Existing configurations remain valid.
+## 📝 Changelog
+
+### v5.0.0 (Latest)
+
+**Major Improvements:**
+- Fixed savings calculation for monthly/yearly statistics
+- Improved dashboard templates with direct calculations (no longer dependent on separate sensor entities)
+- Enhanced error handling and data validation
+- Code optimization and performance improvements
+- Cleaned up internal documentation files
+
+**Bug Fixes:**
+- Fixed monthly/yearly savings showing 0.0 when total_load was positive
+- Improved calculation logic to ensure saved_kwh and savings_vnd are correctly computed
+- Enhanced API response validation
+- Fixed dashboard display issues for savings data
+
+**Technical Improvements:**
+- Optimized cache recomputation logic
+- Improved date parsing and validation
+- Enhanced input validation for API calls
+- Better error context in logs
+
+### v4.0.0
+
+- Major statistics enhancements
+- Monthly and yearly statistics with daily arrays
+- Lifetime/total statistics aggregation
+- Performance optimizations
 
 ## 📁 Architecture
 
-### v4.0.0 Structure
+### v5.0.0 Structure
 
 ```
 custom_components/lumentree/
 ├── __init__.py                 # Integration entry point
-├── manifest.json               # v4.0.0 metadata
+├── manifest.json               # v5.0.0 metadata
 ├── const.py                    # Constants
 ├── config_flow.py              # Configuration flow
 ├── strings.json                # UI strings

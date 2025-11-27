@@ -67,14 +67,66 @@ def cache_path(device_id: str, year: int) -> str:
     return os.path.join(dev_dir, f"{year}.json")
 
 
-def load_year(device_id: str, year: int) -> Dict[str, Any]:
+def _needs_recompute(cache: Dict[str, Any]) -> bool:
+    """Check if cache needs recompute based on monthly arrays consistency.
+    
+    Returns True if monthly arrays appear incorrect (all values same or missing).
+    """
+    if not cache.get("daily"):
+        return False
+    
+    monthly = cache.get("monthly", {})
+    if not monthly:
+        return True
+    
+    # Check if monthly arrays have valid data
+    # If all months (except last) have same value, likely needs recompute
+    for key in ["pv", "grid", "load"]:
+        if key not in monthly:
+            return True
+        arr = monthly[key]
+        if not isinstance(arr, list) or len(arr) != 12:
+            return True
+        # Check if first 11 months all have same value (likely incorrect)
+        if len(set(arr[:11])) <= 1 and arr[0] != 0.0:
+            return True
+    
+    return False
+
+
+def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[str, Any]:
+    """Load cache for a year, optionally auto-recomputing aggregates if needed.
+    
+    Args:
+        device_id: Device ID
+        year: Year to load
+        auto_recompute: If True, automatically recompute aggregates if they appear incorrect
+        
+    Returns:
+        Cache dictionary
+    """
     path = cache_path(device_id, year)
     if not os.path.exists(path):
         return _empty_cache()
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            return data if isinstance(data, dict) else _empty_cache()
+            if not isinstance(data, dict):
+                return _empty_cache()
+            
+            # Auto-recompute if monthly arrays appear incorrect
+            if auto_recompute and _needs_recompute(data):
+                import logging
+                _LOGGER = logging.getLogger(__name__)
+                _LOGGER.info(f"Auto-recomputing aggregates for {device_id}/{year} (monthly arrays appear incorrect)")
+                data = recompute_aggregates(data)
+                # Save recomputed cache
+                try:
+                    save_year(device_id, year, data)
+                except Exception:
+                    pass  # Best effort save
+            
+            return data
     except Exception:
         return _empty_cache()
 

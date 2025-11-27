@@ -53,9 +53,9 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if self._last_year is not None and self._last_year != year:
                 await self._finalize_previous_year(self._last_year)
             
-            # Load cache to get monthly arrays
+            # Load cache to get monthly arrays (auto-recompute if needed)
             cache = await self.hass.async_add_executor_job(
-                cache_io.load_year, self.aggregator._device_id, year
+                cache_io.load_year, self.aggregator._device_id, year, True
             )
             
             # Try to get monthly data from API first (getYearData endpoint)
@@ -63,12 +63,24 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             api_year_data = None
             try:
                 api_year_data = await self.aggregator.get_year_data_from_api(year)
-                _LOGGER.info(f"Successfully fetched year data from API for {year}")
+                if api_year_data:
+                    # Validate that we have meaningful data
+                    pv_sum = sum(api_year_data.get("pv", [0.0] * 12))
+                    if pv_sum > 0.0:
+                        _LOGGER.info(f"Successfully fetched year data from API for {year} (PV total: {pv_sum:.1f} kWh)")
+                    else:
+                        _LOGGER.warning(f"API returned year data for {year} but PV sum is zero, treating as invalid")
+                        api_year_data = None
+                else:
+                    _LOGGER.warning(f"API returned None for year data for {year}, falling back to cache")
             except Exception as err:
                 _LOGGER.warning(f"Failed to get year data from API for {year}: {err}, falling back to cache")
+                api_year_data = None
             
             # Ensure monthly arrays are recomputed from daily data for accuracy
             # This ensures all months with daily data are properly aggregated
+            # Note: load_year() already auto-recomputes if needed, but we recompute here to ensure
+            # consistency after potential API data updates
             if cache.get("daily"):
                 cache = cache_io.recompute_aggregates(cache)
                 # Save updated cache back
@@ -81,37 +93,72 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             monthly_data = cache.get("monthly", {})
             
             if api_year_data:
-                # Use API data as primary source (it has data for all months)
-                monthly_pv = api_year_data.get("pv", [0.0] * 12)
-                monthly_grid = api_year_data.get("grid", [0.0] * 12)
-                monthly_load = api_year_data.get("load", [0.0] * 12)
-                monthly_essential = api_year_data.get("essential", [0.0] * 12)
-                monthly_charge = api_year_data.get("charge", [0.0] * 12)
-                monthly_discharge = api_year_data.get("discharge", [0.0] * 12)
+                # Use API data as primary source (it has data for all months, more accurate)
+                # API data comes from getYearData which has pre-aggregated monthly totals
+                monthly_pv = [round(float(v), 1) for v in api_year_data.get("pv", [0.0] * 12)]
+                monthly_grid = [round(float(v), 1) for v in api_year_data.get("grid", [0.0] * 12)]
+                monthly_load = [round(float(v), 1) for v in api_year_data.get("load", [0.0] * 12)]
+                monthly_essential = [round(float(v), 1) for v in api_year_data.get("essential", [0.0] * 12)]
+                monthly_charge = [round(float(v), 1) for v in api_year_data.get("charge", [0.0] * 12)]
+                monthly_discharge = [round(float(v), 1) for v in api_year_data.get("discharge", [0.0] * 12)]
                 
                 # Calculate derived values
-                monthly_total_load = [load + essential for load, essential in zip(monthly_load, monthly_essential)]
-                monthly_saved_kwh = [max(0.0, total - grid) for total, grid in zip(monthly_total_load, monthly_grid)]
+                monthly_total_load = [round(load + essential, 1) for load, essential in zip(monthly_load, monthly_essential)]
+                monthly_saved_kwh = [round(max(0.0, total - grid), 1) for total, grid in zip(monthly_total_load, monthly_grid)]
                 # Calculate savings in VND (using default tariff)
                 from ..const import DEFAULT_TARIFF_VND_PER_KWH
                 monthly_savings_vnd = [round(saved * DEFAULT_TARIFF_VND_PER_KWH, 0) for saved in monthly_saved_kwh]
                 
-                # For current month, prefer cache data if available (more accurate)
+                # Update cache with API monthly data (more accurate than daily aggregation)
+                # This ensures cache has correct monthly arrays from API
+                cache["monthly"] = {
+                    "pv": monthly_pv,
+                    "grid": monthly_grid,
+                    "load": monthly_load,
+                    "essential": monthly_essential,
+                    "total_load": monthly_total_load,
+                    "charge": monthly_charge,
+                    "discharge": monthly_discharge,
+                    "saved_kwh": monthly_saved_kwh,
+                    "savings_vnd": monthly_savings_vnd,
+                }
+                
+                # Save updated cache with API monthly data
+                await self.hass.async_add_executor_job(
+                    cache_io.save_year, self.aggregator._device_id, year, cache
+                )
+                
+                # For current month, only override with cache if cache has more complete data
+                # (e.g., includes today's data that API might not have yet)
                 current_year = now.year
                 if current_year == year:
                     current_month = now.month
-                    current_month_data = await self._get_current_month_data()
-                    if current_month_data:
-                        month_idx = current_month - 1
-                        monthly_pv[month_idx] = float(current_month_data.get("pv", 0.0))
-                        monthly_grid[month_idx] = float(current_month_data.get("grid", 0.0))
-                        monthly_load[month_idx] = float(current_month_data.get("load", 0.0))
-                        monthly_essential[month_idx] = float(current_month_data.get("essential", 0.0))
-                        monthly_total_load[month_idx] = float(current_month_data.get("total_load", 0.0))
-                        monthly_charge[month_idx] = float(current_month_data.get("charge", 0.0))
-                        monthly_discharge[month_idx] = float(current_month_data.get("discharge", 0.0))
-                        monthly_saved_kwh[month_idx] = float(current_month_data.get("saved_kwh", 0.0))
-                        monthly_savings_vnd[month_idx] = float(current_month_data.get("savings_vnd", 0.0))
+                    month_idx = current_month - 1
+                    # Check if cache has data for today (more recent than API)
+                    today_str = now.strftime("%Y-%m-%d")
+                    if today_str in cache.get("daily", {}):
+                        current_month_data = await self._get_current_month_data()
+                        if current_month_data:
+                            # Only update if cache value is higher (includes today)
+                            cache_pv = float(current_month_data.get("pv", 0.0))
+                            if cache_pv > monthly_pv[month_idx]:
+                                monthly_pv[month_idx] = cache_pv
+                            cache_grid = float(current_month_data.get("grid", 0.0))
+                            if cache_grid > monthly_grid[month_idx]:
+                                monthly_grid[month_idx] = cache_grid
+                            cache_load = float(current_month_data.get("load", 0.0))
+                            if cache_load > monthly_load[month_idx]:
+                                monthly_load[month_idx] = cache_load
+                            cache_essential = float(current_month_data.get("essential", 0.0))
+                            if cache_essential > monthly_essential[month_idx]:
+                                monthly_essential[month_idx] = cache_essential
+                            # Recalculate derived values for current month
+                            total_load_val = current_month_data.get("total_load")
+                            if total_load_val is None:
+                                total_load_val = monthly_load[month_idx] + monthly_essential[month_idx]
+                            monthly_total_load[month_idx] = round(float(total_load_val), 1)
+                            monthly_saved_kwh[month_idx] = round(max(0.0, monthly_total_load[month_idx] - monthly_grid[month_idx]), 1)
+                            monthly_savings_vnd[month_idx] = round(monthly_saved_kwh[month_idx] * DEFAULT_TARIFF_VND_PER_KWH, 0)
             else:
                 # Fallback to cache data
                 monthly_pv = monthly_data.get("pv", [0.0] * 12)
@@ -154,11 +201,23 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         monthly_grid[month_idx] = float(current_month_data.get("grid", 0.0))
                         monthly_load[month_idx] = float(current_month_data.get("load", 0.0))
                         monthly_essential[month_idx] = float(current_month_data.get("essential", 0.0))
-                        monthly_total_load[month_idx] = float(current_month_data.get("total_load", 0.0))
+                        # Ensure total_load is calculated if missing
+                        total_load_val = current_month_data.get("total_load")
+                        if total_load_val is None:
+                            total_load_val = monthly_load[month_idx] + monthly_essential[month_idx]
+                        monthly_total_load[month_idx] = float(total_load_val)
                         monthly_charge[month_idx] = float(current_month_data.get("charge", 0.0))
                         monthly_discharge[month_idx] = float(current_month_data.get("discharge", 0.0))
-                        monthly_saved_kwh[month_idx] = float(current_month_data.get("saved_kwh", 0.0))
-                        monthly_savings_vnd[month_idx] = float(current_month_data.get("savings_vnd", 0.0))
+                        # Ensure saved_kwh and savings_vnd are calculated if missing
+                        saved_kwh_val = current_month_data.get("saved_kwh")
+                        if saved_kwh_val is None:
+                            saved_kwh_val = max(0.0, monthly_total_load[month_idx] - monthly_grid[month_idx])
+                        monthly_saved_kwh[month_idx] = float(saved_kwh_val)
+                        savings_vnd_val = current_month_data.get("savings_vnd")
+                        if savings_vnd_val is None:
+                            from ..const import DEFAULT_TARIFF_VND_PER_KWH
+                            savings_vnd_val = monthly_saved_kwh[month_idx] * DEFAULT_TARIFF_VND_PER_KWH
+                        monthly_savings_vnd[month_idx] = float(savings_vnd_val)
                         
                         # Recalculate yearly totals with updated current month
                         y = {
@@ -270,13 +329,24 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     KEY_MONTHLY_CHARGE_KWH,
                     KEY_MONTHLY_DISCHARGE_KWH,
                 )
+                from ..const import (
+                    KEY_MONTHLY_TOTAL_LOAD_KWH,
+                    KEY_MONTHLY_SAVED_KWH,
+                    KEY_MONTHLY_SAVINGS_VND,
+                )
+                load_val = float(monthly_coord.data.get(KEY_MONTHLY_LOAD_KWH) or 0.0)
+                essential_val = float(monthly_coord.data.get(KEY_MONTHLY_ESSENTIAL_KWH) or 0.0)
+                total_load_val = float(monthly_coord.data.get(KEY_MONTHLY_TOTAL_LOAD_KWH) or (load_val + essential_val))
                 return {
                     "pv": float(monthly_coord.data.get(KEY_MONTHLY_PV_KWH) or 0.0),
                     "grid": float(monthly_coord.data.get(KEY_MONTHLY_GRID_IN_KWH) or 0.0),
-                    "load": float(monthly_coord.data.get(KEY_MONTHLY_LOAD_KWH) or 0.0),
-                    "essential": float(monthly_coord.data.get(KEY_MONTHLY_ESSENTIAL_KWH) or 0.0),
+                    "load": load_val,
+                    "essential": essential_val,
+                    "total_load": total_load_val,
                     "charge": float(monthly_coord.data.get(KEY_MONTHLY_CHARGE_KWH) or 0.0),
                     "discharge": float(monthly_coord.data.get(KEY_MONTHLY_DISCHARGE_KWH) or 0.0),
+                    "saved_kwh": float(monthly_coord.data.get(KEY_MONTHLY_SAVED_KWH) or 0.0),
+                    "savings_vnd": float(monthly_coord.data.get(KEY_MONTHLY_SAVINGS_VND) or 0.0),
                 }
             
             # Fallback: calculate from cache + today
@@ -295,12 +365,36 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             if daily_coord and daily_coord.data:
                 today = now.date()
                 if today.month == month:
+                    load_today = float(daily_coord.data.get("load_today") or 0.0)
+                    essential_today = float(daily_coord.data.get("essential_today") or 0.0)
+                    total_load_today = load_today + essential_today
+                    grid_today = float(daily_coord.data.get("grid_in_today") or 0.0)
+                    saved_kwh_today = max(0.0, total_load_today - grid_today)
+                    from ..const import DEFAULT_TARIFF_VND_PER_KWH
+                    savings_vnd_today = saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH
+                    
                     m["pv"] = m.get("pv", 0.0) + float(daily_coord.data.get("pv_today") or 0.0)
-                    m["grid"] = m.get("grid", 0.0) + float(daily_coord.data.get("grid_in_today") or 0.0)
-                    m["load"] = m.get("load", 0.0) + float(daily_coord.data.get("load_today") or 0.0)
-                    m["essential"] = m.get("essential", 0.0) + float(daily_coord.data.get("essential_today") or 0.0)
+                    m["grid"] = m.get("grid", 0.0) + grid_today
+                    m["load"] = m.get("load", 0.0) + load_today
+                    m["essential"] = m.get("essential", 0.0) + essential_today
+                    m["total_load"] = m.get("total_load", 0.0) + total_load_today
                     m["charge"] = m.get("charge", 0.0) + float(daily_coord.data.get("charge_today") or 0.0)
                     m["discharge"] = m.get("discharge", 0.0) + float(daily_coord.data.get("discharge_today") or 0.0)
+                    m["saved_kwh"] = m.get("saved_kwh", 0.0) + saved_kwh_today
+                    m["savings_vnd"] = m.get("savings_vnd", 0.0) + savings_vnd_today
+            
+            # Ensure total_load is set if missing
+            if "total_load" not in m:
+                m["total_load"] = m.get("load", 0.0) + m.get("essential", 0.0)
+            
+            # Ensure saved_kwh and savings_vnd are set if missing
+            if "saved_kwh" not in m:
+                total_load_val = m.get("total_load", 0.0)
+                grid_val = m.get("grid", 0.0)
+                m["saved_kwh"] = max(0.0, total_load_val - grid_val)
+            if "savings_vnd" not in m:
+                from ..const import DEFAULT_TARIFF_VND_PER_KWH
+                m["savings_vnd"] = m.get("saved_kwh", 0.0) * DEFAULT_TARIFF_VND_PER_KWH
             
             return m
         except Exception:

@@ -379,6 +379,16 @@ class LumentreeHttpApiClient:
 
         current_time = time.time()
 
+        # Cleanup expired cache entries to prevent memory leak
+        expired_keys = [
+            key for key, (_, cache_time) in _device_info_cache.items()
+            if current_time - cache_time >= _cache_timeout
+        ]
+        for key in expired_keys:
+            _device_info_cache.pop(key, None)
+        if expired_keys and _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Cleaned up %d expired device info cache entries", len(expired_keys))
+
         if device_id in _device_info_cache:
             cached_data, cache_time = _device_info_cache[device_id]
             if current_time - cache_time < _cache_timeout:
@@ -475,7 +485,16 @@ class LumentreeHttpApiClient:
         try:
             params = {"deviceId": device_identifier, "year": str(year)}
             resp = await self._request("GET", URL_GET_YEAR_DATA, params=params, requires_auth=True)
+            
+            # Check if response is valid
+            if not resp or resp.get("returnValue") != 1:
+                _LOGGER.warning(f"Invalid response from getYearData API for {device_identifier} @ {year}: {resp}")
+                raise ValueError(f"API returned invalid response: {resp}")
+            
             data = resp.get("data", {})
+            if not data:
+                _LOGGER.warning(f"Empty data from getYearData API for {device_identifier} @ {year}")
+                raise ValueError("API returned empty data")
             
             # Convert tableValueInfo arrays from 0.1 kWh to kWh
             result: Dict[str, Any] = {}
@@ -491,14 +510,8 @@ class LumentreeHttpApiClient:
             return result
         except Exception as exc:
             _LOGGER.error(f"Error fetching year data for {device_identifier} @ {year}: {exc}")
-            # Return empty arrays on error
-            return {
-                "pv": [0.0] * 12,
-                "grid": [0.0] * 12,
-                "homeload": [0.0] * 12,
-                "essentialLoad": [0.0] * 12,
-                "bat": [0.0] * 12,
-            }
+            # Re-raise exception so caller knows there was an error
+            raise
 
     async def get_month_data(self, device_identifier: str, year: int, month: int) -> Dict[str, Any]:
         """Get monthly statistics data (daily data for a month).

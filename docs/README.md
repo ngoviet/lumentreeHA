@@ -18,8 +18,11 @@ docs/
 │   ├── dashboard_pv_grid.yaml  # PV and Grid chart example
 │   ├── dashboard_total_load.yaml # Total load chart example
 │   ├── dashboard_battery_charge_discharge.yaml # Battery chart example
-│   └── dashboard_daily_stats.yaml # Daily statistics dashboard
-└── examples/                    # Code examples (coming soon)
+│   ├── dashboard_daily_stats.yaml # Daily statistics dashboard
+│   ├── dashboard_monthly_stats.yaml # Monthly statistics dashboard
+│   └── dashboard_yearly_stats.yaml # Yearly statistics dashboard
+└── examples/                    # Code examples
+    └── backfill_2024.yaml      # Example automation for backfilling historical data
 ```
 
 ## 📚 Documentation
@@ -39,6 +42,8 @@ docs/
 - **Total Load Chart**: Consumption monitoring with 5-minute interval data
 - **Battery Charge/Discharge**: Battery energy flow visualization
 - **Daily Statistics**: Comprehensive daily energy statistics dashboard
+- **Monthly Statistics**: Monthly energy statistics with savings calculation
+- **Yearly Statistics**: Yearly energy statistics with savings calculation
 
 ## 🔧 Usage
 

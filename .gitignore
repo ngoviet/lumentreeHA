@@ -38,3 +38,40 @@ dist/
 build/
 *.egg-info/
 
+# Ruff cache
+.ruff_cache/
+
+# Internal documentation and guides (not for public)
+AUDIT.md
+BUGFIXES.md
+CACHE_FIX_GUIDE.md
+CACHE_VALIDATION_REPORT.md
+MONTHLY_DATA_FIX.md
+POST_RESTART_STEPS.md
+QUICK_TEST.md
+STATS_FIXES.md
+SYNC_STATUS.md
+SYNC_README.md
+TEST_WITHOUT_RESTART.md
+THREE_BUGS_FIXED.md
+WORKFLOW_EXPLANATION.md
+WORKFLOW_NEW.md
+FIXES_APPLIED.md
+FIXES_SUMMARY.txt
+MIGRATION.md
+QUICKSTART_DEV.md
+BATTERY_CHARGE_DISCHARGE_FLOW_ANALYSIS.md
+BATTERY_FLOW_VERIFICATION.md
+CHARGE_DISCHARGE_CHECK.md
+
+# Internal scripts (sync, debug, fix)
+sync_from_ha.ps1
+sync_to_ha.ps1
+fix_cache.ps1
+fix_cache_data.py
+recompute_cache.ps1
+validate_cache.ps1
+
+# Preparation files
+PREPARE_GITHUB.md
+

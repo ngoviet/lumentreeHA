@@ -64,9 +64,9 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
                 prev_year, prev_month = self._last_month
                 await self._finalize_previous_month(prev_year, prev_month)
 
-            # Load cache to build daily arrays
+            # Load cache to build daily arrays (auto-recompute if needed)
             cache = await self.hass.async_add_executor_job(
-                cache_io.load_year, self.aggregator._device_id, year
+                cache_io.load_year, self.aggregator._device_id, year, True
             )
             
             _LOGGER.info(f"Monthly coordinator: Using device_id: {self.aggregator._device_id}")

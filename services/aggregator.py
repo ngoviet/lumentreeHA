@@ -25,7 +25,7 @@ class StatsAggregator:
         self._api = api
         self._device_id = device_id
 
-    async def get_year_data_from_api(self, year: int) -> Dict[str, Any]:
+    async def get_year_data_from_api(self, year: int) -> Dict[str, Any] | None:
         """Get yearly data from API using getYearData endpoint.
         
         This provides pre-aggregated monthly data that may not be available
@@ -36,8 +36,9 @@ class StatsAggregator:
             
         Returns:
             Dictionary with monthly arrays (12 values each) for:
-            - pv, grid, homeload, essentialLoad, bat
+            - pv, grid, load, essential, charge, discharge
             Values are in kWh (already converted from 0.1 kWh)
+            Returns None if API call fails or data is invalid
         """
         try:
             year_data = await self._api.get_year_data(self._device_id, year)
@@ -54,17 +55,22 @@ class StatsAggregator:
                 "discharge": year_data.get("batF", [0.0] * 12),  # batF = discharge
             }
             
+            # Validate data: check if at least one month has non-zero data
+            # If all months are zero, the API might have returned empty/invalid data
+            has_valid_data = False
+            for key in ["pv", "grid", "load", "essential"]:
+                if any(v > 0.0 for v in result.get(key, [])):
+                    has_valid_data = True
+                    break
+            
+            if not has_valid_data:
+                _LOGGER.warning(f"API returned year data for {year} but all values are zero (likely invalid)")
+                return None
+            
             return result
         except Exception as err:
             _LOGGER.error(f"Error getting year data from API for {year}: {err}")
-            return {
-                "pv": [0.0] * 12,
-                "grid": [0.0] * 12,
-                "load": [0.0] * 12,
-                "essential": [0.0] * 12,
-                "charge": [0.0] * 12,
-                "discharge": [0.0] * 12,
-            }
+            return None
 
     async def smart_backfill(self, max_years: int = 10, optimize_cache: bool = True) -> Dict[str, Any]:
         """Smart backfill using getYearData/getMonthData APIs for optimal performance.
@@ -257,11 +263,13 @@ class StatsAggregator:
         await self.backfill_days(start, today)
 
     async def summarize_month(self, year: int, month: int) -> Dict[str, float]:
-        c = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+        # Auto-recompute aggregates if needed when loading cache
+        c = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year, True)
         return cache_io.summarize_month(c, month)
 
     async def summarize_year(self, year: int) -> Dict[str, float]:
-        c = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+        # Auto-recompute aggregates if needed when loading cache
+        c = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year, True)
         return cache_io.summarize_year(c)
 
     async def backfill_all(self, max_years: int | None = 5, empty_streak: int = 14) -> None:

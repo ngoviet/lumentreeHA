@@ -112,7 +112,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.debug("MQTT Poll %s.", device_sn)
             domain_data = hass.data.get(DOMAIN)
             if not domain_data:
-                _LOGGER.warning("Lumentree domain data gone. Stop poll."); return
+                _LOGGER.warning("Lumentree domain data gone. Stop poll.")
+                return
             entry_data = domain_data.get(entry.entry_id)
             if not entry_data:
                 _LOGGER.warning(f"Entry data missing {entry.entry_id}. Stop poll.")
@@ -121,7 +122,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if callable(current_timer):
                     try:
                         current_timer()
-                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}."); remove_interval=None
+                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}.")
+                        remove_interval = None
                     except Exception as timer_err:
                         _LOGGER.error(f"Error cancel timer {device_sn}: {timer_err}")
                 return
