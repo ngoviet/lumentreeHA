@@ -1,0 +1,9 @@
+# Development dependencies for Lumentree integration
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-homeassistant-custom-component>=0.13.0
+ruff>=0.1.0
+mypy>=1.5.0
+types-aiofiles>=23.2.0.0
+hassfest>=2024.1.0
+
