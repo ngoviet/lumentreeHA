@@ -9,6 +9,17 @@
 
 A high-performance Home Assistant integration for Lumentree solar inverters with real-time MQTT data and daily statistics via HTTP API.
 
+## 📸 Screenshots
+
+### Sensors Overview
+![Sensors Entity Overview](images/sensors_entity_overview.jpg)
+
+### Dashboard - Energy Charts (24h)
+![Dashboard Energy Charts 24h](images/dashboard_energy_charts_24h.jpg)
+
+### Dashboard - Statistics Summary
+![Dashboard Statistics Summary](images/dashboard_statistics_summary.jpg)
+
 ## ✨ Features
 
 ### 🔄 Real-time Data (MQTT)
