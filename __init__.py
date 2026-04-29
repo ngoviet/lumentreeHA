@@ -98,11 +98,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         })
         _LOGGER.info(f"Created total coordinator for {device_sn}")
 
-        # Prime daily coordinator (non-blocking)
-        hass.async_create_task(daily_coord.async_config_entry_first_refresh())
-        hass.async_create_task(monthly_coord.async_config_entry_first_refresh())
-        hass.async_create_task(yearly_coord.async_config_entry_first_refresh())
-        hass.async_create_task(total_coord.async_config_entry_first_refresh())
+        # Prime daily coordinator first (non-blocking), then stats coordinators after delay
+        # This avoids race condition where monthly/yearly/total read empty cache
+        # before backfill has populated it
+        async def _prime_coordinators_staggered():
+            try:
+                await daily_coord.async_config_entry_first_refresh()
+            except Exception as e:
+                _LOGGER.warning("Daily coordinator first refresh failed: %s", e)
+            # Give backfill time to populate cache, then refresh stats coordinators
+            await asyncio.sleep(10)
+            hass.async_create_task(monthly_coord.async_config_entry_first_refresh())
+            hass.async_create_task(yearly_coord.async_config_entry_first_refresh())
+            hass.async_create_task(total_coord.async_config_entry_first_refresh())
+
+        hass.async_create_task(_prime_coordinators_staggered())
 
         polling_interval = datetime.timedelta(seconds=DEFAULT_POLLING_INTERVAL)
 
@@ -141,6 +151,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("Requesting MQTT (main data) %s...", device_sn)
                 await active_mqtt_client.async_request_data()
+                # Also request battery cell data every 30s (every 6th main poll)
+                poll_count = getattr(_async_poll_data, "_count", 0) + 1
+                _async_poll_data._count = poll_count
+                if poll_count % 6 == 0:
+                    await active_mqtt_client.async_request_battery_cells()
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("MQTT request sent %s.", device_sn)
             except Exception as poll_err:

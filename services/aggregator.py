@@ -20,6 +20,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class StatsAggregator:
+    __slots__ = ("_hass", "_api", "_device_id")
+
     def __init__(self, hass: HomeAssistant, api: LumentreeHttpApiClient, device_id: str) -> None:
         self._hass = hass
         self._api = api
@@ -237,7 +239,7 @@ class StatsAggregator:
                     vals = await self.fetch_day(date_str)
                     # Store all days in cache, even if all values are 0
                     # This matches server behavior (always returns same structure)
-                    cache, _m, _ = cache_io.update_daily(cache, date_str, vals)
+                    cache, _m = cache_io.update_daily(cache, date_str, vals)
                     cache.setdefault("meta", {})["last_backfill_date"] = date_str
                     cache_dirty = True
                     
@@ -365,7 +367,7 @@ class StatsAggregator:
                 # we store ALL days in daily cache, even if all values are 0.
                 # This simplifies logic and allows easy re-checking later.
                 empty = 0  # Reset empty streak when we have a response (even if all zeros)
-                cache, _m, _ = cache_io.update_daily(cache, date_str, vals)
+                cache, _m = cache_io.update_daily(cache, date_str, vals)
                 cache.setdefault("meta", {})["last_backfill_date"] = date_str
                 total_fetched += 1
                 days_in_current_year += 1
@@ -572,7 +574,7 @@ class StatsAggregator:
                         # Has data - recover it!
                         # Check if it was in empty_dates before
                         was_empty = date_str in cache.get("meta", {}).get("empty_dates", [])
-                        cache, _m, _ = cache_io.update_daily(cache, date_str, vals)
+                        cache, _m = cache_io.update_daily(cache, date_str, vals)
                         cache.setdefault("meta", {})["last_backfill_date"] = date_str
                         cache_dirty = True
                         recovered += 1

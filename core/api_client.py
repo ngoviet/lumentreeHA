@@ -1,8 +1,11 @@
 """HTTP API client for Lumentree integration."""
 
+from __future__ import annotations
+
 import asyncio
-from typing import Any, Dict, Optional, List
+from typing import Any
 import logging
+import time
 
 import aiohttp
 from aiohttp.client import ClientTimeout
@@ -33,15 +36,12 @@ API_MAX_RETRIES = 3
 API_RETRY_BASE_DELAY = 1.0  # Start with 1 second
 API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 
-# Cache for device info (device info rarely changes)
-_device_info_cache: Dict[str, tuple[Dict[str, Any], float]] = {}
-_cache_timeout = 3600  # 1 hour
-
-
 class LumentreeHttpApiClient:
     """HTTP API client for Lumentree cloud services."""
 
-    __slots__ = ("_session", "_token")
+    __slots__ = ("_session", "_token", "_device_info_cache")
+
+    _CACHE_TIMEOUT = 3600  # 1 hour
 
     def __init__(self, session: aiohttp.ClientSession) -> None:
         """Initialize the API client.
@@ -50,16 +50,17 @@ class LumentreeHttpApiClient:
             session: aiohttp client session for HTTP requests
         """
         self._session = session
-        self._token: Optional[str] = None
+        self._token: str | None = None
+        self._device_info_cache: dict[str, tuple[dict[str, Any], float]] = {}
 
     # ---------------------------
     # Helpers for statistics
     # ---------------------------
 
     @staticmethod
-    def _to_float_list(vals: Any) -> List[float]:
+    def _to_float_list(vals: Any) -> list[float]:
         if isinstance(vals, list):
-            out: List[float] = []
+            out: list[float] = []
             for v in vals:
                 try:
                     out.append(float(v))
@@ -70,13 +71,13 @@ class LumentreeHttpApiClient:
         return []
 
     @staticmethod
-    def _series_5min_kwh(series_w: List[float]) -> List[float]:
+    def _series_5min_kwh(series_w: list[float]) -> list[float]:
         # Convert W (5‑minute interval) → kWh for each step - keep full precision
         factor = (5.0 / 60.0) / 1000.0
         return [w * factor for w in series_w]
 
     @staticmethod
-    def _series_hour_kwh(series_kwh5: List[float]) -> List[float]:
+    def _series_hour_kwh(series_kwh5: list[float]) -> list[float]:
         # 12 steps of 5‑min per hour
         if not series_kwh5:
             return []
@@ -91,11 +92,11 @@ class LumentreeHttpApiClient:
         return hours
 
     @staticmethod
-    def _sum(series: List[float]) -> float:
+    def _sum(series: list[float]) -> float:
         # Keep full precision
         return sum(series) if series else 0.0
 
-    def set_token(self, token: Optional[str]) -> None:
+    def set_token(self, token: str | None) -> None:
         """Set the authentication token.
 
         Args:
@@ -109,12 +110,12 @@ class LumentreeHttpApiClient:
         self,
         method: str,
         endpoint: str,
-        params: Optional[Dict[str, Any]] = None,
-        data: Optional[Dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
+        data: Optional[dict[str, Any]] = None,
         extra_headers: Optional[Dict[str, str]] = None,
         requires_auth: bool = True,
         max_retries: int = API_MAX_RETRIES,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Make HTTP request to API.
 
         Args:
@@ -291,7 +292,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception(f"Failed to get server time: {exc}")
             return None
 
-    async def _get_token(self, device_id: str, server_time: int) -> Optional[str]:
+    async def _get_token(self, device_id: str, server_time: int) -> str | None:
         """Request authentication token.
 
         Args:
@@ -361,7 +362,7 @@ class LumentreeHttpApiClient:
             raise last_exc
         raise AuthException("Authentication failed (unknown reason)")
 
-    async def get_device_info(self, device_id: str) -> Dict[str, Any]:
+    async def get_device_info(self, device_id: str) -> dict[str, Any]:
         """Get device information with caching.
 
         Args:
@@ -375,23 +376,21 @@ class LumentreeHttpApiClient:
             return {"_error": "Device ID missing"}
 
         # Check cache
-        import time
-
         current_time = time.time()
 
         # Cleanup expired cache entries to prevent memory leak
         expired_keys = [
-            key for key, (_, cache_time) in _device_info_cache.items()
-            if current_time - cache_time >= _cache_timeout
+            key for key, (_, cache_time) in self._device_info_cache.items()
+            if current_time - cache_time >= self._CACHE_TIMEOUT
         ]
         for key in expired_keys:
-            _device_info_cache.pop(key, None)
+            self._device_info_cache.pop(key, None)
         if expired_keys and _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Cleaned up %d expired device info cache entries", len(expired_keys))
 
-        if device_id in _device_info_cache:
-            cached_data, cache_time = _device_info_cache[device_id]
-            if current_time - cache_time < _cache_timeout:
+        if device_id in self._device_info_cache:
+            cached_data, cache_time = self._device_info_cache[device_id]
+            if current_time - cache_time < self._CACHE_TIMEOUT:
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("Using cached device info for %s", device_id)
                 return cached_data
@@ -418,7 +417,7 @@ class LumentreeHttpApiClient:
                     )
 
                     # Cache result
-                    _device_info_cache[device_id] = (device_info_dict, current_time)
+                    self._device_info_cache[device_id] = (device_info_dict, current_time)
 
                     return device_info_dict
                 else:
@@ -435,7 +434,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception(f"Unexpected error getting device info for {device_id}")
             return {"_error": f"Unexpected error: {exc}"}
 
-    async def get_daily_stats(self, device_identifier: str, query_date: str) -> Dict[str, Any]:
+    async def get_daily_stats(self, device_identifier: str, query_date: str) -> dict[str, Any]:
         """Get daily statistics with concurrent API calls.
 
         Args:
@@ -461,7 +460,7 @@ class LumentreeHttpApiClient:
         # Merge results
         return self._merge_stats_results(results)
 
-    async def get_year_data(self, device_identifier: str, year: int) -> Dict[str, Any]:
+    async def get_year_data(self, device_identifier: str, year: int) -> dict[str, Any]:
         """Get yearly statistics data (12 months aggregated).
 
         Args:
@@ -497,7 +496,7 @@ class LumentreeHttpApiClient:
                 raise ValueError("API returned empty data")
             
             # Convert tableValueInfo arrays from 0.1 kWh to kWh
-            result: Dict[str, Any] = {}
+            result: dict[str, Any] = {}
             for key in ["pv", "grid", "homeload", "essentialLoad", "bat", "batF"]:
                 if key in data:
                     item = data[key]
@@ -513,7 +512,7 @@ class LumentreeHttpApiClient:
             # Re-raise exception so caller knows there was an error
             raise
 
-    async def get_month_data(self, device_identifier: str, year: int, month: int) -> Dict[str, Any]:
+    async def get_month_data(self, device_identifier: str, year: int, month: int) -> dict[str, Any]:
         """Get monthly statistics data (daily data for a month).
 
         Args:
@@ -541,7 +540,7 @@ class LumentreeHttpApiClient:
             data = resp.get("data", {})
             
             # Convert tableValueInfo arrays from 0.1 kWh to kWh
-            result: Dict[str, Any] = {}
+            result: dict[str, Any] = {}
             for key in ["pv", "grid", "homeload", "essentialLoad", "bat"]:
                 if key in data:
                     item = data[key]
@@ -563,7 +562,7 @@ class LumentreeHttpApiClient:
                 "bat": [],
             }
 
-    async def _fetch_pv_data(self, base_params: Dict[str, str]) -> Dict[str, Any]:
+    async def _fetch_pv_data(self, base_params: Dict[str, str]) -> dict[str, Any]:
         """Fetch PV generation data.
 
         Args:
@@ -577,7 +576,7 @@ class LumentreeHttpApiClient:
             data = resp.get("data", {})
             pv_data = data.get("pv", {})
 
-            result: Dict[str, Any] = {}
+            result: dict[str, Any] = {}
 
             val = pv_data.get("tableValue")
             result["pv_today"] = float(val) / 10.0 if val is not None else None
@@ -604,7 +603,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected PV stats error")
             return {"pv_today": None}
 
-    async def _fetch_battery_data(self, base_params: Dict[str, str]) -> Dict[str, Any]:
+    async def _fetch_battery_data(self, base_params: Dict[str, str]) -> dict[str, Any]:
         """Fetch battery charge/discharge data.
 
         Args:
@@ -658,7 +657,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected battery stats error")
             return {"charge_today": None, "discharge_today": None}
 
-    async def _fetch_other_data(self, base_params: Dict[str, str]) -> Dict[str, Any]:
+    async def _fetch_other_data(self, base_params: Dict[str, str]) -> dict[str, Any]:
         """Fetch grid and load data.
 
         Args:
@@ -766,7 +765,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected other stats error")
             return {"grid_in_today": None, "load_today": None}
 
-    def _merge_stats_results(self, results: List[Any]) -> Dict[str, Any]:
+    def _merge_stats_results(self, results: List[Any]) -> dict[str, Any]:
         """Merge results from concurrent API calls.
 
         Args:
@@ -775,7 +774,7 @@ class LumentreeHttpApiClient:
         Returns:
             Merged statistics dictionary (may contain float, list, or None values)
         """
-        merged: Dict[str, Any] = {}
+        merged: dict[str, Any] = {}
 
         for result in results:
             if isinstance(result, dict):

@@ -17,11 +17,18 @@ Structure:
 from __future__ import annotations
 
 import json
+import logging
 import os
+import tempfile
 from typing import Dict, Any, Tuple
 
+from ..const import DEFAULT_TARIFF_VND_PER_KWH
+
+_LOGGER = logging.getLogger(__name__)
 
 CACHE_BASE_DIR = os.path.join(".storage", "lumentree_stats")
+
+_MONTHLY_KEYS = ("pv", "grid", "load", "essential", "total_load", "charge", "discharge", "saved_kwh", "savings_vnd")
 
 
 def _ensure_dir(path: str) -> None:
@@ -116,8 +123,8 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[st
             
             # Auto-recompute if monthly arrays appear incorrect
             if auto_recompute and _needs_recompute(data):
-                import logging
-                _LOGGER = logging.getLogger(__name__)
+                
+
                 _LOGGER.info(f"Auto-recomputing aggregates for {device_id}/{year} (monthly arrays appear incorrect)")
                 data = recompute_aggregates(data)
                 # Save recomputed cache
@@ -132,44 +139,55 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[st
 
 
 def save_year(device_id: str, year: int, data: Dict[str, Any]) -> None:
+    """Save cache atomically (write to temp file then rename)."""
     path = cache_path(device_id, year)
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".json.tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, path)  # atomic on Linux/Unix
+        except Exception:
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+            raise
     except Exception:
         pass
 
 
 def update_daily(
     cache: Dict[str, Any], date_str: str, values: Dict[str, float]
-) -> Tuple[Dict[str, Any], int, int]:
-    """Update one day in cache and recompute its month index.
+) -> Tuple[Dict[str, Any], int]:
+    """Update one day in cache using incremental month/year updates (O(1)).
 
-    Returns (cache, month_index, year_changed_flag)
+    Returns (cache, month_index)
     """
-    # Store daily - API returns integers divided by 10, so precision is 1 decimal place for kWh
     load_value = float(values.get("load", 0.0))
     essential_value = float(values.get("essential", 0.0))
-    # Calculate total_load from raw values, then round to match API precision (1 decimal)
     total_load_value = round(load_value + essential_value, 1)
     grid_value = float(values.get("grid", 0.0))
-    # Calculate savings: saved_kwh = total_load - grid_in, savings_vnd = saved_kwh * tariff
     saved_kwh = max(0.0, total_load_value - grid_value)
-    from ..const import DEFAULT_TARIFF_VND_PER_KWH
     savings_vnd = saved_kwh * DEFAULT_TARIFF_VND_PER_KWH
-    cache.setdefault("daily", {})[date_str] = {
-        "pv": round(float(values.get("pv", 0.0)), 1),  # API precision: 1 decimal
+
+    daily = cache.setdefault("daily", {})
+    old_entry = daily.get(date_str, {})
+
+    new_entry = {
+        "pv": round(float(values.get("pv", 0.0)), 1),
         "grid": round(grid_value, 1),
         "load": round(load_value, 1),
         "essential": round(essential_value, 1),
-        "total_load": total_load_value,  # Already rounded above
+        "total_load": total_load_value,
         "charge": round(float(values.get("charge", 0.0)), 1),
         "discharge": round(float(values.get("discharge", 0.0)), 1),
         "saved_kwh": round(saved_kwh, 1),
-        "savings_vnd": round(savings_vnd, 0),  # Money: no decimals
+        "savings_vnd": round(savings_vnd, 0),
     }
+    daily[date_str] = new_entry
 
-    # Update coverage and remove date from empty_dates if present
+    # Update coverage
     meta = cache.setdefault("meta", {})
     cov = meta.setdefault("coverage", {"earliest": None, "latest": None})
     try:
@@ -187,44 +205,30 @@ def update_daily(
     except Exception:
         pass
 
-    # Month index from date_str
-    # date_str format: YYYY-MM-DD
     try:
         month = int(date_str[5:7])
     except Exception:
         month = 1
     m_idx = month - 1
 
-    # Recompute that month bucket from daily
+    # Incremental month update: subtract old, add new
     monthly = cache.setdefault("monthly", {})
-    for key in ("pv", "grid", "load", "essential", "total_load", "charge", "discharge", "saved_kwh", "savings_vnd"):
+    yearly = cache.setdefault("yearly_total", {})
+    for key in _MONTHLY_KEYS:
         if key not in monthly:
             monthly[key] = _empty_month()
-        # sum all days of the month - round to 1 decimal for kWh, 0 for VND
-        s = 0.0
-        for d, v in cache["daily"].items():
-            try:
-                if int(d[5:7]) == month:
-                    s += float(v.get(key, 0.0))
-            except Exception:
-                continue
-        # Round based on key type: 1 decimal for kWh, 0 for VND
+        old_val = float(old_entry.get(key, 0.0)) if old_entry else 0.0
+        new_val = float(new_entry[key])
+        delta = new_val - old_val
+        # Update month bucket
         if key == "savings_vnd":
-            monthly[key][m_idx] = round(s, 0)
+            monthly[key][m_idx] = round(monthly[key][m_idx] + delta, 0)
+            yearly[key] = round(yearly.get(key, 0.0) + delta, 0)
         else:
-            monthly[key][m_idx] = round(s, 1)
+            monthly[key][m_idx] = round(monthly[key][m_idx] + delta, 1)
+            yearly[key] = round(yearly.get(key, 0.0) + delta, 1)
 
-    # Recompute yearly totals - round to match API precision
-    ytot = cache.setdefault("yearly_total", {})
-    for key in ("pv", "grid", "load", "essential", "total_load", "charge", "discharge", "saved_kwh", "savings_vnd"):
-        s = sum(monthly.get(key, _empty_month()))
-        # Round based on key type: 1 decimal for kWh, 0 for VND
-        if key == "savings_vnd":
-            ytot[key] = round(s, 0)
-        else:
-            ytot[key] = round(s, 1)
-
-    return cache, m_idx, 1
+    return cache, m_idx
 
 
 def mark_empty(cache: Dict[str, Any], date_str: str) -> Dict[str, Any]:
@@ -239,11 +243,10 @@ def mark_empty(cache: Dict[str, Any], date_str: str) -> Dict[str, Any]:
     return cache
 
 
-def _get_total_load(data: Dict[str, float]) -> float:
-    """Calculate total_load from load + essential if not present (backward compatibility)."""
+def _get_total_load(data: dict[str, float]) -> float:
+    """DEPRECATED: Calculate total_load from load + essential. Not used internally."""
     if "total_load" in data:
         return float(data.get("total_load", 0.0))
-    # Fallback: calculate from load + essential for old data
     return float(data.get("load", 0.0)) + float(data.get("essential", 0.0))
 
 
@@ -325,7 +328,6 @@ def recompute_aggregates(cache: Dict[str, Any]) -> Dict[str, Any]:
                 total_load_val = float(v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0))))
                 grid_val = float(v.get("grid", 0.0))
                 saved_kwh_val = max(0.0, total_load_val - grid_val)
-                from ..const import DEFAULT_TARIFF_VND_PER_KWH
                 monthly[key][month] += saved_kwh_val * DEFAULT_TARIFF_VND_PER_KWH
             else:
                 monthly[key][month] += float(v.get(key, 0.0))
@@ -373,15 +375,11 @@ def purge_device(device_id: str) -> bool:
                         os.remove(file_path)
                         files_deleted += 1
                 except Exception as e:
-                    import logging
-                    _LOGGER = logging.getLogger(__name__)
-                    _LOGGER.warning(f"Failed to delete {f}: {e}")
+                    _LOGGER.warning("Failed to delete %s: %s", f, e)
             # Keep directory for future use, don't rmdir
             return files_deleted > 0
     except Exception as e:
-        import logging
-        _LOGGER = logging.getLogger(__name__)
-        _LOGGER.error(f"Failed to purge device cache: {e}")
+        _LOGGER.error("Failed to purge device cache: %s", e)
     return False
 
 

@@ -72,6 +72,14 @@ fix_cache_data.py
 recompute_cache.ps1
 validate_cache.ps1
 
+# Dev tools (local only)
+deploy.py
+config_flow_minimal.py
+
+# Claude Code
+.claude/
+CLAUDE.md
+
 # Preparation files
 PREPARE_GITHUB.md
 

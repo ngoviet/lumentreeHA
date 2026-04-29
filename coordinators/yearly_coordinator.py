@@ -15,6 +15,7 @@ from ..services import cache as cache_io
 from ..const import (
     DOMAIN,
     DEFAULT_YEARLY_INTERVAL,
+    get_timezone,
     KEY_YEARLY_PV_KWH,
     KEY_YEARLY_GRID_IN_KWH,
     KEY_YEARLY_LOAD_KWH,
@@ -31,6 +32,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    __slots__ = ("aggregator", "device_sn", "_entry_id", "_last_year")
+
     def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
         self.aggregator = aggregator
         self.device_sn = device_sn
@@ -41,11 +44,12 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER,
             name="lumentree_yearly",
             update_interval=dt.timedelta(seconds=DEFAULT_YEARLY_INTERVAL),
+            always_update=False,
         )
 
-    async def _async_update_data(self) -> Dict[str, Any]:
+    async def _async_update_data(self) -> dict[str, Any]:
         try:
-            timezone = dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.get_default_time_zone()
+            timezone = get_timezone(self.hass)
             now = dt_util.now(timezone)
             year = now.year
             
@@ -77,13 +81,11 @@ class YearlyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 _LOGGER.warning(f"Failed to get year data from API for {year}: {err}, falling back to cache")
                 api_year_data = None
             
-            # Ensure monthly arrays are recomputed from daily data for accuracy
-            # This ensures all months with daily data are properly aggregated
-            # Note: load_year() already auto-recomputes if needed, but we recompute here to ensure
-            # consistency after potential API data updates
-            if cache.get("daily"):
+            # Only recompute aggregates if cache structure appears inconsistent.
+            # update_daily() already maintains incremental month/year totals.
+            if cache.get("daily") and cache_io._needs_recompute(cache):
+                _LOGGER.info("Yearly: recomputing aggregates for %s/%s", self.device_sn, year)
                 cache = cache_io.recompute_aggregates(cache)
-                # Save updated cache back
                 await self.hass.async_add_executor_job(
                     cache_io.save_year, self.aggregator._device_id, year, cache
                 )

@@ -1,18 +1,22 @@
-"""Device information models for Lumentree integration."""
+"""Device information models for Lumentree integration.
 
+DEPRECATED: This dataclass is unused. Use common.build_device_info() instead.
+Kept for backward compatibility with external code that may import it.
+"""
+
+from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
 class LumentreeDeviceInfo:
-    """Device information data class."""
+    """Device information data class (deprecated, use common.build_device_info)."""
 
     device_id: str
     device_sn: str
     device_name: str
-    device_type: Optional[str] = None
-    controller_version: Optional[str] = None
-    lcd_version: Optional[str] = None
-    remark_name: Optional[str] = None
+    device_type: str | None = None
+    controller_version: str | None = None
+    lcd_version: str | None = None
+    remark_name: str | None = None
 

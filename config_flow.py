@@ -28,16 +28,8 @@ _LOGGER = logging.getLogger(__name__)
 class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Config flow for Lumentree (Device ID based auth)."""
 
-    __slots__ = (
-        "_device_id_input",
-        "_http_token",
-        "_device_sn_from_api",
-        "_device_name",
-        "_api_client",
-        "_reauth_entry",
-    )
-
     VERSION = 1
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
         """Initialize config flow."""
@@ -275,3 +267,24 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._http_token = None
         self._api_client = None
         return await self.async_step_user(user_input={CONF_DEVICE_ID: self._device_id_input})
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Handle reconfigure flow (HA 2024.3+)."""
+        _LOGGER.info("Reconfigure flow started")
+        reconfigure_entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        if not reconfigure_entry:
+            return self.async_abort(reason="unknown_entry")
+
+        if user_input is not None:
+            device_id = user_input[CONF_DEVICE_ID]
+            self._device_id_input = device_id
+            self._api_client = None
+            self._http_token = None
+            self._reauth_entry = reconfigure_entry
+            return await self.async_step_user(user_input={CONF_DEVICE_ID: device_id})
+
+        current_device_id = reconfigure_entry.data.get(CONF_DEVICE_ID, "")
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({vol.Required(CONF_DEVICE_ID, default=current_device_id): str}),
+        )

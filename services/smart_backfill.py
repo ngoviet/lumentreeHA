@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import calendar
 import datetime as dt
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 import time
 
 from . import cache as cache_io
+from ..const import DEFAULT_TARIFF_VND_PER_KWH
 from ..core.api_client import LumentreeHttpApiClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,7 +101,6 @@ async def backfill_month_from_api(
         days_updated = 0
         
         # Get number of days in month
-        import calendar
         days_in_month = calendar.monthrange(year, month)[1]
         
         # Process each day
@@ -142,7 +143,6 @@ async def backfill_month_from_api(
             # Calculate derived values
             total_load_val = round(load_val + essential_val, 1)
             saved_kwh = max(0.0, total_load_val - grid_val)
-            from ..const import DEFAULT_TARIFF_VND_PER_KWH
             savings_vnd = round(saved_kwh * DEFAULT_TARIFF_VND_PER_KWH, 0)
             
             # Update cache
