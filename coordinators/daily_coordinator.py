@@ -13,7 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from ..core.api_client import LumentreeHttpApiClient
 from ..core.exceptions import ApiException, AuthException
-from ..const import DEFAULT_DAILY_INTERVAL, DEFAULT_TARIFF_VND_PER_KWH
+from ..const import DEFAULT_DAILY_INTERVAL, DEFAULT_TARIFF_VND_PER_KWH, get_timezone
 from ..services.aggregator import StatsAggregator
 from ..services import cache as cache_io
 
@@ -22,6 +22,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    __slots__ = ("api", "aggregator", "device_sn", "_last_date")
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -40,12 +42,13 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER,
             name=f"lumentree_daily_{device_sn}",
             update_interval=dt.timedelta(seconds=(interval_sec or DEFAULT_DAILY_INTERVAL)),
+            always_update=False,
         )
 
-    async def _async_update_data(self) -> Dict[str, Any]:
+    async def _async_update_data(self) -> dict[str, Any]:
         """Fetch today's data from API with error handling and recovery."""
         try:
-            timezone = dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.get_default_time_zone()
+            timezone = get_timezone(self.hass)
             today_str = dt_util.now(timezone).strftime("%Y-%m-%d")
             
             # Check if day has changed - if so, save yesterday's data to cache
@@ -170,7 +173,7 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 return
             
             # Update cache with finalized data
-            cache, _m, _ = cache_io.update_daily(cache, yesterday_date, values)
+            cache, _m = cache_io.update_daily(cache, yesterday_date, values)
             cache.setdefault("meta", {})["last_backfill_date"] = yesterday_date
             
             # Save cache
