@@ -15,6 +15,7 @@ from homeassistant.helpers.entity import DeviceInfo, generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import slugify
 
+from ..common import build_device_info
 from ..const import (
     DOMAIN,
     CONF_DEVICE_SN,
@@ -52,20 +53,13 @@ async def async_setup_entry(
     try:
         entry_data = hass.data[DOMAIN][entry.entry_id]
         device_sn = entry.data[CONF_DEVICE_SN]
-        device_name = entry.data[CONF_DEVICE_NAME]
+        device_name = entry.data.get(CONF_DEVICE_NAME, device_sn)
         device_api_info = entry_data.get("device_api_info", {})
     except KeyError as exc:
         _LOGGER.error(f"Missing key {exc} for binary sensors")
         return
 
-    device_info = DeviceInfo(
-        identifiers={(DOMAIN, device_sn)},
-        name=device_name,
-        manufacturer="YS Tech (YiShen)",
-        model=device_api_info.get("deviceType"),
-        sw_version=device_api_info.get("controllerVersion"),
-        hw_version=device_api_info.get("liquidCrystalVersion"),
-    )
+    device_info = build_device_info(device_sn, device_name, device_api_info)
     _LOGGER.debug(f"Creating DeviceInfo for BinarySensors {device_sn}: {device_info}")
 
     entities = [

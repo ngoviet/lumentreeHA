@@ -17,6 +17,7 @@ from ..services import cache as cache_io
 from ..const import (
     DOMAIN,
     DEFAULT_YEARLY_INTERVAL,  # Use same interval as yearly
+    get_timezone,
     KEY_TOTAL_PV_KWH,
     KEY_TOTAL_GRID_IN_KWH,
     KEY_TOTAL_LOAD_KWH,
@@ -32,6 +33,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+    __slots__ = ("aggregator", "device_sn", "_entry_id")
+
     def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
         self.aggregator = aggregator
         self.device_sn = device_sn
@@ -41,6 +44,7 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             _LOGGER,
             name="lumentree_total",
             update_interval=dt.timedelta(seconds=DEFAULT_YEARLY_INTERVAL),
+            always_update=False,
         )
 
     async def _async_update_data(self) -> Dict[str, Any]:
@@ -58,27 +62,33 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             total_saved_kwh = 0.0
             total_savings_vnd = 0.0
             
-            # Get current year and scan backwards
+            # Get current year and scan backwards, loading cache years in parallel
             current_year = dt_util.now().year
             years_processed = 0
             earliest_year = None
             latest_year = None
-            
-            for year_offset in range(10):  # Check last 10 years
-                year = current_year - year_offset
-                cache = await self.hass.async_add_executor_job(
-                    cache_io.load_year, self.aggregator._device_id, year
+
+            # Load all year caches in parallel via executor
+            year_indices = list(range(10))
+            load_tasks = [
+                self.hass.async_add_executor_job(
+                    cache_io.load_year, self.aggregator._device_id, current_year - offset
                 )
-                
-                if not cache.get("daily"):  # No data for this year
+                for offset in year_indices
+            ]
+            year_caches = await asyncio.gather(*load_tasks)
+
+            for offset, cache in zip(year_indices, year_caches):
+                year = current_year - offset
+
+                if not cache.get("daily"):
                     continue
-                
+
                 years_processed += 1
                 if earliest_year is None:
                     earliest_year = year
                 latest_year = year
-                
-                # Sum from yearly_total if available, otherwise calculate from daily
+
                 yearly_totals = cache.get("yearly_total", {})
                 if yearly_totals:
                     total_pv += float(yearly_totals.get("pv", 0.0))
@@ -87,21 +97,18 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     essential_val = float(yearly_totals.get("essential", 0.0))
                     total_load += load_val
                     total_essential += essential_val
-                    # Backward compatibility: calculate total_load if missing in old data
                     cached_total_load = yearly_totals.get("total_load")
                     if cached_total_load is not None:
                         total_total_load += float(cached_total_load)
                     else:
-                        # Old data: calculate from load + essential
                         total_total_load += load_val + essential_val
                     total_charge += float(yearly_totals.get("charge", 0.0))
                     total_discharge += float(yearly_totals.get("discharge", 0.0))
                     total_saved_kwh += float(yearly_totals.get("saved_kwh", 0.0))
                     total_savings_vnd += float(yearly_totals.get("savings_vnd", 0.0))
                 else:
-                    # Fallback: sum from daily data
                     daily_data = cache.get("daily", {})
-                    for date_str, day_data in daily_data.items():
+                    for day_data in daily_data.values():
                         total_pv += float(day_data.get("pv", 0.0))
                         total_grid += float(day_data.get("grid", 0.0))
                         total_load += float(day_data.get("load", 0.0))

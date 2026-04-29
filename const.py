@@ -1,11 +1,21 @@
 # /config/custom_components/lumentree/const.py
 # Final version - Read 95 regs, no unavailable MQTT modes
 
+from __future__ import annotations
+
 import logging
 from typing import Final
 
+from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
+
 DOMAIN: Final = "lumentree"
 _LOGGER = logging.getLogger(__package__)
+
+
+def get_timezone(hass: HomeAssistant):
+    """Get the configured Home Assistant timezone (cached per-call but cheap)."""
+    return dt_util.get_time_zone(hass.config.time_zone) or dt_util.get_default_time_zone()
 
 # --- HTTP API Constants ---
 BASE_URL: Final = "http://lesvr.suntcn.com"

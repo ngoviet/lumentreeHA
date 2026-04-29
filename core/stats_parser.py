@@ -1,13 +1,7 @@
 """Statistics hex stream parser for Lumentree integration.
 
-This module handles parsing of statistics hex streams (8 streams) from Lumentree inverters.
-Currently, statistics are primarily obtained via HTTP API (JSON), but this module
-provides structure for future hex stream parsing if needed.
-
-Note: According to the integration architecture, statistics are currently fetched
-via HTTP API endpoints (getYearData, getMonthData, getOtherDayData, etc.) which
-return JSON data, not hex streams. This module is prepared for potential future
-hex stream statistics parsing.
+DEPRECATED: This is a placeholder module. All statistics are obtained via HTTP API (JSON).
+Kept for potential future hex stream parsing. All functions currently return None.
 """
 
 from typing import Optional, Dict, Any

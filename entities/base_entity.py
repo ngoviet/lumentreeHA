@@ -1,13 +1,13 @@
-"""Base entity class for Lumentree integration."""
+"""Base entity class for Lumentree integration.
 
-from typing import Optional
-import logging
+DEPRECATED: This class is no longer used by any entity. Sensor entities now extend
+SensorEntity directly (MQTT sensors) or CoordinatorEntity + SensorEntity (stats sensors).
+Kept for backward compatibility with external code that may import it.
+"""
+
+from __future__ import annotations
 
 from homeassistant.helpers.entity import DeviceInfo, Entity
-
-from ..const import DOMAIN
-
-_LOGGER = logging.getLogger(__name__)
 
 
 class LumentreeBaseEntity(Entity):
