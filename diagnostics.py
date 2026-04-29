@@ -34,7 +34,7 @@ async def async_get_config_entry_diagnostics(
             "data": redacted_entry_data,
             "options": entry.options,
         },
-        "version": "4.0.3",  # From manifest.json
+        "version": "5.1.0",  # Keep in sync with manifest.json
         "device": {
             "device_sn": device_sn,
             "device_id": device_id,

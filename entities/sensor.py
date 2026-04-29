@@ -26,9 +26,12 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo, generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import slugify
+from homeassistant.util import dt as dt_util
 
+from ..common import build_device_info
 from ..const import (
     DOMAIN,
     CONF_DEVICE_SN,
@@ -583,20 +586,13 @@ async def async_setup_entry(
         yearly_coord: Optional[YearlyStatsCoordinator] = entry_data.get("yearly_coordinator")
         total_coord: Optional[TotalStatsCoordinator] = entry_data.get("total_coordinator")
         device_sn = entry.data[CONF_DEVICE_SN]
-        device_name = entry.data[CONF_DEVICE_NAME]
+        device_name = entry.data.get(CONF_DEVICE_NAME, device_sn)
         device_api_info = entry_data.get("device_api_info", {})
     except KeyError as exc:
         _LOGGER.error(f"Missing key {exc} in entry data")
         return
 
-    device_info = DeviceInfo(
-        identifiers={(DOMAIN, device_sn)},
-        name=device_name,
-        manufacturer="YS Tech (YiShen)",
-        model=device_api_info.get("deviceType"),
-        sw_version=device_api_info.get("controllerVersion"),
-        hw_version=device_api_info.get("liquidCrystalVersion"),
-    )
+    device_info = build_device_info(device_sn, device_name, device_api_info)
     _LOGGER.debug(f"Creating DeviceInfo for sensors {device_sn}: {device_info}")
 
     entities_to_add: list[SensorEntity] = []
@@ -661,7 +657,7 @@ async def async_setup_entry(
         _LOGGER.warning(f"No sensors added for {device_sn}")
 
 
-class LumentreeMqttSensor(SensorEntity):
+class LumentreeMqttSensor(SensorEntity, RestoreEntity):
     """MQTT sensor entity."""
 
     __slots__ = (
@@ -751,7 +747,14 @@ class LumentreeMqttSensor(SensorEntity):
                     _LOGGER.debug("Update MQTT sensor %s: %s", self.entity_id, new_value)
 
     async def async_added_to_hass(self) -> None:
-        """Register dispatcher connection."""
+        """Register dispatcher connection and restore state."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and self._attr_native_value is None:
+            try:
+                self._attr_native_value = self._process_value(last_state.state)
+            except (ValueError, TypeError):
+                pass
         signal = SIGNAL_UPDATE_FORMAT.format(device_sn=self._device_sn)
         self._remove_dispatcher = async_dispatcher_connect(self.hass, signal, self._handle_update)
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -766,7 +769,7 @@ class LumentreeMqttSensor(SensorEntity):
             _LOGGER.debug("MQTT sensor %s unregistered", self.unique_id)
 
 
-class LumentreeBatteryCellSensor(SensorEntity):
+class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
     """Battery cell sensor entity."""
 
     __slots__ = (
@@ -842,7 +845,16 @@ class LumentreeBatteryCellSensor(SensorEntity):
                 )
 
     async def async_added_to_hass(self) -> None:
-        """Register dispatcher connection."""
+        """Register dispatcher connection and restore state."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and self._attr_native_value is None:
+            try:
+                self._attr_native_value = int(last_state.state)
+            except (ValueError, TypeError):
+                pass
+            if last_state.attributes:
+                self._attr_extra_state_attributes = dict(last_state.attributes)
         signal = SIGNAL_UPDATE_FORMAT.format(device_sn=self._device_sn)
         self._remove_dispatcher = async_dispatcher_connect(self.hass, signal, self._handle_update)
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -864,8 +876,6 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         "entity_description",
         "_device_sn",
         "_attr_unique_id",
-        "_attr_object_id",
-        "entity_id",
         "_attr_device_info",
         "_attr_attribution",
         "_attr_native_value",
@@ -901,10 +911,12 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle coordinator update."""
+        old_value = self._attr_native_value
         self._update_state_from_coordinator()
-        self.async_write_ha_state()
-        if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug("Stats sensor %s updated", self.entity_id)
+        if self._attr_native_value != old_value:
+            self.async_write_ha_state()
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug("Stats sensor %s updated", self.entity_id)
 
     def _update_state_from_coordinator(self) -> None:
         """Update state from coordinator data."""
@@ -997,7 +1009,6 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
             attrs["source_date"] = self.coordinator.data["source_date"]
         else:
             # Fallback: use today's date (coordinator fetches today's data)
-            from homeassistant.util import dt as dt_util
             timezone = dt_util.get_time_zone(self.coordinator.hass.config.time_zone) or dt_util.get_default_time_zone()
             attrs["source_date"] = dt_util.now(timezone).strftime("%Y-%m-%d")
         
@@ -1010,7 +1021,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         return attrs
 
 
-class LumentreeTotalLoadPowerSensor(SensorEntity):
+class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
     """Total load power sensor (calculated)."""
 
     __slots__ = (
@@ -1118,7 +1129,14 @@ class LumentreeTotalLoadPowerSensor(SensorEntity):
                     )
 
     async def async_added_to_hass(self) -> None:
-        """Register MQTT dispatcher connection."""
+        """Register MQTT dispatcher connection and restore state."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and self._attr_native_value is None:
+            try:
+                self._attr_native_value = float(last_state.state)
+            except (ValueError, TypeError):
+                pass
         signal = SIGNAL_UPDATE_FORMAT.format(device_sn=self._device_sn)
         self._remove_dispatcher = async_dispatcher_connect(self.hass, signal, self._handle_update)
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -1134,6 +1152,10 @@ class LumentreeTotalLoadPowerSensor(SensorEntity):
 
 
 class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
+    __slots__ = (
+        "entity_description", "_device_sn", "_attr_unique_id",
+        "_attr_device_info", "_attr_native_value",
+    )
     _attr_has_entity_name = True
     _attr_should_poll = False
 
@@ -1142,17 +1164,16 @@ class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
         self.entity_description = description
         self._device_sn = getattr(coordinator, "device_sn", "unknown")
         self._attr_unique_id = f"{self._device_sn}_{description.key}"
-        object_id = f"device_{self._device_sn}_{slugify(description.key)}"
-        self._attr_object_id = object_id
-        self.entity_id = generate_entity_id("sensor.{}", self._attr_object_id, hass=coordinator.hass)
         self._attr_device_info = device_info
         self._attr_native_value = None
         self._update_state_from_coordinator()
 
     @callback
     def _handle_coordinator_update(self) -> None:
+        old_value = self._attr_native_value
         self._update_state_from_coordinator()
-        self.async_write_ha_state()
+        if self._attr_native_value != old_value:
+            self.async_write_ha_state()
 
     def _update_state_from_coordinator(self) -> None:
         key = self.entity_description.key

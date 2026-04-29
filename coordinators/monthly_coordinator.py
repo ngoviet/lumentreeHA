@@ -14,7 +14,7 @@ from homeassistant.util import dt as dt_util
 
 from ..services.aggregator import StatsAggregator
 from ..services import cache as cache_io
-from ..const import DEFAULT_TARIFF_VND_PER_KWH
+from ..const import DEFAULT_TARIFF_VND_PER_KWH, get_timezone
 from ..const import (
     DOMAIN,
     DEFAULT_MONTHLY_INTERVAL,
@@ -40,6 +40,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
+    __slots__ = ("aggregator", "device_sn", "_entry_id", "_last_month")
+
     def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
         self.aggregator = aggregator
         self.device_sn = device_sn
@@ -50,11 +52,12 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
             _LOGGER,
             name="lumentree_monthly",
             update_interval=dt.timedelta(seconds=DEFAULT_MONTHLY_INTERVAL),
+            always_update=False,
         )
 
-    async def _async_update_data(self) -> Dict[str, Any]:
+    async def _async_update_data(self) -> dict[str, Any]:
         try:
-            timezone = dt_util.get_time_zone(self.hass.config.time_zone) or dt_util.get_default_time_zone()
+            timezone = get_timezone(self.hass)
             now = dt_util.now(timezone)
             year = now.year
             month = now.month
@@ -114,7 +117,6 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
                     daily_total_load.append(load_val + essential_val)
                     # Calculate savings for today
                     saved_kwh_today = max(0.0, (load_val + essential_val) - float(today_data_from_coord.get("grid_in_today") or 0.0))
-                    from ..const import DEFAULT_TARIFF_VND_PER_KWH
                     daily_saved_kwh.append(saved_kwh_today)
                     daily_savings_vnd.append(saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH)
                 else:
