@@ -198,6 +198,21 @@ def _read_register(
         return None
 
 
+def _make_reader(db: bytes, addr_map: dict):
+    """Create a fast register reader bound to a specific data buffer and address map.
+
+    Returns a callable that avoids recreating closures on each parse_mqtt_payload call.
+    """
+
+    def read_reg(key: str, signed: bool, factor: float = 1.0, byte_count: int = 2):
+        r = addr_map.get(key)
+        if r is not None:
+            return _read_register(db, r, signed, factor, byte_count)
+        return None
+
+    return read_reg
+
+
 def _read_string(db: bytes, sa: int, nr: int) -> Optional[str]:
     """Read ASCII string from registers.
 
@@ -395,13 +410,8 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             if cell_result:
                 parsed_data[KEY_BATTERY_CELL_INFO] = cell_result
         else:
-            # Parse main registers with optimized read helper
-            addr = REG_ADDR
-
-            def rr(k, signed, factor=1.0, bc=2):
-                """Read register helper."""
-                r = addr.get(k)
-                return _read_register(db, r, signed, factor, bc) if r is not None else None
+            # Parse main registers with optimized read helper (module-level function)
+            rr = _make_reader(db, REG_ADDR)
 
             # Battery voltage
             bat_volt = rr("BATTERY_VOLTAGE", False, 0.01)
@@ -536,7 +546,7 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
                 parsed_data[KEY_MASTER_SLAVE_STATUS] = ms
 
             # Device SN
-            device_sn = _read_string(db, addr["DEVICE_MODEL_START"], 5)
+            device_sn = _read_string(db, REG_ADDR["DEVICE_MODEL_START"], 5)
             if device_sn is not None:
                 parsed_data[KEY_MQTT_DEVICE_SN] = device_sn
 
