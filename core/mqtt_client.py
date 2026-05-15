@@ -332,43 +332,100 @@ class LumentreeMqttClient:
             self._schedule_reconnect()
 
     def _schedule_reconnect(self) -> None:
-        """Schedule an asynchronous reconnection attempt with exponential backoff."""
-        if self._reconnect_attempts < MAX_RECONNECT_ATTEMPTS:
-            self._reconnect_attempts += 1
+        """Schedule an asynchronous reconnection attempt with exponential backoff.
+
+        After MAX_RECONNECT_ATTEMPTS soft reconnect failures, switches to hard reconnect
+        (fresh paho client). Never gives up permanently — MQTT is the primary data source.
+        """
+        self._reconnect_attempts += 1
+
+        if self._reconnect_attempts <= MAX_RECONNECT_ATTEMPTS:
             delay = min(
                 RECONNECT_DELAY_SECONDS * (2 ** (self._reconnect_attempts - 1)), 60
             )
             _LOGGER.info(
-                f"Scheduling MQTT reconnect {self._reconnect_attempts}/{MAX_RECONNECT_ATTEMPTS} "
-                f"for {self._client_id} in {delay}s"
-            )
-            # Schedule task creation from event loop thread to avoid thread safety issues
-            self.hass.loop.call_soon_threadsafe(
-                lambda: self.hass.async_create_task(self._async_reconnect(delay))
+                "Scheduling MQTT soft reconnect %s/%s for %s in %ss",
+                self._reconnect_attempts, MAX_RECONNECT_ATTEMPTS,
+                self._client_id, delay,
             )
         else:
-            _LOGGER.error(f"MQTT reconnection failed {self._client_id}")
-            self.hass.loop.call_soon_threadsafe(
-                async_dispatcher_send,
-                self.hass,
-                self._signal_update,
-                {"error": "MQTT_reconnect_failed"},
+            delay = 120
+            _LOGGER.warning(
+                "MQTT soft reconnects exhausted (%sx) for %s. "
+                "Will attempt hard reconnect (fresh connection) in %ss",
+                MAX_RECONNECT_ATTEMPTS, self._client_id, delay,
             )
+
+        self.hass.loop.call_soon_threadsafe(
+            lambda: self.hass.async_create_task(self._async_reconnect(delay))
+        )
 
     async def _async_reconnect(self, delay: float) -> None:
         """Wait for delay and attempt reconnection.
+
+        Uses soft reconnect (reuse existing client) for first MAX_RECONNECT_ATTEMPTS,
+        then switches to hard reconnect (fresh paho client) for subsequent attempts.
 
         Args:
             delay: Delay in seconds before reconnecting
         """
         await asyncio.sleep(delay)
-        if not self.is_connected and not self._stopping and self._mqttc:
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug("Attempting MQTT reconnect %s", self._client_id)
+        if self._stopping:
+            return
+
+        if self._reconnect_attempts <= MAX_RECONNECT_ATTEMPTS:
+            # Soft reconnect: reuse existing paho client
+            if not self.is_connected and self._mqttc:
+                if _LOGGER.isEnabledFor(logging.DEBUG):
+                    _LOGGER.debug("Attempting MQTT soft reconnect %s", self._client_id)
+                try:
+                    await self.hass.async_add_executor_job(self._mqttc.reconnect)
+                except Exception as exc:
+                    _LOGGER.warning("MQTT soft reconnect failed %s: %s", self._client_id, exc)
+        else:
+            # Hard reconnect: create a fresh paho client
+            await self._hard_reconnect()
+
+    async def _hard_reconnect(self) -> None:
+        """Perform a hard reconnect by creating a fresh paho client.
+
+        Stops and disconnects the old client, then calls connect() which creates
+        a brand new MQTT connection. This recovers from cases where the old paho
+        client is in a permanently broken state that soft reconnect can't fix.
+        """
+        _LOGGER.info("MQTT hard reconnect: creating fresh connection %s", self._client_id)
+
+        # Clean up old client
+        old_mqttc = self._mqttc
+        self._mqttc = None
+        self._cancel_batch_timer()
+        self._pending_updates.clear()
+
+        if old_mqttc:
             try:
-                await self.hass.async_add_executor_job(self._mqttc.reconnect)
-            except Exception as exc:
-                _LOGGER.warning(f"MQTT reconnect failed {self._client_id}: {exc}")
+                old_mqttc.loop_stop()
+            except Exception:
+                pass
+            try:
+                old_mqttc.disconnect()
+            except Exception:
+                pass
+
+        self._is_connected = False
+        self._connected_event.clear()
+        self._reconnect_attempts = 0
+        self._stopping = False
+
+        try:
+            await self.connect()
+            _LOGGER.info("MQTT hard reconnect successful %s", self._client_id)
+        except Exception as exc:
+            _LOGGER.error("MQTT hard reconnect failed %s: %s", self._client_id, exc)
+            # connect() calls disconnect() on failure which sets _stopping=True
+            # Reset flags and schedule next hard reconnect attempt
+            self._stopping = False
+            self._reconnect_attempts = MAX_RECONNECT_ATTEMPTS
+            self._schedule_reconnect()
 
     def _on_message(self, client, userdata, msg: MQTTMessage) -> None:
         """Callback when a message is received.
