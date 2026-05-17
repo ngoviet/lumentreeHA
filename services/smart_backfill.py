@@ -105,7 +105,10 @@ async def backfill_month_from_api(
         
         # Process each day
         daily = cache.setdefault("daily", {})
-        for day in range(1, min(len(pv_daily), days_in_month) + 1):
+        # Use longest available array to avoid losing data from shorter arrays
+        max_days = max(len(arr) for arr in (pv_daily, grid_daily, load_daily, essential_daily, bat_daily, batf_daily))
+        loop_limit = min(max_days, days_in_month)
+        for day in range(1, loop_limit + 1):
             date_str = f"{year}-{month:02d}-{day:02d}"
             
             # Check if day already exists and has data

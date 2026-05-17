@@ -275,7 +275,7 @@ def _parse_battery_cells(db: bytes) -> Optional[Dict[str, Any]]:
         avg = round(total_voltage / num_cells, 3)
         diff = round(max_voltage - min_voltage, 3) if num_cells > 1 else 0.0
         result = {
-            "num": num_cells,
+            "number_of_cells": num_cells,
             "avg": avg,
             "min": min_voltage if min_voltage != 999.0 else None,
             "max": max_voltage if max_voltage != 0.0 else None,
@@ -331,7 +331,10 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        crc_ok, _ = verify_crc(resp_hex)
+        crc_ok, crc_err = verify_crc(resp_hex)
+        if not crc_ok:
+            _LOGGER.warning("CRC verification failed: %s", crc_err)
+            return None
         bc = int(resp_hex[4:6], 16)
         dh = resp_hex[6:-4]
         db = bytes.fromhex(dh)
@@ -353,17 +356,17 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
         # Determine data type
         if bc == expected_cell_bytes and len(db) == expected_cell_bytes:
             is_cell_data = True
-            _LOGGER.info("Cell data detected")
+            _LOGGER.debug("Cell data detected")
         elif (bc == expected_main_bytes and len(db) == expected_main_bytes) or (
             bc == expected_main_bytes_extended and len(db) == expected_main_bytes_extended
         ):
             is_cell_data = False
             if len(db) == expected_main_bytes_extended:
-                _LOGGER.info("Main data (95 regs + 12 bytes metadata)")
+                _LOGGER.debug("Main data (95 regs + 12 bytes metadata)")
                 # Skip last 12 bytes (metadata) and only parse first 95 registers
                 db = db[:expected_main_bytes]
             else:
-                _LOGGER.info("Main data (95 regs)")
+                _LOGGER.debug("Main data (95 regs)")
         elif len(db) == 198 and bc == 198:
             # 198 bytes = 99 registers, likely main data with partial metadata (missing 4 bytes)
             # Try parsing as main data (190 bytes) - skip last 8 bytes
@@ -559,7 +562,7 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
 
     if parsed_data:
         data_type = "Cells" if is_cell_data else "Main"
-        _LOGGER.info(f"Parse OK ({data_type})")
+        _LOGGER.debug("Parse OK (%s)", data_type)
         return parsed_data
     else:
         _LOGGER.warning(f"No data parsed from: {resp_hex[:60] if resp_hex else 'N/A'}...")

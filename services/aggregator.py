@@ -228,31 +228,21 @@ class StatsAggregator:
 
             for day in days:
                 date_str = day.strftime("%Y-%m-%d")
-                
+
                 # Skip if already exists in daily cache
-                # Since server always returns same structure (0s when no data),
-                # we store ALL days in daily cache
                 if date_str in cache.get("daily", {}):
                     continue
 
                 try:
                     vals = await self.fetch_day(date_str)
-                    # Store all days in cache, even if all values are 0
-                    # This matches server behavior (always returns same structure)
                     cache, _m = cache_io.update_daily(cache, date_str, vals)
                     cache.setdefault("meta", {})["last_backfill_date"] = date_str
                     cache_dirty = True
-                    
-                    # Reset delay on success
                     delay = base_delay
-                    
-                except Exception as err:
-                    # Exponential backoff on errors (likely rate limit)
-                    delay = min(delay * 2, 5.0)  # Cap at 5 seconds
-                    # Continue to next day
-                    continue
-                
-                # Polite delay between API calls
+                except Exception:
+                    delay = min(delay * 2, 5.0)
+
+                # Always sleep between API calls (including after errors)
                 await asyncio.sleep(delay)
 
             # Save cache once per year if modified

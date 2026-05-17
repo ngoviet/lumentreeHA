@@ -20,11 +20,25 @@ import json
 import logging
 import os
 import tempfile
+import threading
 from typing import Dict, Any, Tuple
 
 from ..const import DEFAULT_TARIFF_VND_PER_KWH
 
 _LOGGER = logging.getLogger(__name__)
+
+# Per-file threading locks to prevent concurrent read-modify-write races
+_file_locks: Dict[str, threading.Lock] = {}
+_file_locks_guard = threading.Lock()
+
+
+def _get_file_lock(device_id: str, year: int) -> threading.Lock:
+    """Get or create a lock for a specific cache file (thread-safe)."""
+    key = f"{device_id}_{year}"
+    with _file_locks_guard:
+        if key not in _file_locks:
+            _file_locks[key] = threading.Lock()
+        return _file_locks[key]
 
 CACHE_BASE_DIR = os.path.join(".storage", "lumentree_stats")
 
@@ -103,58 +117,93 @@ def _needs_recompute(cache: Dict[str, Any]) -> bool:
 
 def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[str, Any]:
     """Load cache for a year, optionally auto-recomputing aggregates if needed.
-    
+
+    On JSON parse failure, attempts restoration from .json.bak backup file.
+    Only returns empty cache if both primary and backup are unavailable/corrupt.
+
     Args:
         device_id: Device ID
         year: Year to load
         auto_recompute: If True, automatically recompute aggregates if they appear incorrect
-        
+
     Returns:
         Cache dictionary
     """
     path = cache_path(device_id, year)
     if not os.path.exists(path):
         return _empty_cache()
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not isinstance(data, dict):
-                return _empty_cache()
-            
-            # Auto-recompute if monthly arrays appear incorrect
-            if auto_recompute and _needs_recompute(data):
-                
 
-                _LOGGER.info(f"Auto-recomputing aggregates for {device_id}/{year} (monthly arrays appear incorrect)")
-                data = recompute_aggregates(data)
-                # Save recomputed cache
-                try:
-                    save_year(device_id, year, data)
-                except Exception:
-                    pass  # Best effort save
-            
-            return data
+    def _read_json(filepath):
+        with open(filepath, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    data = None
+    try:
+        data = _read_json(path)
+        if not isinstance(data, dict):
+            data = None
+            raise ValueError("Cache file is not a dict")
     except Exception:
+        _LOGGER.error("Failed to load cache %s/%s — attempting backup restore", device_id, year)
+        backup_path = path + ".bak"
+        if os.path.exists(backup_path):
+            try:
+                data = _read_json(backup_path)
+                if isinstance(data, dict):
+                    _LOGGER.warning("Restored cache from backup %s", backup_path)
+                    try:
+                        save_year(device_id, year, data)
+                    except Exception:
+                        pass
+                else:
+                    data = None
+            except Exception:
+                _LOGGER.exception("Backup restore also failed for %s/%s", device_id, year)
+
+    if data is None:
         return _empty_cache()
+
+    # Auto-recompute if monthly arrays appear incorrect
+    if auto_recompute and _needs_recompute(data):
+        _LOGGER.info("Auto-recomputing aggregates for %s/%s", device_id, year)
+        data = recompute_aggregates(data)
+        try:
+            save_year(device_id, year, data)
+        except Exception:
+            pass
+
+    return data
 
 
 def save_year(device_id: str, year: int, data: Dict[str, Any]) -> None:
-    """Save cache atomically (write to temp file then rename)."""
+    """Save cache atomically with file-level locking (write to temp file then rename).
+
+    Raises:
+        OSError: On filesystem errors (disk full, permissions)
+        Exception: On JSON serialization errors
+    """
     path = cache_path(device_id, year)
-    try:
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".json.tmp")
+    lock = _get_file_lock(device_id, year)
+    with lock:
+        dir_path = os.path.dirname(path)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix=".json.tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-            os.replace(tmp_path, path)  # atomic on Linux/Unix
+            # os.replace is atomic on POSIX, try it first
+            try:
+                os.replace(tmp_path, path)
+            except OSError:
+                # Fallback for Windows/filesystems where os.replace isn't fully atomic
+                import shutil
+                shutil.move(tmp_path, path)
         except Exception:
             try:
                 os.remove(tmp_path)
             except OSError:
                 pass
+            _LOGGER.exception("Failed to save cache %s/%s", device_id, year)
             raise
-    except Exception:
-        pass
 
 
 def update_daily(

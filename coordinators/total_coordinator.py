@@ -184,6 +184,8 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     KEY_YEARLY_ESSENTIAL_KWH,
                     KEY_YEARLY_CHARGE_KWH,
                     KEY_YEARLY_DISCHARGE_KWH,
+                    KEY_YEARLY_SAVED_KWH,
+                    KEY_YEARLY_SAVINGS_VND,
                 )
                 return {
                     "pv": float(yearly_coord.data.get(KEY_YEARLY_PV_KWH) or 0.0),
@@ -192,6 +194,8 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     "essential": float(yearly_coord.data.get(KEY_YEARLY_ESSENTIAL_KWH) or 0.0),
                     "charge": float(yearly_coord.data.get(KEY_YEARLY_CHARGE_KWH) or 0.0),
                     "discharge": float(yearly_coord.data.get(KEY_YEARLY_DISCHARGE_KWH) or 0.0),
+                    "saved_kwh": float(yearly_coord.data.get(KEY_YEARLY_SAVED_KWH) or 0.0),
+                    "savings_vnd": float(yearly_coord.data.get(KEY_YEARLY_SAVINGS_VND) or 0.0),
                 }
             return None
         except Exception:

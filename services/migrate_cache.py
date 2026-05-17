@@ -65,12 +65,15 @@ def migrate_cache_file(cache_path: Path) -> bool:
             _LOGGER.debug(f"Migrated yearly_total: total_load = {yearly_total['total_load']}")
         
         if modified:
-            # Backup original file
+            # Backup ORIGINAL file BEFORE any modifications
             backup_path = cache_path.with_suffix('.json.backup')
             if not backup_path.exists():
-                with open(backup_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=2, ensure_ascii=False)
-                _LOGGER.info(f"Created backup: {backup_path}")
+                try:
+                    import shutil
+                    shutil.copy2(cache_path, backup_path)
+                    _LOGGER.info("Created backup: %s", backup_path)
+                except Exception as exc:
+                    _LOGGER.warning("Could not create backup %s: %s", backup_path, exc)
             
             # Write migrated data
             with open(cache_path, 'w', encoding='utf-8') as f:
