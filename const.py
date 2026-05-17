@@ -71,7 +71,9 @@ SIGNAL_STATS_UPDATE_FORMAT: Final = f"{DOMAIN}_stats_update_{{device_sn}}"
 
 # --- Register Addresses (MQTT Real-time - Only registers within 0-94 range) ---
 REG_ADDR = {
+    "FIRMWARE_VERSION": 2,
     "DEVICE_MODEL_START": 3,
+    "CONTROLLER_VERSION": 8,
     "BATTERY_VOLTAGE": 11,
     "BATTERY_CURRENT": 12,
     "AC_OUT_VOLTAGE": 13,
@@ -93,6 +95,9 @@ REG_ADDR = {
     "MASTER_SLAVE_STATUS": 70,
     "PV2_VOLTAGE": 72,
     "PV2_POWER": 74,
+    # Registers 100+ may only be available if device returns extra data
+    "BATTERY_MODE": 100,
+    "WORK_MODE": 150,
 }
 REG_ADDR_CELL_START: Final = 250
 REG_ADDR_CELL_COUNT: Final = 50
@@ -190,7 +195,28 @@ ATTR_COST_WITHOUT_PV_VND: Final = "cost_without_pv_vnd"
 ATTR_COST_WITH_PV_VND: Final = "cost_with_pv_vnd"
 ATTR_SAVINGS_VND: Final = "savings_vnd"
 
+KEY_SELF_CONSUMPTION_RATIO: Final = "self_consumption_ratio"
+KEY_WORK_MODE: Final = "work_mode"
+KEY_BATTERY_MODE: Final = "battery_mode"
+KEY_FW_VERSION: Final = "fw_version"
+KEY_CTRL_VERSION: Final = "ctrl_version"
+
 # --- Mappings for Modes ---
 
 MAP_BATTERY_TYPE: Final = {2: "No Battery"}
+
+MAP_WORK_MODE: Final = {
+    0: "UPS Mode",
+    1: "Save Money Mode",
+    2: "Sell Mode",
+    3: "Smart Meter Mode",
+    4: "WIFI CT Mode",
+    5: "MESH CT Mode",
+}
+
+MAP_BATTERY_MODE: Final = {
+    0: "User Defined",
+    1: "Special Battery Pack",
+    2: "No Battery",
+}
 

@@ -39,9 +39,16 @@ from ..const import (
     KEY_MASTER_SLAVE_STATUS,
     KEY_MQTT_DEVICE_SN,
     KEY_BATTERY_CELL_INFO,
+    KEY_SELF_CONSUMPTION_RATIO,
+    KEY_WORK_MODE,
+    KEY_BATTERY_MODE,
+    KEY_FW_VERSION,
+    KEY_CTRL_VERSION,
     REG_ADDR_CELL_START,
     REG_ADDR_CELL_COUNT,
     MAP_BATTERY_TYPE,
+    MAP_WORK_MODE,
+    MAP_BATTERY_MODE,
 )
 
 import crcmod.predefined
@@ -350,29 +357,32 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             _LOGGER.debug("Parsing %s bytes", len(db))
 
         expected_cell_bytes = REG_ADDR_CELL_COUNT * 2
-        expected_main_bytes = 95 * 2
-        expected_main_bytes_extended = expected_main_bytes + 12  # With metadata
+        expected_main_bytes = 151 * 2  # 151 registers (0-150), 302 bytes
+        expected_main_bytes_legacy = 95 * 2  # Legacy 95-register format
+        expected_main_bytes_extended = expected_main_bytes_legacy + 12  # Legacy + metadata
 
         # Determine data type
         if bc == expected_cell_bytes and len(db) == expected_cell_bytes:
             is_cell_data = True
             _LOGGER.debug("Cell data detected")
-        elif (bc == expected_main_bytes and len(db) == expected_main_bytes) or (
+        elif (bc == expected_main_bytes and len(db) == expected_main_bytes):
+            is_cell_data = False
+            _LOGGER.debug("Main data (151 regs)")
+        elif (bc == expected_main_bytes_legacy and len(db) == expected_main_bytes_legacy) or (
             bc == expected_main_bytes_extended and len(db) == expected_main_bytes_extended
         ):
             is_cell_data = False
             if len(db) == expected_main_bytes_extended:
-                _LOGGER.debug("Main data (95 regs + 12 bytes metadata)")
-                # Skip last 12 bytes (metadata) and only parse first 95 registers
-                db = db[:expected_main_bytes]
+                _LOGGER.debug("Main data (legacy 95 regs + 12 bytes metadata)")
+                db = db[:expected_main_bytes_legacy]
             else:
-                _LOGGER.debug("Main data (95 regs)")
+                _LOGGER.debug("Main data (legacy 95 regs)")
         elif len(db) == 198 and bc == 198:
             # 198 bytes = 99 registers, likely main data with partial metadata (missing 4 bytes)
-            # Try parsing as main data (190 bytes) - skip last 8 bytes
+            # Try parsing as legacy main data (190 bytes) - skip last 8 bytes
             is_cell_data = False
             _LOGGER.debug("Main data (198 bytes, likely 99 regs - treating as 95 regs)")
-            db = db[:expected_main_bytes]
+            db = db[:expected_main_bytes_legacy]
         elif len(db) == 2:
             # 2 bytes = Modbus exception response or error
             _LOGGER.debug(
@@ -390,21 +400,21 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
         else:
             # Unknown length - log with more context but try to parse if it's close to expected
             _LOGGER.warning(
-                f"Unrecognized length ({len(db)}/{bc}). Expected: "
-                f"{expected_main_bytes} or {expected_main_bytes_extended} for main, "
-                f"{expected_cell_bytes} for cells. "
-                f"Payload preview: {resp_hex[:min(60, len(resp_hex))]}..."
+                "Unrecognized length (%s/%s). Expected: %s or %s for main, %s for cells. "
+                "Payload preview: %s...",
+                len(db), bc, expected_main_bytes, expected_main_bytes_legacy,
+                expected_cell_bytes, resp_hex[:min(60, len(resp_hex))],
             )
-            # If length is close to main data (within 20 bytes), try parsing as main data
-            if abs(len(db) - expected_main_bytes) <= 20 and len(db) >= expected_main_bytes - 10:
-                _LOGGER.debug(f"Attempting to parse {len(db)} bytes as main data (truncating if needed)")
-                is_cell_data = False
-                if len(db) > expected_main_bytes:
-                    # Truncate to expected length
-                    db = db[:expected_main_bytes]
-                else:
-                    # Pad with zeros (shouldn't happen often)
-                    db = db + b'\x00' * (expected_main_bytes - len(db))
+            # If length is close to any expected main format, try parsing
+            for expected_len in (expected_main_bytes, expected_main_bytes_legacy):
+                if abs(len(db) - expected_len) <= 20 and len(db) >= expected_len - 10:
+                    _LOGGER.debug("Attempting to parse %s bytes as main data", len(db))
+                    is_cell_data = False
+                    if len(db) > expected_len:
+                        db = db[:expected_len]
+                    else:
+                        db = db + b'\x00' * (expected_len - len(db))
+                    break
             else:
                 return None
 
@@ -552,6 +562,40 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             device_sn = _read_string(db, REG_ADDR["DEVICE_MODEL_START"], 5)
             if device_sn is not None:
                 parsed_data[KEY_MQTT_DEVICE_SN] = device_sn
+
+            # Firmware version (register 2, within range)
+            fw_ver = rr("FIRMWARE_VERSION", False)
+            if fw_ver is not None:
+                parsed_data[KEY_FW_VERSION] = f"v{int(fw_ver)}"
+
+            # Controller version (register 8, within range)
+            ctrl_ver = rr("CONTROLLER_VERSION", False)
+            if ctrl_ver is not None:
+                parsed_data[KEY_CTRL_VERSION] = f"v{int(ctrl_ver)}"
+
+            # Battery mode (register 100 — may be beyond read range)
+            bat_mode = rr("BATTERY_MODE", False)
+            if bat_mode is not None:
+                parsed_data[KEY_BATTERY_MODE] = MAP_BATTERY_MODE.get(int(bat_mode), "Unknown")
+
+            # Work mode (register 150 — may be beyond read range)
+            work_mode = rr("WORK_MODE", False)
+            if work_mode is not None:
+                parsed_data[KEY_WORK_MODE] = MAP_WORK_MODE.get(int(work_mode), f"Unknown ({int(work_mode)})")
+
+            # Self-consumption ratio (calculated from existing data)
+            pv_total = parsed_data.get(KEY_PV1_POWER, 0) or 0
+            if parsed_data.get(KEY_PV2_POWER):
+                pv_total += parsed_data[KEY_PV2_POWER]
+            grid_power = parsed_data.get(KEY_GRID_POWER)
+            if pv_total > 0 and grid_power is not None:
+                if grid_power < 0:  # Exporting to grid
+                    direct_consumption = pv_total + grid_power
+                    if direct_consumption < 0:
+                        direct_consumption = 0
+                else:  # Importing from grid or balanced
+                    direct_consumption = pv_total
+                parsed_data[KEY_SELF_CONSUMPTION_RATIO] = round(direct_consumption / pv_total * 100, 1)
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Parsed main data: %s", parsed_data)
