@@ -61,7 +61,12 @@
             "battery_type": { "name": "Battery Type" },
             "master_slave_status": { "name": "Master/Slave Status" },
             "mqtt_device_sn": { "name": "Device SN (MQTT)" },
-            "battery_cell_info": { "name": "Battery Cell Info" }
+            "battery_cell_info": { "name": "Battery Cell Info" },
+            "self_consumption_ratio": { "name": "Self-Consumption Ratio" },
+            "work_mode": { "name": "Work Mode" },
+            "battery_mode": { "name": "Battery Mode" },
+            "fw_version": { "name": "Firmware Version" },
+            "ctrl_version": { "name": "Controller Version" }
         },
         "binary_sensor": {
             "online_status": { "name": "Online Status" },
@@ -132,7 +137,12 @@
                     "battery_type": { "name": "Loại Pin" },
                     "master_slave_status": { "name": "Trạng thái Master/Slave" },    
                     "mqtt_device_sn": { "name": "SN Thiết bị (MQTT)" },
-                    "battery_cell_info": { "name": "Thông tin Cell Pin" }
+                    "battery_cell_info": { "name": "Thông tin Cell Pin" },
+                    "self_consumption_ratio": { "name": "Tỷ lệ Tự tiêu thụ" },
+                    "work_mode": { "name": "Chế độ Làm việc" },
+                    "battery_mode": { "name": "Chế độ Pin" },
+                    "fw_version": { "name": "Phiên bản Firmware" },
+                    "ctrl_version": { "name": "Phiên bản Controller" }
                  },
                 "binary_sensor": {
                     "online_status": { "name": "Trạng thái Online" },

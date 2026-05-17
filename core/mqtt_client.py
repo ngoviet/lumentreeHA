@@ -42,7 +42,7 @@ RECONNECT_DELAY_SECONDS = 5
 MAX_RECONNECT_ATTEMPTS = 10
 CONNECT_TIMEOUT = 20
 OFFLINE_TIMEOUT_SECONDS = DEFAULT_POLLING_INTERVAL * 2.5
-NUM_MAIN_REGISTERS_TO_READ = 95  # Read registers 0-94
+NUM_MAIN_REGISTERS_TO_READ = 151  # Read registers 0-150 (extended for work/battery mode)
 
 
 class LumentreeMqttClient:
@@ -541,9 +541,9 @@ class LumentreeMqttClient:
             return False
 
     async def async_request_data(self) -> None:
-        """Request the main device data (registers 0-94)."""
+        """Request the main device data (registers 0-150)."""
         start_address = 0
-        num_registers = NUM_MAIN_REGISTERS_TO_READ  # 95 registers
+        num_registers = NUM_MAIN_REGISTERS_TO_READ
         slave_id = 1
         func_code = 3
 
@@ -552,7 +552,8 @@ class LumentreeMqttClient:
             await self._publish_command(command_hex)
         else:
             _LOGGER.error(
-                f"Failed to generate Modbus read (0-{num_registers - 1}) {self._client_id}"
+                "Failed to generate Modbus read (0-%s) %s",
+                num_registers - 1, self._client_id,
             )
 
     async def async_request_battery_cells(self) -> None:
