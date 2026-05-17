@@ -901,6 +901,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         self._attr_device_info = device_info
         self._attr_attribution = "Data fetched via Lumentree HTTP API"
         self._attr_native_value = None
+        self._timezone = dt_util.get_time_zone(coordinator.hass.config.time_zone) or dt_util.get_default_time_zone()
         self._update_state_from_coordinator()
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -1009,8 +1010,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
             attrs["source_date"] = self.coordinator.data["source_date"]
         else:
             # Fallback: use today's date (coordinator fetches today's data)
-            timezone = dt_util.get_time_zone(self.coordinator.hass.config.time_zone) or dt_util.get_default_time_zone()
-            attrs["source_date"] = dt_util.now(timezone).strftime("%Y-%m-%d")
+            attrs["source_date"] = dt_util.now(self._timezone).strftime("%Y-%m-%d")
         
         # Add savings data if available (calculated in daily coordinator)
         if "saved_kwh" in self.coordinator.data:

@@ -175,7 +175,10 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             # Update cache with finalized data
             cache, _m = cache_io.update_daily(cache, yesterday_date, values)
             cache.setdefault("meta", {})["last_backfill_date"] = yesterday_date
-            
+
+            # Recompute aggregates to keep monthly/yearly totals consistent
+            cache = cache_io.recompute_aggregates(cache)
+
             # Save cache
             await self.hass.async_add_executor_job(
                 cache_io.save_year, self.aggregator._device_id, year, cache

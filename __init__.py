@@ -115,9 +115,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.async_create_task(_prime_coordinators_staggered())
 
         polling_interval = datetime.timedelta(seconds=DEFAULT_POLLING_INTERVAL)
+        _poll_count = 0
 
         async def _async_poll_data(now=None):
             """Poll data from MQTT client."""
+            nonlocal _poll_count
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("MQTT Poll %s.", device_sn)
             domain_data = hass.data.get(DOMAIN)
@@ -126,40 +128,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 return
             entry_data = domain_data.get(entry.entry_id)
             if not entry_data:
-                _LOGGER.warning(f"Entry data missing {entry.entry_id}. Stop poll.")
+                _LOGGER.warning("Entry data missing %s. Stop poll.", entry.entry_id)
                 nonlocal remove_interval
                 current_timer = remove_interval
                 if callable(current_timer):
                     try:
                         current_timer()
-                        _LOGGER.info(f"MQTT poll timer cancelled {device_sn}.")
+                        _LOGGER.info("MQTT poll timer cancelled %s.", device_sn)
                         remove_interval = None
                     except Exception as timer_err:
-                        _LOGGER.error(f"Error cancel timer {device_sn}: {timer_err}")
+                        _LOGGER.error("Error cancel timer %s: %s", device_sn, timer_err)
                 return
 
             active_mqtt_client = entry_data.get("mqtt_client")
             if not isinstance(active_mqtt_client, LumentreeMqttClient):
                 if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug(f"MQTT client not initialized for {device_sn}")
+                    _LOGGER.debug("MQTT client not initialized for %s", device_sn)
                 return
             if not active_mqtt_client.is_connected:
                 if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug(f"MQTT {device_sn} not connected yet, skipping poll")
+                    _LOGGER.debug("MQTT %s not connected yet, skipping poll", device_sn)
                 return
             try:
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("Requesting MQTT (main data) %s...", device_sn)
                 await active_mqtt_client.async_request_data()
-                # Also request battery cell data every 30s (every 6th main poll)
-                poll_count = getattr(_async_poll_data, "_count", 0) + 1
-                _async_poll_data._count = poll_count
-                if poll_count % 6 == 0:
+                _poll_count += 1
+                if _poll_count % 6 == 0:
                     await active_mqtt_client.async_request_battery_cells()
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("MQTT request sent %s.", device_sn)
             except Exception as poll_err:
-                _LOGGER.error(f"MQTT poll error {device_sn}: {poll_err}")
+                _LOGGER.error("MQTT poll error %s: %s", device_sn, poll_err)
 
         remove_interval = async_track_time_interval(hass, _async_poll_data, polling_interval)
         _LOGGER.info(f"Started MQTT polling {polling_interval} for {device_sn}")
@@ -387,23 +387,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Kick off initial backfill without blocking setup
         hass.async_create_task(_first_run_backfill())
 
-        # Schedule nightly job every 24h
+        # Schedule nightly job every 24h — store before risky step so we can clean up on failure
         remove_nightly = async_track_time_interval(hass, _nightly_delta, datetime.timedelta(hours=24))
         hass.data[DOMAIN][entry.entry_id]["remove_nightly"] = remove_nightly
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-        _LOGGER.info(f"Setup complete for {entry.title} (SN/ID: {device_sn})")
+        _LOGGER.info("Setup complete for %s (SN/ID: %s)", entry.title, device_sn)
         return True
 
     except ConfigEntryNotReady as e:
-        _LOGGER.warning(f"Setup failed {entry.title}: {e}. Cleaning up...")
+        _LOGGER.warning("Setup failed %s: %s. Cleaning up...", entry.title, e)
+        if "remove_nightly" in hass.data.get(DOMAIN, {}).get(entry.entry_id, {}):
+            try:
+                remove_nightly()
+            except Exception:
+                pass
         if isinstance(mqtt_client, LumentreeMqttClient):
             await mqtt_client.disconnect()
         if entry.entry_id in hass.data.get(DOMAIN, {}):
             hass.data[DOMAIN].pop(entry.entry_id, None)
         raise
     except Exception as final_exception:
-        _LOGGER.exception(f"Unexpected setup error {entry.title}")
+        _LOGGER.exception("Unexpected setup error %s", entry.title)
+        if "remove_nightly" in hass.data.get(DOMAIN, {}).get(entry.entry_id, {}):
+            try:
+                remove_nightly()
+            except Exception:
+                pass
         if isinstance(mqtt_client, LumentreeMqttClient):
             await mqtt_client.disconnect()
         if entry.entry_id in hass.data.get(DOMAIN, {}):

@@ -8,9 +8,7 @@ This package contains the core functionality:
 """
 
 __all__ = [
-    "LumentreeApiClient",
     "LumentreeMqttClient",
-    "ModbusParser",
     "LumentreeException",
     "ApiException",
     "AuthException",

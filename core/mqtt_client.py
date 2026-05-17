@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import threading
 import time
 from typing import Any, Dict, Optional, Callable
 from functools import partial
@@ -33,7 +34,7 @@ from ..const import (
     REG_ADDR_CELL_START,
     REG_ADDR_CELL_COUNT,
 )
-from .modbus_parser import parse_mqtt_payload, generate_modbus_read_command
+from .realtime_parser import parse_mqtt_payload, generate_modbus_read_command
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,9 +62,11 @@ class LumentreeMqttClient:
         "_reconnect_attempts",
         "_is_connected",
         "_stopping",
+        "_stopping_lock",
         "_connected_event",
         "_online",
         "_offline_timer_unsub",
+        "_offline_timer_gen",
         "_batch_timer",
         "_pending_updates",
     )
@@ -105,9 +108,11 @@ class LumentreeMqttClient:
         self._reconnect_attempts = 0
         self._is_connected = False
         self._stopping = False
+        self._stopping_lock = threading.Lock()
         self._connected_event = asyncio.Event()
         self._online: bool = False
         self._offline_timer_unsub: Optional[Callable] = None
+        self._offline_timer_gen: int = 0
 
         # Batch update optimization
         self._batch_timer: Optional[asyncio.Task] = None
@@ -190,9 +195,16 @@ class LumentreeMqttClient:
             )
 
     @callback
-    def _set_offline(self, *args) -> None:
-        """Set status to offline and dispatch update."""
-        _LOGGER.info(f"MQTT data timeout or disconnect {self._client_id}. Setting offline.")
+    def _set_offline(self, gen: int = -1, *args) -> None:
+        """Set status to offline and dispatch update.
+
+        Args:
+            gen: Timer generation. Only applies if gen matches _offline_timer_gen
+                 (prevents stale timer callbacks from cancelling fresh timers).
+        """
+        if gen >= 0 and gen != self._offline_timer_gen:
+            return  # Stale timer callback, ignore
+        _LOGGER.info("MQTT data timeout or disconnect %s. Setting offline.", self._client_id)
         self._cancel_offline_timer()
         if self._online:
             self._online = False
@@ -201,12 +213,15 @@ class LumentreeMqttClient:
     def _start_offline_timer(self) -> None:
         """Start or restart the offline timer."""
         self._cancel_offline_timer()
+        self._offline_timer_gen += 1
+        gen = self._offline_timer_gen
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "Starting offline timer (%ss) for %s", OFFLINE_TIMEOUT_SECONDS, self._client_id
+                "Starting offline timer (%ss, gen=%s) for %s",
+                OFFLINE_TIMEOUT_SECONDS, gen, self._client_id,
             )
         self._offline_timer_unsub = async_call_later(
-            self.hass, OFFLINE_TIMEOUT_SECONDS, self._set_offline
+            self.hass, OFFLINE_TIMEOUT_SECONDS, lambda _now: self._set_offline(gen)
         )
 
     async def connect(self) -> None:
@@ -277,10 +292,10 @@ class LumentreeMqttClient:
         """
         if rc == paho.CONNACK_ACCEPTED:
             _LOGGER.info(
-                f"MQTT connected (rc={rc}) {self._client_id}. Subscribing to: {self._topic_sub}"
+                "MQTT connected (rc=%s) %s. Subscribing to: %s",
+                rc, self._client_id, self._topic_sub,
             )
             self._reconnect_attempts = 0
-            self._is_connected = True
             try:
                 result, mid = client.subscribe(self._topic_sub, 0)
                 if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -290,10 +305,15 @@ class LumentreeMqttClient:
                         self._topic_sub,
                         mid,
                     )
+                self._is_connected = True
             except Exception as exc:
-                _LOGGER.error(f"MQTT subscribe failed: {exc}")
-            finally:
+                _LOGGER.error("MQTT subscribe failed %s: %s", self._client_id, exc)
+                self._is_connected = False
                 self.hass.loop.call_soon_threadsafe(self._connected_event.set)
+                self.hass.loop.call_soon_threadsafe(self._set_offline)
+                self.hass.loop.call_soon_threadsafe(self._safe_schedule_reconnect)
+                return
+            self.hass.loop.call_soon_threadsafe(self._connected_event.set)
         else:
             err_map = {
                 1: "Protocol",
@@ -307,8 +327,7 @@ class LumentreeMqttClient:
             self._is_connected = False
             self.hass.loop.call_soon_threadsafe(self._connected_event.set)
             self.hass.loop.call_soon_threadsafe(self._set_offline)
-            if not self._stopping:
-                self._schedule_reconnect()
+            self.hass.loop.call_soon_threadsafe(self._safe_schedule_reconnect)
 
     def _on_disconnect(self, client, userdata, rc, properties=None) -> None:
         """Callback when disconnected.
@@ -328,6 +347,17 @@ class LumentreeMqttClient:
         else:
             _LOGGER.warning(f"MQTT unexpected disconnect {self._client_id} (rc={rc})")
 
+        self.hass.loop.call_soon_threadsafe(self._safe_schedule_reconnect)
+
+    @callback
+    def _safe_schedule_reconnect(self) -> None:
+        """Thread-safe check before scheduling reconnect.
+
+        Called via call_soon_threadsafe from paho callbacks to ensure
+        _stopping check runs on the event loop thread, preventing the
+        zombie-reconnect race where disconnect() sets _stopping=True
+        while a paho callback reads a stale False.
+        """
         if not self._stopping:
             self._schedule_reconnect()
 
@@ -462,10 +492,7 @@ class LumentreeMqttClient:
                     self._start_offline_timer()
 
                     # Add raw hex data
-                    try:
-                        parsed_data[KEY_LAST_RAW_MQTT] = payload_hex
-                    except NameError:
-                        pass
+                    parsed_data[KEY_LAST_RAW_MQTT] = payload_hex
 
                     # Use batch update instead of immediate dispatch
                     self.hass.loop.call_soon_threadsafe(self._queue_update, parsed_data)
