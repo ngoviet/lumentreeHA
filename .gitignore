@@ -83,3 +83,21 @@ CLAUDE.md
 # Preparation files
 PREPARE_GITHUB.md
 
+
+# repowise API keys (local)
+.repowise/
+.repowise-workspace*
+.repowise/.env
+
+# MCP / editor tooling (local only)
+.mcp.json
+.playwright-mcp/
+
+# RE artifacts and vendor dumps (local only)
+# Contains live tokens, EMQX admin credentials, and captured device records — never publish.
+tools/
+legacy/
+*.xapk
+*.apk
+mqtt_discovery.json
+api_exploration_*.json
