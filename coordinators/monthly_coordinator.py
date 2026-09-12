@@ -35,7 +35,13 @@ _LOGGER = logging.getLogger(__name__)
 class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
     __slots__ = ("aggregator", "device_sn", "_entry_id", "_last_month")
 
-    def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        aggregator: StatsAggregator,
+        device_sn: str,
+        entry_id: str | None = None,
+    ) -> None:
         self.aggregator = aggregator
         self.device_sn = device_sn
         self._entry_id = entry_id
@@ -66,13 +72,19 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
             )
 
             _LOGGER.info(f"Monthly coordinator: Using device_id: {self.aggregator._device_id}")
-            _LOGGER.info(f"Monthly coordinator: Cache loaded for {year}: {len(cache.get('daily', {}))} days")
-            _LOGGER.info(f"Monthly coordinator: Cache sample dates: {list(cache.get('daily', {}).keys())[:5]}")
+            _LOGGER.info(
+                f"Monthly coordinator: Cache loaded for {year}: {len(cache.get('daily', {}))} days"
+            )
+            _LOGGER.info(
+                f"Monthly coordinator: Cache sample dates: {list(cache.get('daily', {}).keys())[:5]}"
+            )
 
             # Check if we have data for current month
             month_dates = [f"{year}-{month:02d}-{day:02d}" for day in range(1, 32)]
             month_data_count = sum(1 for date in month_dates if date in cache.get("daily", {}))
-            _LOGGER.info(f"Monthly coordinator: Found {month_data_count} days with data for {year}-{month:02d}")
+            _LOGGER.info(
+                f"Monthly coordinator: Found {month_data_count} days with data for {year}-{month:02d}"
+            )
 
             # Build daily arrays for the current month (1-31)
             days_in_month = calendar.monthrange(year, month)[1]
@@ -100,7 +112,9 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 if day == today_day and today_data_from_coord:
                     daily_pv.append(float(today_data_from_coord.get("pv_today") or 0.0))
                     daily_charge.append(float(today_data_from_coord.get("charge_today") or 0.0))
-                    daily_discharge.append(float(today_data_from_coord.get("discharge_today") or 0.0))
+                    daily_discharge.append(
+                        float(today_data_from_coord.get("discharge_today") or 0.0)
+                    )
                     daily_grid.append(float(today_data_from_coord.get("grid_in_today") or 0.0))
                     load_val = float(today_data_from_coord.get("load_today") or 0.0)
                     essential_val = float(today_data_from_coord.get("essential_today") or 0.0)
@@ -108,7 +122,11 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
                     daily_essential.append(essential_val)
                     daily_total_load.append(load_val + essential_val)
                     # Calculate savings for today
-                    saved_kwh_today = max(0.0, (load_val + essential_val) - float(today_data_from_coord.get("grid_in_today") or 0.0))
+                    saved_kwh_today = max(
+                        0.0,
+                        (load_val + essential_val)
+                        - float(today_data_from_coord.get("grid_in_today") or 0.0),
+                    )
                     daily_saved_kwh.append(saved_kwh_today)
                     daily_savings_vnd.append(saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH)
                 else:
@@ -122,12 +140,18 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
                     essential_val = float(day_data.get("essential", 0.0))
                     daily_load.append(load_val)
                     daily_essential.append(essential_val)
-                    daily_total_load.append(float(day_data.get("total_load", load_val + essential_val)))
+                    daily_total_load.append(
+                        float(day_data.get("total_load", load_val + essential_val))
+                    )
                     daily_saved_kwh.append(float(day_data.get("saved_kwh", 0.0)))
                     daily_savings_vnd.append(float(day_data.get("savings_vnd", 0.0)))
 
-            _LOGGER.info(f"Monthly coordinator: Daily arrays built - PV first 5: {daily_pv[:5]}, Charge first 5: {daily_charge[:5]}")
-            _LOGGER.info(f"Monthly coordinator: Daily arrays built - PV last 5: {daily_pv[-5:]}, Charge last 5: {daily_charge[-5:]}")
+            _LOGGER.info(
+                f"Monthly coordinator: Daily arrays built - PV first 5: {daily_pv[:5]}, Charge first 5: {daily_charge[:5]}"
+            )
+            _LOGGER.info(
+                f"Monthly coordinator: Daily arrays built - PV last 5: {daily_pv[-5:]}, Charge last 5: {daily_charge[-5:]}"
+            )
 
             # Summarize the month from cache (các ngày đã chốt)
             m = await self.aggregator.summarize_month(year, month)
@@ -145,14 +169,30 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
                     m["load"] = m.get("load", 0.0) + load_val
                     m["essential"] = m.get("essential", 0.0) + essential_val
                     m["total_load"] = m.get("total_load", 0.0) + (load_val + essential_val)
-                    m["charge"] = m.get("charge", 0.0) + float(today_data.get("charge_today") or 0.0)
-                    m["discharge"] = m.get("discharge", 0.0) + float(today_data.get("discharge_today") or 0.0)
+                    m["charge"] = m.get("charge", 0.0) + float(
+                        today_data.get("charge_today") or 0.0
+                    )
+                    m["discharge"] = m.get("discharge", 0.0) + float(
+                        today_data.get("discharge_today") or 0.0
+                    )
                     # Add today's savings
-                    saved_kwh_today = float(today_data.get("saved_kwh") or max(0.0, (load_val + essential_val) - float(today_data.get("grid_in_today") or 0.0)))
+                    saved_kwh_today = float(
+                        today_data.get("saved_kwh")
+                        or max(
+                            0.0,
+                            (load_val + essential_val)
+                            - float(today_data.get("grid_in_today") or 0.0),
+                        )
+                    )
                     m["saved_kwh"] = m.get("saved_kwh", 0.0) + saved_kwh_today
-                    m["savings_vnd"] = m.get("savings_vnd", 0.0) + float(today_data.get("savings_vnd") or (saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH))
+                    m["savings_vnd"] = m.get("savings_vnd", 0.0) + float(
+                        today_data.get("savings_vnd")
+                        or (saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH)
+                    )
 
-            _LOGGER.info(f"Monthly coordinator: Summary for {year}-{month:02d} (with today): PV={m.get('pv', 0.0)}, Charge={m.get('charge', 0.0)}")
+            _LOGGER.info(
+                f"Monthly coordinator: Summary for {year}-{month:02d} (with today): PV={m.get('pv', 0.0)}, Charge={m.get('charge', 0.0)}"
+            )
 
             # Update last_month tracking
             self._last_month = (year, month)
@@ -229,5 +269,3 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
             return None
         except Exception:
             return None
-
-

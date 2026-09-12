@@ -70,7 +70,9 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             except Exception as session_exc:
                 _LOGGER.error(f"Failed to initialize API client: {session_exc}")
-                raise ApiException(f"API Client Initialization failed: {session_exc}") from session_exc
+                raise ApiException(
+                    f"API Client Initialization failed: {session_exc}"
+                ) from session_exc
         else:
             _LOGGER.debug(f"Reusing existing API client instance: {type(self._api_client)}")
 
@@ -112,7 +114,9 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._http_token = token
 
                 masked_token = (token[:6] + "...") if token and len(token) > 6 else "***"
-                _LOGGER.info("Auth success for %s (token masked: %s)", self._device_id_input, masked_token)
+                _LOGGER.info(
+                    "Auth success for %s (token masked: %s)", self._device_id_input, masked_token
+                )
 
                 return await self.async_step_confirm_device()
 
@@ -126,10 +130,14 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception(f"Unexpected auth error {self._device_id_input}: {exc}")
                 errors["base"] = "unknown"
 
-        schema = vol.Schema({vol.Required(CONF_DEVICE_ID, default=self._device_id_input or ""): str})
+        schema = vol.Schema(
+            {vol.Required(CONF_DEVICE_ID, default=self._device_id_input or ""): str}
+        )
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
-    async def async_step_confirm_device(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_confirm_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle device confirmation step."""
         errors: dict[str, str] = {}
         api: LumentreeHttpApiClient | None = None
@@ -162,7 +170,9 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if isinstance(device_info_api, dict) and "_error" in device_info_api:
                     api_error = device_info_api["_error"]
                     _LOGGER.error("API error when getting device info: %s", api_error)
-                    errors["base"] = "invalid_auth" if "Auth" in api_error else "cannot_connect_deviceinfo"
+                    errors["base"] = (
+                        "invalid_auth" if "Auth" in api_error else "cannot_connect_deviceinfo"
+                    )
                     return self.async_show_form(
                         step_id="confirm_device",
                         description_placeholders={"device_name": "Err", "device_sn": "Err"},
@@ -174,7 +184,9 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 )
 
                 if not self._device_sn_from_api:
-                    _LOGGER.warning("deviceId not found for %s. Using input ID.", self._device_id_input)
+                    _LOGGER.warning(
+                        "deviceId not found for %s. Using input ID.", self._device_id_input
+                    )
                     self._device_sn_from_api = self._device_id_input
                 elif self._device_sn_from_api != self._device_id_input:
                     _LOGGER.warning(
@@ -184,8 +196,16 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     )
 
                 self._device_name = (
-                    (device_info_api.get("remarkName") if isinstance(device_info_api, dict) else None)
-                    or (device_info_api.get("deviceType") if isinstance(device_info_api, dict) else None)
+                    (
+                        device_info_api.get("remarkName")
+                        if isinstance(device_info_api, dict)
+                        else None
+                    )
+                    or (
+                        device_info_api.get("deviceType")
+                        if isinstance(device_info_api, dict)
+                        else None
+                    )
                     or f"Lumentree {self._device_sn_from_api}"
                 )
 
@@ -193,7 +213,11 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     "Device Info: ID/SN='%s', Name='%s', Type='%s'",
                     self._device_sn_from_api,
                     self._device_name,
-                    (device_info_api.get("deviceType") if isinstance(device_info_api, dict) else None),
+                    (
+                        device_info_api.get("deviceType")
+                        if isinstance(device_info_api, dict)
+                        else None
+                    ),
                 )
 
                 await self.async_set_unique_id(self._device_sn_from_api)
@@ -241,7 +265,9 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         }
 
         if self._reauth_entry:
-            _LOGGER.info(f"Updating entry {self._reauth_entry.entry_id} for {self._device_sn_from_api} reauth")
+            _LOGGER.info(
+                f"Updating entry {self._reauth_entry.entry_id} for {self._device_sn_from_api} reauth"
+            )
             self.hass.config_entries.async_update_entry(self._reauth_entry, data=config_data)
             await self.hass.config_entries.async_reload(self._reauth_entry.entry_id)
             return self.async_abort(reason="reauth_successful")
@@ -266,7 +292,9 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._api_client = None
         return await self.async_step_user(user_input={CONF_DEVICE_ID: self._device_id_input})
 
-    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
         """Handle reconfigure flow (HA 2024.3+)."""
         _LOGGER.info("Reconfigure flow started")
         reconfigure_entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])

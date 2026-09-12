@@ -164,9 +164,7 @@ class LumentreeMqttClient:
 
             if self._pending_updates:
                 # Send all updates at once
-                async_dispatcher_send(
-                    self.hass, self._signal_update, self._pending_updates.copy()
-                )
+                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
                 self._pending_updates.clear()
 
                 if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -174,9 +172,7 @@ class LumentreeMqttClient:
         except asyncio.CancelledError:
             # Timer cancelled, send remaining updates
             if self._pending_updates:
-                async_dispatcher_send(
-                    self.hass, self._signal_update, self._pending_updates.copy()
-                )
+                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
                 self._pending_updates.clear()
         except Exception as exc:
             _LOGGER.error(f"Error in batch update processing: {exc}")
@@ -196,9 +192,7 @@ class LumentreeMqttClient:
         # so _batch_timer is only ever touched on the loop -- but keep the
         # marshalling so a direct call from anywhere stays safe.
         if self._batch_timer is None:
-            self._call_soon(
-                lambda: self.hass.async_create_task(self._start_batch_timer())
-            )
+            self._call_soon(lambda: self.hass.async_create_task(self._start_batch_timer()))
 
     def _is_on_event_loop(self) -> bool:
         """Return True when running on this instance's event loop thread."""
@@ -259,7 +253,9 @@ class LumentreeMqttClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "Starting offline timer (%ss, gen=%s) for %s",
-                OFFLINE_TIMEOUT_SECONDS, gen, self._client_id,
+                OFFLINE_TIMEOUT_SECONDS,
+                gen,
+                self._client_id,
             )
         self._offline_timer_unsub = async_call_later(
             self.hass, OFFLINE_TIMEOUT_SECONDS, lambda _now: self._set_offline(gen)
@@ -295,9 +291,7 @@ class LumentreeMqttClient:
                 )
 
                 try:
-                    await asyncio.wait_for(
-                        self._connected_event.wait(), timeout=CONNECT_TIMEOUT
-                    )
+                    await asyncio.wait_for(self._connected_event.wait(), timeout=CONNECT_TIMEOUT)
                     if not self._is_connected:
                         raise ConnectionRefusedError("MQTT connection refused")
                     _LOGGER.info(f"MQTT connected successfully {self._client_id}")
@@ -336,7 +330,9 @@ class LumentreeMqttClient:
         if rc == paho.CONNACK_ACCEPTED:
             _LOGGER.info(
                 "MQTT connected (rc=%s) %s. Subscribing to: %s",
-                rc, self._client_id, self._topic_sub,
+                rc,
+                self._client_id,
+                self._topic_sub,
             )
             self._reconnect_attempts = 0
             try:
@@ -415,25 +411,25 @@ class LumentreeMqttClient:
         self._reconnect_attempts += 1
 
         if self._reconnect_attempts <= MAX_RECONNECT_ATTEMPTS:
-            delay = min(
-                RECONNECT_DELAY_SECONDS * (2 ** (self._reconnect_attempts - 1)), 60
-            )
+            delay = min(RECONNECT_DELAY_SECONDS * (2 ** (self._reconnect_attempts - 1)), 60)
             _LOGGER.info(
                 "Scheduling MQTT soft reconnect %s/%s for %s in %ss",
-                self._reconnect_attempts, MAX_RECONNECT_ATTEMPTS,
-                self._client_id, delay,
+                self._reconnect_attempts,
+                MAX_RECONNECT_ATTEMPTS,
+                self._client_id,
+                delay,
             )
         else:
             delay = 120
             _LOGGER.warning(
                 "MQTT soft reconnects exhausted (%sx) for %s. "
                 "Will attempt hard reconnect (fresh connection) in %ss",
-                MAX_RECONNECT_ATTEMPTS, self._client_id, delay,
+                MAX_RECONNECT_ATTEMPTS,
+                self._client_id,
+                delay,
             )
 
-        self._call_soon(
-            lambda: self.hass.async_create_task(self._async_reconnect(delay))
-        )
+        self._call_soon(lambda: self.hass.async_create_task(self._async_reconnect(delay)))
 
     async def _async_reconnect(self, delay: float) -> None:
         """Wait for delay and attempt reconnection.
@@ -576,7 +572,9 @@ class LumentreeMqttClient:
             return False
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug("Publishing to %s (%s): %s", self._topic_pub, self._client_id, command_hex)
+            _LOGGER.debug(
+                "Publishing to %s (%s): %s", self._topic_pub, self._client_id, command_hex
+            )
 
         try:
             payload_bytes = bytes.fromhex(command_hex)
@@ -608,13 +606,16 @@ class LumentreeMqttClient:
         slave_id = 1
         func_code = 3
 
-        command_hex = generate_modbus_read_command(slave_id, func_code, start_address, num_registers)
+        command_hex = generate_modbus_read_command(
+            slave_id, func_code, start_address, num_registers
+        )
         if command_hex:
             await self._publish_command(command_hex)
         else:
             _LOGGER.error(
                 "Failed to generate Modbus read (0-%s) %s",
-                num_registers - 1, self._client_id,
+                num_registers - 1,
+                self._client_id,
             )
 
     async def async_request_battery_cells(self) -> None:
@@ -677,4 +678,3 @@ class LumentreeMqttClient:
         else:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("MQTT client already None %s", self._client_id)
-

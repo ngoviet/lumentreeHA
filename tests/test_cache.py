@@ -23,16 +23,14 @@ KEY_DISCHARGE = "discharge"
 
 
 @pytest.fixture
-def cache_dir(lumentree_cache, tmp_path, monkeypatch) -> Path:
+def cache_dir(lumentree_cache, tmp_path: Path, monkeypatch) -> Path:
     """Point the module's cache root at a temporary directory."""
     monkeypatch.setattr(lumentree_cache, "CACHE_BASE_DIR", str(tmp_path))
     return tmp_path
 
 
 class TestRoundTrip:
-    def test_save_then_load_returns_the_same_daily_values(
-        self, lumentree_cache, cache_dir
-    ) -> None:
+    def test_save_then_load_returns_the_same_daily_values(self, lumentree_cache, cache_dir) -> None:
         cache = lumentree_cache._empty_cache()
         lumentree_cache.update_daily(
             cache,
@@ -45,9 +43,7 @@ class TestRoundTrip:
         assert loaded["daily"]["2026-03-04"]["pv"] == pytest.approx(12.3)
         assert loaded["daily"]["2026-03-04"]["grid"] == pytest.approx(4.5)
 
-    def test_load_of_missing_year_returns_an_empty_cache(
-        self, lumentree_cache, cache_dir
-    ) -> None:
+    def test_load_of_missing_year_returns_an_empty_cache(self, lumentree_cache, cache_dir) -> None:
         loaded = lumentree_cache.load_year("never-written", 1999)
         assert loaded["daily"] == {}
         assert len(loaded["monthly"]["pv"]) == 12
@@ -60,13 +56,11 @@ class TestRoundTrip:
         for day, pv in (("2026-01-10", 1.0), ("2026-03-02", 5.0), ("2026-03-20", 2.5)):
             lumentree_cache.update_daily(cache, day, {KEY_PV: pv})
 
-        assert cache["monthly"]["pv"][0] == pytest.approx(1.0)   # January
-        assert cache["monthly"]["pv"][2] == pytest.approx(7.5)   # March
+        assert cache["monthly"]["pv"][0] == pytest.approx(1.0)  # January
+        assert cache["monthly"]["pv"][2] == pytest.approx(7.5)  # March
         assert cache["yearly_total"]["pv"] == pytest.approx(8.5)
 
-    def test_re_updating_a_day_replaces_rather_than_adds(
-        self, lumentree_cache, cache_dir
-    ) -> None:
+    def test_re_updating_a_day_replaces_rather_than_adds(self, lumentree_cache, cache_dir) -> None:
         cache = lumentree_cache._empty_cache()
         lumentree_cache.update_daily(cache, "2026-05-01", {KEY_PV: 3.0})
         lumentree_cache.update_daily(cache, "2026-05-01", {KEY_PV: 7.0})
@@ -223,14 +217,10 @@ class TestDurability:
         assert not Path(lumentree_cache.cache_path("dev4", 2026)).exists()
         assert lumentree_cache.load_year("dev4", 2026)["daily"] == {}
 
-    def test_purge_year_on_a_missing_file_reports_false(
-        self, lumentree_cache, cache_dir
-    ) -> None:
+    def test_purge_year_on_a_missing_file_reports_false(self, lumentree_cache, cache_dir) -> None:
         assert lumentree_cache.purge_year("dev5", 1990) is False
 
-    def test_a_corrupt_file_falls_back_to_the_backup(
-        self, lumentree_cache, cache_dir
-    ) -> None:
+    def test_a_corrupt_file_falls_back_to_the_backup(self, lumentree_cache, cache_dir) -> None:
         cache = lumentree_cache._empty_cache()
         lumentree_cache.update_daily(cache, "2026-02-02", {KEY_PV: 5.0})
         lumentree_cache.save_year("dev6", 2026, cache)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Iterable
 from typing import Any
 
 import aiohttp
@@ -35,6 +36,7 @@ AUTH_MAX_RETRIES = 3
 API_MAX_RETRIES = 3
 API_RETRY_BASE_DELAY = 1.0  # Start with 1 second
 API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
+
 
 class LumentreeHttpApiClient:
     """HTTP API client for Lumentree cloud services."""
@@ -380,7 +382,8 @@ class LumentreeHttpApiClient:
 
         # Cleanup expired cache entries to prevent memory leak
         expired_keys = [
-            key for key, (_, cache_time) in self._device_info_cache.items()
+            key
+            for key, (_, cache_time) in self._device_info_cache.items()
             if current_time - cache_time >= self._CACHE_TIMEOUT
         ]
         for key in expired_keys:
@@ -400,7 +403,9 @@ class LumentreeHttpApiClient:
 
         try:
             params = {"page": "1", "snName": device_id}
-            response_json = await self._request("POST", URL_DEVICE_MANAGE, params=params, requires_auth=True)
+            response_json = await self._request(
+                "POST", URL_DEVICE_MANAGE, params=params, requires_auth=True
+            )
             response_data = response_json.get("data", {})
             devices_list = response_data.get("devices") if isinstance(response_data, dict) else None
 
@@ -487,7 +492,9 @@ class LumentreeHttpApiClient:
 
             # Check if response is valid
             if not resp or resp.get("returnValue") != 1:
-                _LOGGER.warning(f"Invalid response from getYearData API for {device_identifier} @ {year}: {resp}")
+                _LOGGER.warning(
+                    f"Invalid response from getYearData API for {device_identifier} @ {year}: {resp}"
+                )
                 raise ValueError(f"API returned invalid response: {resp}")
 
             data = resp.get("data", {})
@@ -502,7 +509,9 @@ class LumentreeHttpApiClient:
                     item = data[key]
                     table_value_info = self._to_float_list(item.get("tableValueInfo", []))
                     # Convert from 0.1 kWh to kWh (divide by 10)
-                    result[key] = [v / 10.0 for v in table_value_info] if table_value_info else [0.0] * 12
+                    result[key] = (
+                        [v / 10.0 for v in table_value_info] if table_value_info else [0.0] * 12
+                    )
                 else:
                     result[key] = [0.0] * 12
 
@@ -552,7 +561,9 @@ class LumentreeHttpApiClient:
 
             return result
         except Exception as exc:
-            _LOGGER.error(f"Error fetching month data for {device_identifier} @ {year}-{month:02d}: {exc}")
+            _LOGGER.error(
+                f"Error fetching month data for {device_identifier} @ {year}-{month:02d}: {exc}"
+            )
             # Return empty arrays on error
             return {
                 "pv": [],
@@ -572,7 +583,9 @@ class LumentreeHttpApiClient:
             PV data dictionary
         """
         try:
-            resp = await self._request("GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True)
+            resp = await self._request(
+                "GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True
+            )
             data = resp.get("data", {})
             pv_data = data.get("pv", {})
 
@@ -613,11 +626,13 @@ class LumentreeHttpApiClient:
             Battery data dictionary
         """
         try:
-            resp = await self._request("GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True)
+            resp = await self._request(
+                "GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True
+            )
             data = resp.get("data", {})
             bats_data = data.get("bats", [])
 
-            result: dict[str, float | None] = {"charge_today": None, "discharge_today": None}
+            result: dict[str, Any] = {"charge_today": None, "discharge_today": None}
 
             if isinstance(bats_data, list):
                 if len(bats_data) > 0 and "tableValue" in bats_data[0]:
@@ -635,11 +650,17 @@ class LumentreeHttpApiClient:
                 # Invert signs: API positive = discharge, API negative = charge
                 # For processing: Charge = negative values (invert to positive for kWh), Discharge = positive values
                 # But keep original signed in battery_series_5min_w for chart (will be inverted in sensor)
-                inverted_series_w = [-w for w in series_w]  # Invert: positive becomes negative (charge), negative becomes positive (discharge)
+                inverted_series_w = [
+                    -w for w in series_w
+                ]  # Invert: positive becomes negative (charge), negative becomes positive (discharge)
                 # Charge: was negative in API, now positive after inversion
-                charge_kwh5 = self._series_5min_kwh([w if w > 0 else 0.0 for w in inverted_series_w])
+                charge_kwh5 = self._series_5min_kwh(
+                    [w if w > 0 else 0.0 for w in inverted_series_w]
+                )
                 # Discharge: was positive in API, now negative after inversion
-                discharge_kwh5 = self._series_5min_kwh([abs(w) if w < 0 else 0.0 for w in inverted_series_w])
+                discharge_kwh5 = self._series_5min_kwh(
+                    [abs(w) if w < 0 else 0.0 for w in inverted_series_w]
+                )
                 # Store inverted series for sensor processing (sensor expects: positive = charge, negative = discharge)
                 result.update(
                     {
@@ -667,10 +688,12 @@ class LumentreeHttpApiClient:
             Grid and load data dictionary
         """
         try:
-            resp = await self._request("GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True)
+            resp = await self._request(
+                "GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True
+            )
             data = resp.get("data", {})
 
-            result: dict[str, float | None] = {"grid_in_today": None, "load_today": None}
+            result: dict[str, Any] = {"grid_in_today": None, "load_today": None}
 
             # Grid
             grid_data = data.get("grid", {})
@@ -680,11 +703,13 @@ class LumentreeHttpApiClient:
             grid_series_w = self._to_float_list(grid_data.get("tableValueInfo"))
             if grid_series_w:
                 g5 = self._series_5min_kwh(grid_series_w)
-                result.update({
-                    "grid_series_5min_w": grid_series_w,
-                    "grid_series_5min_kwh": g5,
-                    "grid_series_hour_kwh": self._series_hour_kwh(g5),
-                })
+                result.update(
+                    {
+                        "grid_series_5min_w": grid_series_w,
+                        "grid_series_5min_kwh": g5,
+                        "grid_series_hour_kwh": self._series_hour_kwh(g5),
+                    }
+                )
 
             # Load and Essential (read together, process together)
             load_data = data.get("homeload", {})
@@ -703,31 +728,41 @@ class LumentreeHttpApiClient:
             load_value = result.get("load_today")
             essential_value = result.get("essential_today")
             if load_value is not None or essential_value is not None:
-                total_load_value = (float(load_value or 0.0) + float(essential_value or 0.0))
+                total_load_value = float(load_value or 0.0) + float(essential_value or 0.0)
                 if total_load_value > 0 or (load_value is not None and essential_value is not None):
                     result["total_load_today"] = total_load_value
 
             # Extract and process series data in parallel
-            load_series_w = self._to_float_list(load_data.get("tableValueInfo")) if load_data else []
-            e_series_w = self._to_float_list(essential_data.get("tableValueInfo")) if isinstance(essential_data, dict) else []
+            load_series_w = (
+                self._to_float_list(load_data.get("tableValueInfo")) if load_data else []
+            )
+            e_series_w = (
+                self._to_float_list(essential_data.get("tableValueInfo"))
+                if isinstance(essential_data, dict)
+                else []
+            )
 
             # Process load series
             if load_series_w:
                 l5 = self._series_5min_kwh(load_series_w)
-                result.update({
-                    "load_series_5min_w": load_series_w,
-                    "load_series_5min_kwh": l5,
-                    "load_series_hour_kwh": self._series_hour_kwh(l5),
-                })
+                result.update(
+                    {
+                        "load_series_5min_w": load_series_w,
+                        "load_series_5min_kwh": l5,
+                        "load_series_hour_kwh": self._series_hour_kwh(l5),
+                    }
+                )
 
             # Process essential series
             if e_series_w:
                 e5 = self._series_5min_kwh(e_series_w)
-                result.update({
-                    "essential_series_5min_w": e_series_w,
-                    "essential_series_5min_kwh": e5,
-                    "essential_series_hour_kwh": self._series_hour_kwh(e5),
-                })
+                result.update(
+                    {
+                        "essential_series_5min_w": e_series_w,
+                        "essential_series_5min_kwh": e5,
+                        "essential_series_hour_kwh": self._series_hour_kwh(e5),
+                    }
+                )
 
             # Calculate total_load series immediately when we have both series
             load_w = result.get("load_series_5min_w", [])
@@ -737,21 +772,33 @@ class LumentreeHttpApiClient:
                 max_len = max(len(load_w), len(essential_w))
                 load_w_padded = list(load_w) + [0.0] * (max_len - len(load_w))
                 essential_w_padded = list(essential_w) + [0.0] * (max_len - len(essential_w))
-                total_load_w = [float(lo or 0) + float(es or 0) for lo, es in zip(load_w_padded, essential_w_padded, strict=False)]
+                total_load_w = [
+                    float(lo or 0) + float(es or 0)
+                    for lo, es in zip(load_w_padded, essential_w_padded, strict=False)
+                ]
 
                 load_5min_kwh = result.get("load_series_5min_kwh", [])
                 essential_5min_kwh = result.get("essential_series_5min_kwh", [])
                 # Handle different lengths for kWh series too
                 max_len_kwh = max(len(load_5min_kwh), len(essential_5min_kwh))
-                load_5min_kwh_padded = list(load_5min_kwh) + [0.0] * (max_len_kwh - len(load_5min_kwh))
-                essential_5min_kwh_padded = list(essential_5min_kwh) + [0.0] * (max_len_kwh - len(essential_5min_kwh))
-                total_load_5min_kwh = [float(lo or 0) + float(es or 0) for lo, es in zip(load_5min_kwh_padded, essential_5min_kwh_padded, strict=False)]
+                load_5min_kwh_padded = list(load_5min_kwh) + [0.0] * (
+                    max_len_kwh - len(load_5min_kwh)
+                )
+                essential_5min_kwh_padded = list(essential_5min_kwh) + [0.0] * (
+                    max_len_kwh - len(essential_5min_kwh)
+                )
+                total_load_5min_kwh = [
+                    float(lo or 0) + float(es or 0)
+                    for lo, es in zip(load_5min_kwh_padded, essential_5min_kwh_padded, strict=False)
+                ]
 
-                result.update({
-                    "total_load_series_5min_w": total_load_w,
-                    "total_load_series_5min_kwh": total_load_5min_kwh,
-                    "total_load_series_hour_kwh": self._series_hour_kwh(total_load_5min_kwh),
-                })
+                result.update(
+                    {
+                        "total_load_series_5min_w": total_load_w,
+                        "total_load_series_5min_kwh": total_load_5min_kwh,
+                        "total_load_series_hour_kwh": self._series_hour_kwh(total_load_5min_kwh),
+                    }
+                )
 
                 # If we have series but no daily total yet, calculate from series sum
                 if "total_load_today" not in result and total_load_5min_kwh:
@@ -765,7 +812,7 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected other stats error")
             return {"grid_in_today": None, "load_today": None}
 
-    def _merge_stats_results(self, results: list[Any]) -> dict[str, Any]:
+    def _merge_stats_results(self, results: Iterable[Any]) -> dict[str, Any]:
         """Merge results from concurrent API calls.
 
         Args:
@@ -794,4 +841,3 @@ class LumentreeHttpApiClient:
                 filtered[k] = v
 
         return filtered
-

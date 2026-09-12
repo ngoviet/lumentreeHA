@@ -126,15 +126,11 @@ class LumentreeBinarySensor(BinarySensorEntity):
             # Handle both True and False
             if isinstance(new_state, bool):
                 if self._attr_is_on != new_state:
-                    _LOGGER.info(
-                        f"Binary sensor {self.entity_id} state changing to: {new_state}"
-                    )
+                    _LOGGER.info(f"Binary sensor {self.entity_id} state changing to: {new_state}")
                     self._attr_is_on = new_state
                     self.async_write_ha_state()
             else:
-                _LOGGER.warning(
-                    f"Received non-boolean value for {self.unique_id}: {new_state}"
-                )
+                _LOGGER.warning(f"Received non-boolean value for {self.unique_id}: {new_state}")
 
     async def async_added_to_hass(self) -> None:
         """Register dispatcher connection."""
@@ -150,4 +146,3 @@ class LumentreeBinarySensor(BinarySensorEntity):
             self._remove_dispatcher = None
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Binary sensor %s unregistered", self.unique_id)
-

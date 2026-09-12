@@ -25,7 +25,7 @@ def migrate_cache_file(cache_path: Path) -> bool:
         True if migration was needed and performed, False otherwise
     """
     try:
-        with open(cache_path, encoding='utf-8') as f:
+        with open(cache_path, encoding="utf-8") as f:
             data = json.load(f)
 
         modified = False
@@ -47,8 +47,7 @@ def migrate_cache_file(cache_path: Path) -> bool:
             load_monthly = monthly.get("load", [0.0] * 12)
             essential_monthly = monthly.get("essential", [0.0] * 12)
             total_load_monthly = [
-                float(load_monthly[i]) + float(essential_monthly[i])
-                for i in range(12)
+                float(load_monthly[i]) + float(essential_monthly[i]) for i in range(12)
             ]
             monthly["total_load"] = total_load_monthly
             modified = True
@@ -65,17 +64,18 @@ def migrate_cache_file(cache_path: Path) -> bool:
 
         if modified:
             # Backup ORIGINAL file BEFORE any modifications
-            backup_path = cache_path.with_suffix('.json.backup')
+            backup_path = cache_path.with_suffix(".json.backup")
             if not backup_path.exists():
                 try:
                     import shutil
+
                     shutil.copy2(cache_path, backup_path)
                     _LOGGER.info("Created backup: %s", backup_path)
                 except Exception as exc:
                     _LOGGER.warning("Could not create backup %s: %s", backup_path, exc)
 
             # Write migrated data
-            with open(cache_path, 'w', encoding='utf-8') as f:
+            with open(cache_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
 
             _LOGGER.info(f"✅ Migrated {cache_path}")
@@ -110,7 +110,7 @@ def migrate_all_cache(device_id: str, base_path: Path | None = None) -> int:
 
     # Find all year cache files
     for year_file in device_path.glob("*.json"):
-        if year_file.name.endswith('.backup'):
+        if year_file.name.endswith(".backup"):
             continue
 
         if migrate_cache_file(year_file):
@@ -118,4 +118,3 @@ def migrate_all_cache(device_id: str, base_path: Path | None = None) -> int:
 
     _LOGGER.info(f"Migration complete: {migrated_count} files migrated for {device_id}")
     return migrated_count
-

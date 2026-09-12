@@ -35,7 +35,7 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         api: LumentreeHttpApiClient,
         aggregator: StatsAggregator,
         device_sn: str,
-        interval_sec: int | None = None
+        interval_sec: int | None = None,
     ) -> None:
         self.api = api
         self.aggregator = aggregator
@@ -91,10 +91,17 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except ApiException as err:
             # Network/API errors - check if we can use cached data as fallback
             error_msg = str(err).lower()
-            is_network_error = any(keyword in error_msg for keyword in [
-                "connection failed", "server may be down", "network unavailable",
-                "timeout", "unreachable", "refused"
-            ])
+            is_network_error = any(
+                keyword in error_msg
+                for keyword in [
+                    "connection failed",
+                    "server may be down",
+                    "network unavailable",
+                    "timeout",
+                    "unreachable",
+                    "refused",
+                ]
+            )
 
             if is_network_error:
                 _LOGGER.warning(
@@ -125,7 +132,6 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for yesterday's date to ensure we get the final, finalized data from server.
         """
         try:
-
             year = int(yesterday_date[:4])
             cache = await self.hass.async_add_executor_job(
                 cache_io.load_year, self.aggregator._device_id, year
@@ -205,5 +211,3 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.warning(f"Failed to auto-save finalized data for {yesterday_date}: {err}")
             # Don't raise - this is a best-effort operation
-
-

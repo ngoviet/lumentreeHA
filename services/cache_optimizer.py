@@ -1,4 +1,5 @@
 """Cache optimizer to normalize and minimize cache data."""
+
 from __future__ import annotations
 
 import logging
@@ -30,7 +31,9 @@ def is_empty_day(day_data: dict[str, float]) -> bool:
     return all(checks)
 
 
-def normalize_cache(cache: dict[str, Any], keep_coverage_range: bool = True) -> tuple[dict[str, Any], int, int]:
+def normalize_cache(
+    cache: dict[str, Any], keep_coverage_range: bool = True
+) -> tuple[dict[str, Any], int, int]:
     """Normalize cache by removing empty days and optimizing structure.
 
     Args:
@@ -120,6 +123,7 @@ def optimize_year_cache(device_id: str, year: int, dry_run: bool = False) -> dic
 
     # Calculate size before
     import json
+
     size_before = len(json.dumps(cache, ensure_ascii=False))
 
     # Normalize cache
@@ -145,11 +149,15 @@ def optimize_year_cache(device_id: str, year: int, dry_run: bool = False) -> dic
         "size_before": size_before,
         "size_after": size_after,
         "size_reduction": size_before - size_after,
-        "size_reduction_percent": ((size_before - size_after) / size_before * 100) if size_before > 0 else 0.0,
+        "size_reduction_percent": ((size_before - size_after) / size_before * 100)
+        if size_before > 0
+        else 0.0,
     }
 
 
-def optimize_all_years(device_id: str, max_years: int = 10, dry_run: bool = False) -> dict[str, Any]:
+def optimize_all_years(
+    device_id: str, max_years: int = 10, dry_run: bool = False
+) -> dict[str, Any]:
     """Optimize cache for all years.
 
     Args:
@@ -195,8 +203,8 @@ def optimize_all_years(device_id: str, max_years: int = 10, dry_run: bool = Fals
             "total_size_reduction": total_size_before - total_size_after,
             "total_size_reduction_percent": (
                 ((total_size_before - total_size_after) / total_size_before * 100)
-                if total_size_before > 0 else 0.0
+                if total_size_before > 0
+                else 0.0
             ),
-        }
+        },
     }
-

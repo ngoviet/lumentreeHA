@@ -1,4 +1,5 @@
 """Utilities to detect when device first has data."""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -11,8 +12,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def find_earliest_data_from_cache(
-    device_id: str,
-    max_years: int = 10
+    device_id: str, max_years: int = 10
 ) -> tuple[str, int, int] | None:
     """Find earliest date with real data from cache.
 
@@ -67,7 +67,9 @@ def find_earliest_data_from_cache(
     return None
 
 
-async def find_earliest_data_from_api(api_client, device_id: str, max_years: int = 10) -> tuple[int, int] | None:
+async def find_earliest_data_from_api(
+    api_client, device_id: str, max_years: int = 10
+) -> tuple[int, int] | None:
     """Find earliest month with data from getYearData API.
 
     Uses getYearData API to quickly scan years and find earliest month with data.
@@ -107,14 +109,18 @@ async def find_earliest_data_from_api(api_client, device_id: str, max_years: int
 
                 # Check if has real data (any value > 0)
                 has_data = (
-                    pv_data[month_idx] > 0.0 or
-                    grid_data[month_idx] > 0.0 or
-                    load_data[month_idx] > 0.0
+                    pv_data[month_idx] > 0.0
+                    or grid_data[month_idx] > 0.0
+                    or load_data[month_idx] > 0.0
                 )
 
                 if has_data:
                     # Update earliest if this is earlier
-                    if earliest_year is None or year < earliest_year or (year == earliest_year and month < earliest_month):
+                    if (
+                        earliest_year is None
+                        or year < earliest_year
+                        or (year == earliest_year and month < earliest_month)
+                    ):
                         earliest_year = year
                         earliest_month = month
 
@@ -130,10 +136,7 @@ async def find_earliest_data_from_api(api_client, device_id: str, max_years: int
 
 
 async def find_earliest_data_date(
-    hass,
-    aggregator,
-    prefer_api: bool = True,
-    use_api_filter: bool = True
+    hass, aggregator, prefer_api: bool = True, use_api_filter: bool = True
 ) -> dict[str, Any] | None:
     """Find earliest date when device has data.
 
@@ -198,7 +201,7 @@ async def find_earliest_data_date(
                 "year": api_year,
                 "month": api_month,
                 "source": "api",
-                "method": "monthly"
+                "method": "monthly",
             }
         else:
             return {
@@ -206,7 +209,7 @@ async def find_earliest_data_date(
                 "year": cache_year,
                 "month": cache_month,
                 "source": "cache",
-                "method": "daily"
+                "method": "daily",
             }
     elif api_result:
         api_year, api_month = api_result
@@ -216,7 +219,7 @@ async def find_earliest_data_date(
             "year": api_year,
             "month": api_month,
             "source": "api",
-            "method": "monthly"
+            "method": "monthly",
         }
     elif cache_result:
         cache_date, cache_year, cache_month = cache_result
@@ -225,8 +228,7 @@ async def find_earliest_data_date(
             "year": cache_year,
             "month": cache_month,
             "source": "cache",
-            "method": "daily"
+            "method": "daily",
         }
 
     return None
-

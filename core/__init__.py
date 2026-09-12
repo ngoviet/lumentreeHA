@@ -12,4 +12,3 @@ import Home Assistant, so a re-export would pull Home Assistant in for any
 caller that only wanted, say, the exception classes.  Import the submodule
 directly instead.
 """
-

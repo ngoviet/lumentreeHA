@@ -1,4 +1,5 @@
 """Smart backfill system using getYearData/getMonthData for optimal performance."""
+
 from __future__ import annotations
 
 import asyncio
@@ -16,9 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def detect_data_gaps_from_api(
-    api_client: LumentreeHttpApiClient,
-    device_id: str,
-    max_years: int = 10
+    api_client: LumentreeHttpApiClient, device_id: str, max_years: int = 10
 ) -> dict[int, list[int]]:
     """Detect which months have data using getYearData API (fast scan).
 
@@ -50,9 +49,9 @@ async def detect_data_gaps_from_api(
             for month_idx in range(12):
                 month = month_idx + 1
                 has_data = (
-                    pv_data[month_idx] > 0.0 or
-                    grid_data[month_idx] > 0.0 or
-                    load_data[month_idx] > 0.0
+                    pv_data[month_idx] > 0.0
+                    or grid_data[month_idx] > 0.0
+                    or load_data[month_idx] > 0.0
                 )
                 if has_data:
                     months_with_data.append(month)
@@ -68,11 +67,7 @@ async def detect_data_gaps_from_api(
 
 
 async def backfill_month_from_api(
-    api_client: LumentreeHttpApiClient,
-    device_id: str,
-    year: int,
-    month: int,
-    cache: dict[str, Any]
+    api_client: LumentreeHttpApiClient, device_id: str, year: int, month: int, cache: dict[str, Any]
 ) -> tuple[int, int]:
     """Backfill a month using getMonthData API (much faster than daily).
 
@@ -106,7 +101,10 @@ async def backfill_month_from_api(
         # Process each day
         daily = cache.setdefault("daily", {})
         # Use longest available array to avoid losing data from shorter arrays
-        max_days = max(len(arr) for arr in (pv_daily, grid_daily, load_daily, essential_daily, bat_daily, batf_daily))
+        max_days = max(
+            len(arr)
+            for arr in (pv_daily, grid_daily, load_daily, essential_daily, bat_daily, batf_daily)
+        )
         loop_limit = min(max_days, days_in_month)
         for day in range(1, loop_limit + 1):
             date_str = f"{year}-{month:02d}-{day:02d}"
@@ -122,9 +120,12 @@ async def backfill_month_from_api(
 
                 # Check if API has data for this day
                 has_api_data = (
-                    day <= len(pv_daily) and pv_daily[day - 1] > 0.0 or
-                    day <= len(grid_daily) and grid_daily[day - 1] > 0.0 or
-                    day <= len(load_daily) and load_daily[day - 1] > 0.0
+                    day <= len(pv_daily)
+                    and pv_daily[day - 1] > 0.0
+                    or day <= len(grid_daily)
+                    and grid_daily[day - 1] > 0.0
+                    or day <= len(load_daily)
+                    and load_daily[day - 1] > 0.0
                 )
 
                 # Only update if API has data and existing doesn't
@@ -168,10 +169,7 @@ async def backfill_month_from_api(
 
 
 async def smart_backfill(
-    hass,
-    aggregator,
-    max_years: int = 10,
-    optimize_cache: bool = True
+    hass, aggregator, max_years: int = 10, optimize_cache: bool = True
 ) -> dict[str, Any]:
     """Smart backfill using getYearData/getMonthData APIs for optimal performance.
 
@@ -256,6 +254,7 @@ async def smart_backfill(
         _LOGGER.info("Step 3: Optimizing cache...")
         try:
             from . import cache_optimizer
+
             for year in stats["years_with_data"]:
                 result = await hass.async_add_executor_job(
                     cache_optimizer.optimize_year_cache, device_id, year, False
@@ -279,4 +278,3 @@ async def smart_backfill(
     )
 
     return stats
-
