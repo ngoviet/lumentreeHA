@@ -121,7 +121,15 @@ class LumentreeMqttClient:
         return self._is_connected
 
     def _cancel_offline_timer(self) -> None:
-        """Cancel the offline timer if active."""
+        """Cancel the offline timer if active.
+
+        Event-loop-only: the TimerHandle's unsubscribe is not thread-safe, so
+        a call arriving off-loop is deferred onto the loop instead of reaching
+        the handle directly.
+        """
+        if not self._is_on_event_loop():
+            self._call_soon(self._cancel_offline_timer)
+            return
         if self._offline_timer_unsub:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Cancelling offline timer %s", self._client_id)
@@ -237,7 +245,14 @@ class LumentreeMqttClient:
             async_dispatcher_send(self.hass, self._signal_update, {KEY_ONLINE_STATUS: False})
 
     def _start_offline_timer(self) -> None:
-        """Start or restart the offline timer."""
+        """Start or restart the offline timer.
+
+        Event-loop-only: ``async_call_later`` and the handle it returns are not
+        thread-safe, so a call arriving off-loop is deferred onto the loop.
+        """
+        if not self._is_on_event_loop():
+            self._call_soon(self._start_offline_timer)
+            return
         self._cancel_offline_timer()
         self._offline_timer_gen += 1
         gen = self._offline_timer_gen

@@ -140,10 +140,15 @@
 ### Error Response
 ```json
 {
-  "returnValue": 998,  // Auth error
-  "message": "Authentication failed"
+  "returnValue": 998,
+  "msg": "您访问对页面不存在"
 }
 ```
+
+`998` is a catch-all 404 — the endpoint does not exist. It is **not** an
+authentication error. See
+[`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#11-returnvalue-998--không-tồn-tại-không-phải-cần-auth)
+for the probe evidence.
 
 ## Data Units
 
@@ -177,7 +182,8 @@
 
 ### Return Values
 - `returnValue: 1` → Success
-- `returnValue: 998` → Authentication error
+- `returnValue: 203` → Missing or insufficient permission (auth)
+- `returnValue: 998` → Endpoint does not exist (catch-all 404)
 - `returnValue: 0` → Other error
 
 ### Network Errors
@@ -201,7 +207,7 @@ API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 2. **Token Management**:
    - Tokens expire after ~10 minutes
    - Cache tokens to avoid frequent re-authentication
-   - Re-authenticate on 998 errors
+   - Re-authenticate on `203` (missing/insufficient permission) errors
 
 3. **Data Caching**:
    - API responses should be cached locally

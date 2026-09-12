@@ -30,9 +30,10 @@ API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 
 ### Retry Logic
 1. **Network errors** (connection, timeout): Retry with exponential backoff
-2. **Auth errors** (998): Re-authenticate first, then retry
+2. **Auth errors** (missing/no permission, `returnValue: 203` or HTTP 401/403): Re-authenticate first, then retry
 3. **Server errors** (5xx): Retry with exponential backoff
 4. **Client errors** (4xx): Don't retry (except 401/403 which may need re-auth)
+5. **`returnValue: 998`**: The endpoint does not exist (catch-all 404) — do not retry, do not re-authenticate
 
 ### Exponential Backoff
 ```python
@@ -42,9 +43,9 @@ await asyncio.sleep(delay)
 
 ## Common Error Scenarios
 
-### 1. Token Expired
+### 1. Permission Denied / Token Expired
 **Symptoms**:
-- `returnValue: 998` in API response
+- `returnValue: 203` in API response
 - `AuthException` raised
 
 **Solution**:
@@ -55,6 +56,14 @@ token = await api_client.share_devices(device_id, server_time)
 api_client.set_token(token)
 # Retry original request
 ```
+
+### 1b. Endpoint Does Not Exist
+**Symptoms**:
+- `returnValue: 998` in API response with `msg: "您访问对页面不存在"`
+- `ApiException` raised
+
+**Solution**:
+- The endpoint path is wrong (or absent on this host). Do not re-authenticate — fix the path or drop the call.
 
 ### 2. Network Timeout
 **Symptoms**:
@@ -132,8 +141,8 @@ def validate_api_response(response):
     
     return_value = response.get("returnValue")
     if return_value != 1:
-        if return_value == 998:
-            raise AuthException("Authentication failed")
+        if return_value == 203:
+            raise AuthException("Missing or insufficient permission")
         raise ApiException(f"API error: {return_value}")
     
     data = response.get("data")
@@ -180,7 +189,7 @@ except Exception as e:
 ## Testing Error Handling
 
 ### Test Cases
-1. **Token expiration**: Force token expiry, verify re-auth
+1. **Permission denied**: Force an auth failure (203), verify re-auth
 2. **Network timeout**: Simulate slow network
 3. **Server errors**: Mock 500/503 responses
 4. **Invalid parameters**: Test with invalid device_id/date
