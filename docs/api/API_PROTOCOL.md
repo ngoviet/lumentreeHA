@@ -33,6 +33,15 @@
 
 ## API Endpoints
 
+> **Endpoint status:** the four daily endpoints below (`getPVDayData`,
+> `getBatDayData`, `getOtherDayData`) are **legacy aliases** — they still work
+> server-side and the integration still uses them, but they no longer appear in
+> the vendor app, which now calls a single combined
+> `lesvr/v2/getAllDayData` instead. That combined endpoint does not answer on
+> this host. See
+> [`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#12-bốn-endpoint-integration-đang-dùng-là-alias-legacy)
+> before treating any endpoint here as current.
+
 ### Daily Data APIs
 
 #### Get PV Day Data
@@ -67,10 +76,13 @@
     "tableValueInfo": [
       // 288 values (24 hours × 12 points/hour, 5-minute intervals)
       // Signed power series in Watt (W)
-      // Positive (+) = Charge (pin nhận năng lượng)
-      // Negative (-) = Discharge (pin phát năng lượng)
-      500, 500, 450,    // Charge (dương)
-      -200, -300, -400, // Discharge (âm)
+      // NOTE: the sign convention here is the API's, which is REVERSED relative
+      // to the labeling the device presents: positive (+) = Discharge,
+      // negative (-) = Charge. See core/api_client.py::_fetch_battery_data,
+      // which inverts the series before publishing. Do not restate this as
+      // "positive = charge".
+      500, 500, 450,    // API-positive → discharge
+      -200, -300, -400, // API-negative → charge
       0, 0, 0,          // Không hoạt động
       ...
     ]
@@ -80,7 +92,7 @@
 - **Note**: 
   - `bats[0]` = Charge total
   - `bats[1]` = Discharge total
-  - `tableValueInfo`: Signed power series (positive = charge, negative = discharge)
+  - `tableValueInfo`: Signed power series — see the sign convention note in the sample response above
 
 #### Get Other Day Data
 - **Endpoint**: `/lesvr/getOtherDayData`
