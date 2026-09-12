@@ -68,7 +68,7 @@ Bằng chứng: string duy nhất trong `asm/light_earth/communication/server_ap
 
 ```
 Authorization : <token>            # lấy qua shareDevices
-sign          : MD5_UPPER( <nonce> + "@1223lesvr31**21#" )
+sign          : MD5_UPPER( <nonce> + "<salt>" )
 timestamp     : <epoch millis>
 nonce         : <16 ký tự ngẫu nhiên [a-z0-9]>
 ```
@@ -79,9 +79,9 @@ Chuỗi ký ghép theo thứ tự đọc được từ assembly:
 |------|-------|---------|
 | `nonce` | `_randomAlnumString()` | random, alphabet `abcdefghijklmnopqrstuvwxyz0123456789` |
 | `timestamp` | `DateTime.now()` → micros ÷ 1000 | epoch **milliseconds** |
-| `@1223lesvr31**21#` | hằng số | salt ký |
+| `<salt>` | hằng số | salt ký — giá trị thật không chép vào repo |
 
-Cộng thêm `_decrypt` dùng hằng số AES `svr_aes=5@#$@%@#` với key `3e1y6w251uqm7jq7` (nghi vấn — xem mục 8).
+Cộng thêm `_decrypt` dùng một hằng số AES (`svr_aes`) và một key đi kèm; giá trị thật không chép vào repo (nghi vấn — xem mục 8).
 
 **Trạng thái xác minh:** công thức trên **chưa được xác minh live**. Test trên `lesvrjm` trả `returnValue: 2` (*服务器繁忙* = "server bận"), tức server đã nhận và xử lý request nhưng không phân biệt được "sign đúng" với "sign sai" trong phản hồi. Host cũ không dùng cơ chế này.
 
@@ -168,8 +168,8 @@ Một SN thường subscribe đồng thời cả `listenApp` + `listenServer` + 
 | Username | Số client | Ai |
 |----------|-----------|-----|
 | `wifiuser` | 96,992 | module WiFi trên thiết bị |
-| `appuser` | 1,649 | **integration đang dùng** (`app666`) |
-| `iaapp25` | 1,339 | **app 3.2.4** — password `jxsd39cw` (trích từ `mqtt.dart`) |
+| `appuser` | 1,649 | **integration đang dùng** (password nằm trong `const.py`) |
+| `iaapp25` | 1,339 | **app 3.2.4** — password đọc từ `mqtt.dart`, không chép vào repo |
 | `admin` | 20 | server-side tooling |
 
 Client ID của app có dạng `app_{epochMillis}_{random}`.
@@ -218,7 +218,7 @@ File: [`docs/probe_results_tier1.json`](probe_results_tier1.json)
 2. **Có đáng theo đuổi `sign` scheme không?** Nếu chỉ cần `getAllDayData`, chi phí là: implement MD5 sign + nonce + timestamp, và chấp nhận rằng công thức chưa được xác minh live.
 3. **`device/sendMsg` fallback HTTP** — có nên đưa vào doc như một "cửa hậu" tiềm năng không? Em đề xuất **không**, và ghi rõ nó là Tier 3.
 4. **`getErrorLog`** (`lehtapi`) — đây là tính năng mới thật sự đáng giá (lịch sử lỗi). Có cần em probe host `lehtapi` riêng không?
-5. **Key `3e1y6w251uqm7jq7`** — em chưa chứng minh được nó là AES key hay app key; nó nằm cạnh `svr_aes=5@#$@%@#` trong `_decrypt`. Cần đọc sâu hơn nếu quyết định làm (`encrypt` package), nhưng chỉ khi hướng "host mới" được duyệt.
+5. **Key đi kèm `svr_aes`** — em chưa chứng minh được nó là AES key hay app key; nó nằm cạnh hằng số AES trong `_decrypt`. Giá trị thật không chép vào repo. Cần đọc sâu hơn nếu quyết định làm (`encrypt` package), nhưng chỉ khi hướng "host mới" được duyệt.
 
 ---
 

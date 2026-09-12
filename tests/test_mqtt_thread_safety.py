@@ -139,6 +139,80 @@ def dispatched_from(mqtt_client_module, monkeypatch):
     return calls
 
 
+@pytest.fixture
+def timer_scheduled_from(mqtt_client_module, monkeypatch):
+    """Patch ``async_call_later`` and record the thread that reached it."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        mqtt_client_module,
+        "async_call_later",
+        lambda *a, **k: calls.append(threading.current_thread().name) or (lambda: None),
+    )
+    return calls
+
+
+def test_start_offline_timer_from_foreign_thread_defers_to_loop(
+    client_and_loop, timer_scheduled_from
+) -> None:
+    """The shared timer helper must enforce loop affinity itself.
+
+    ``async_call_later`` and the handle it returns are event-loop-only.  Every
+    caller is expected to marshal, but the guarantee lives in the helper, so a
+    call arriving off-loop is deferred rather than reaching the API inline.
+    """
+    client, loop = client_and_loop
+
+    release = _hold_loop(loop)
+    try:
+        worker = threading.Thread(target=client._start_offline_timer, name="paho-sim")
+        worker.start()
+        worker.join(5)
+        assert not worker.is_alive(), "thread-calling _start_offline_timer did not return"
+
+        assert timer_scheduled_from == [], (
+            "async_call_later was reached on the calling thread; it must be deferred"
+        )
+    finally:
+        release.set()
+
+    _drain(loop)
+    assert timer_scheduled_from == ["ha-event-loop"], (
+        f"scheduled on {timer_scheduled_from!r}"
+    )
+
+
+def test_cancel_offline_timer_from_foreign_thread_defers_to_loop(
+    client_and_loop, timer_scheduled_from
+) -> None:
+    """``disconnect()`` may run off-loop; the unsubscribe must not."""
+    client, loop = client_and_loop
+
+    cancelled: list[str] = []
+    client._offline_timer_unsub = lambda: cancelled.append(
+        threading.current_thread().name
+    )
+
+    release = _hold_loop(loop)
+    try:
+        worker = threading.Thread(target=client._cancel_offline_timer, name="paho-sim")
+        worker.start()
+        worker.join(5)
+        assert not worker.is_alive(), "thread-calling _cancel_offline_timer did not return"
+
+        assert cancelled == [], (
+            "the TimerHandle unsubscribe ran on the calling thread; it must be deferred"
+        )
+        assert client._offline_timer_unsub is not None, (
+            "the handle must not be cleared off-loop"
+        )
+    finally:
+        release.set()
+
+    _drain(loop)
+    assert cancelled == ["ha-event-loop"], f"cancelled on {cancelled!r}"
+    assert client._offline_timer_unsub is None
+
+
 def test_set_offline_from_foreign_thread_defers_dispatch(
     client_and_loop, dispatched_from
 ) -> None:
