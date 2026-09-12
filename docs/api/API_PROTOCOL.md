@@ -35,8 +35,16 @@
 
 > **Endpoint status:** `getAllDayData` is the integration's primary daily path — one
 > request returns PV, battery, load and grid for a day. The three per-metric
-> endpoints below are its **fallback** and still answer identically. See the
-> [endpoint survey](API_ENDPOINTS_DISCOVERED.md) for their legacy status.
+> endpoints below are its **fallback**: they answer identically for PV, grid,
+> load and essential load, which the recorded comparison measured equal on both
+> paths ([probe_compare_day_endpoints.json](../probe_compare_day_endpoints.json)). The battery discharge
+> representation differs — the legacy endpoint returns an explicit zero, the
+> combined endpoint omits `batF` — and the client normalises it, but the battery
+> mapping itself is **unverified**, because the captured device reports no
+> battery. See the [endpoint survey](API_ENDPOINTS_DISCOVERED.md) for their
+> legacy status. The combined endpoint is used on the coordinator path only:
+> `services/aggregator.py` backfill still issues the three legacy calls per day,
+> and adopting it there is deliberately deferred.
 
 ### Daily Data APIs
 
@@ -53,6 +61,12 @@
   `getBatDayData` returns an explicit zero. The client normalises this (charge
   present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
   interchangeable for callers.
+- **Caveat**: a metric's `tableValue` total and its `tableValueInfo` series can
+  disagree — on the captured device `bat.tableValue` is 0 while its 288-point
+  series sums to 157 (0.157 kWh). The daily sensor reports the total, so it can
+  read 0 while its own series attribute is non-zero. This is a vendor data
+  property, not a mapping bug; `getBatDayData` read `bats[0].tableValue` the
+  same way, so it predates the combined endpoint.
 - **Path note**: the APK contains `lesvr/v2/getAllDayData` because app 3.2.4
   targets a different host (`lesvrjm.suntcn.com`), where `v2/` is correct.
   Against `lesvr.suntcn.com` the `v2/` form answers `998` (does not exist) and
