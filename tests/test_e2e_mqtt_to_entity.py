@@ -417,6 +417,6 @@ async def test_frame_marks_the_device_online(hass: HomeAssistant, entry, vendor_
     await _settle(hass, ctx["client"])
 
     after = _state(hass, ctx["entities"]["online_status"]).state
-    assert after != before or after == "on", (
+    assert after == "on", (
         f"online_status did not react to a frame (before={before!r}, after={after!r})"
     )
