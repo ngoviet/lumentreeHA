@@ -16,6 +16,7 @@ from ..const import (
     BASE_URL,
     DEFAULT_HEADERS,
     URL_DEVICE_MANAGE,
+    URL_GET_ALL_DAY_DATA,
     URL_GET_BAT_DAY_DATA,
     URL_GET_MONTH_DATA,
     URL_GET_OTHER_DAY_DATA,
@@ -97,6 +98,161 @@ class LumentreeHttpApiClient:
     def _sum(series: list[float]) -> float:
         # Keep full precision
         return sum(series) if series else 0.0
+
+    # ---------------------------
+    # Per-metric builders
+    #
+    # Both the three legacy per-metric day endpoints and the combined
+    # getAllDayData endpoint describe the same six metrics with the same
+    # tableValue/tableValueInfo shape, so both paths go through these builders.
+    # Keeping one copy of the series math is what stops the two paths from
+    # quietly disagreeing after someone edits only one of them.
+    # ---------------------------
+
+    @staticmethod
+    def _metric_total_kwh(metric: Any) -> float | None:
+        """Return a metric's daily total in kWh, or None when absent.
+
+        The API reports daily totals in 0.1 kWh units.
+        """
+        if not isinstance(metric, dict):
+            return None
+        val = metric.get("tableValue")
+        if val is None:
+            return None
+        try:
+            return float(val) / 10.0
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _metric_series_w(metric: Any) -> list[float]:
+        """Return a metric's 5-minute series in W (empty when absent)."""
+        if not isinstance(metric, dict):
+            return []
+        return LumentreeHttpApiClient._to_float_list(metric.get("tableValueInfo"))
+
+    @classmethod
+    def _build_pv_result(cls, metric: Any) -> dict[str, Any]:
+        result: dict[str, Any] = {"pv_today": cls._metric_total_kwh(metric)}
+        series_w = cls._metric_series_w(metric)
+        if series_w:
+            series_kwh5 = cls._series_5min_kwh(series_w)
+            result.update({
+                "pv_series_5min_w": series_w,
+                "pv_series_5min_kwh": series_kwh5,
+                "pv_series_hour_kwh": cls._series_hour_kwh(series_kwh5),
+                "pv_sum_kwh": cls._sum(series_kwh5),
+            })
+        return result
+
+    @classmethod
+    def _build_grid_result(cls, metric: Any) -> dict[str, Any]:
+        result: dict[str, Any] = {"grid_in_today": cls._metric_total_kwh(metric)}
+        series_w = cls._metric_series_w(metric)
+        if series_w:
+            g5 = cls._series_5min_kwh(series_w)
+            result.update({
+                "grid_series_5min_w": series_w,
+                "grid_series_5min_kwh": g5,
+                "grid_series_hour_kwh": cls._series_hour_kwh(g5),
+            })
+        return result
+
+    @classmethod
+    def _build_load_result(cls, load_metric: Any, essential_metric: Any) -> dict[str, Any]:
+        """Build the household/essential/total-load metrics.
+
+        The three are produced together because total load is the sum of the
+        other two -- both as a daily total and as a series -- so splitting them
+        across callers would only create a way for them to disagree.
+        """
+        result: dict[str, Any] = {}
+        load_total = cls._metric_total_kwh(load_metric)
+        essential_total = cls._metric_total_kwh(essential_metric)
+        if load_total is not None:
+            result["load_today"] = load_total
+        if essential_total is not None:
+            result["essential_today"] = essential_total
+
+        if load_total is not None or essential_total is not None:
+            result["total_load_today"] = float(load_total or 0.0) + float(essential_total or 0.0)
+
+        load_series_w = cls._metric_series_w(load_metric)
+        essential_series_w = cls._metric_series_w(essential_metric)
+
+        if load_series_w:
+            l5 = cls._series_5min_kwh(load_series_w)
+            result.update({
+                "load_series_5min_w": load_series_w,
+                "load_series_5min_kwh": l5,
+                "load_series_hour_kwh": cls._series_hour_kwh(l5),
+            })
+        if essential_series_w:
+            e5 = cls._series_5min_kwh(essential_series_w)
+            result.update({
+                "essential_series_5min_w": essential_series_w,
+                "essential_series_5min_kwh": e5,
+                "essential_series_hour_kwh": cls._series_hour_kwh(e5),
+            })
+
+        if load_series_w and essential_series_w:
+            # The two series can differ in length; pad rather than truncate so a
+            # short series contributes zeros instead of silently dropping the
+            # tail of the longer one.
+            length = max(len(load_series_w), len(essential_series_w))
+            load_padded = list(load_series_w) + [0.0] * (length - len(load_series_w))
+            essential_padded = list(essential_series_w) + [0.0] * (length - len(essential_series_w))
+            total_load_w = [float(a or 0.0) + float(b or 0.0) for a, b in zip(load_padded, essential_padded, strict=False)]
+
+            load_kwh5 = result.get("load_series_5min_kwh", [])
+            essential_kwh5 = result.get("essential_series_5min_kwh", [])
+            kwh_length = max(len(load_kwh5), len(essential_kwh5))
+            load_kwh_padded = list(load_kwh5) + [0.0] * (kwh_length - len(load_kwh5))
+            essential_kwh_padded = list(essential_kwh5) + [0.0] * (kwh_length - len(essential_kwh5))
+            total_load_kwh5 = [float(a or 0.0) + float(b or 0.0) for a, b in zip(load_kwh_padded, essential_kwh_padded, strict=False)]
+
+            result.update({
+                "total_load_series_5min_w": total_load_w,
+                "total_load_series_5min_kwh": total_load_kwh5,
+                "total_load_series_hour_kwh": cls._series_hour_kwh(total_load_kwh5),
+            })
+
+            if "total_load_today" not in result:
+                result["total_load_today"] = cls._sum(total_load_kwh5)
+
+        return result
+
+    @classmethod
+    def _build_battery_result(
+        cls,
+        series_positive_charge: list[float],
+        charge_today: float | None,
+        discharge_today: float | None,
+    ) -> dict[str, Any]:
+        """Build battery metrics from a series where positive means charge.
+
+        The two day endpoints disagree on representation, so each converts to
+        this one convention first:
+          * getBatDayData ships a single *signed* series with positive meaning
+            discharge, which the caller negates before calling in.
+          * getAllDayData ships separate unsigned `bat` (charge) and `batF`
+            (discharge) series, which the caller subtracts.
+        Downstream consumers (entities/sensor.py) expect positive = charge.
+        """
+        result: dict[str, Any] = {
+            "charge_today": charge_today,
+            "discharge_today": discharge_today,
+        }
+        if series_positive_charge:
+            charge_kwh5 = cls._series_5min_kwh([w if w > 0 else 0.0 for w in series_positive_charge])
+            discharge_kwh5 = cls._series_5min_kwh([abs(w) if w < 0 else 0.0 for w in series_positive_charge])
+            result.update({
+                "battery_series_5min_w": series_positive_charge,
+                "battery_charge_series_hour_kwh": cls._series_hour_kwh(charge_kwh5),
+                "battery_discharge_series_hour_kwh": cls._series_hour_kwh(discharge_kwh5),
+            })
+        return result
 
     def set_token(self, token: str | None) -> None:
         """Set the authentication token.
@@ -440,7 +596,13 @@ class LumentreeHttpApiClient:
             return {"_error": f"Unexpected error: {exc}"}
 
     async def get_daily_stats(self, device_identifier: str, query_date: str) -> dict[str, Any]:
-        """Get daily statistics with concurrent API calls.
+        """Get daily statistics, preferring the single combined endpoint.
+
+        Tries GET /lesvr/getAllDayData first: one request instead of three, and
+        one round of server-side work instead of three. Falls back to the three
+        per-metric legacy endpoints when that returns nothing usable -- they
+        were the only path for a long time and still answer identically, so a
+        failure of the combined endpoint degrades speed rather than function.
 
         Args:
             device_identifier: Device ID or serial number
@@ -452,9 +614,19 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Fetching daily stats for %s @ %s", device_identifier, query_date)
 
+        combined = await self.get_all_day_data(device_identifier, query_date)
+        if combined:
+            return combined
+
+        _LOGGER.info(
+            "Combined day endpoint returned no data for %s @ %s; "
+            "falling back to the three per-metric endpoints",
+            device_identifier, query_date,
+        )
+
         base_params = {"deviceId": device_identifier, "queryDate": query_date}
 
-        # Call 3 APIs concurrently for 3x speed improvement
+        # Call 3 APIs concurrently
         pv_task = self._fetch_pv_data(base_params)
         bat_task = self._fetch_battery_data(base_params)
         other_task = self._fetch_other_data(base_params)
@@ -464,6 +636,7 @@ class LumentreeHttpApiClient:
 
         # Merge results
         return self._merge_stats_results(results)
+
 
     async def get_year_data(self, device_identifier: str, year: int) -> dict[str, Any]:
         """Get yearly statistics data (12 months aggregated).
@@ -574,7 +747,7 @@ class LumentreeHttpApiClient:
             }
 
     async def _fetch_pv_data(self, base_params: dict[str, str]) -> dict[str, Any]:
-        """Fetch PV generation data.
+        """Fetch PV generation data from the per-metric legacy endpoint.
 
         Args:
             base_params: Base query parameters
@@ -583,32 +756,8 @@ class LumentreeHttpApiClient:
             PV data dictionary
         """
         try:
-            resp = await self._request(
-                "GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True
-            )
-            data = resp.get("data", {})
-            pv_data = data.get("pv", {})
-
-            result: dict[str, Any] = {}
-
-            val = pv_data.get("tableValue")
-            result["pv_today"] = float(val) / 10.0 if val is not None else None
-
-            # Optional series (5‑minute W)
-            series_w = self._to_float_list(pv_data.get("tableValueInfo"))
-            if series_w:
-                series_kwh5 = self._series_5min_kwh(series_w)
-                series_hour = self._series_hour_kwh(series_kwh5)
-                result.update(
-                    {
-                        "pv_series_5min_w": series_w,
-                        "pv_series_5min_kwh": series_kwh5,
-                        "pv_series_hour_kwh": series_hour,
-                        "pv_sum_kwh": self._sum(series_kwh5),
-                    }
-                )
-
-            return result
+            resp = await self._request("GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True)
+            return self._build_pv_result((resp.get("data") or {}).get("pv"))
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed PV stats ({type(exc).__name__}): {exc}")
             return {"pv_today": None}
@@ -617,7 +766,7 @@ class LumentreeHttpApiClient:
             return {"pv_today": None}
 
     async def _fetch_battery_data(self, base_params: dict[str, str]) -> dict[str, Any]:
-        """Fetch battery charge/discharge data.
+        """Fetch battery charge/discharge data from the legacy endpoint.
 
         Args:
             base_params: Base query parameters
@@ -626,51 +775,25 @@ class LumentreeHttpApiClient:
             Battery data dictionary
         """
         try:
-            resp = await self._request(
-                "GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True
-            )
-            data = resp.get("data", {})
+            resp = await self._request("GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True)
+            data = resp.get("data") or {}
             bats_data = data.get("bats", [])
 
-            result: dict[str, Any] = {"charge_today": None, "discharge_today": None}
-
+            charge_today: float | None = None
+            discharge_today: float | None = None
             if isinstance(bats_data, list):
-                if len(bats_data) > 0 and "tableValue" in bats_data[0]:
-                    result["charge_today"] = float(bats_data[0]["tableValue"]) / 10.0
-                if len(bats_data) > 1 and "tableValue" in bats_data[1]:
-                    result["discharge_today"] = float(bats_data[1]["tableValue"]) / 10.0
+                if len(bats_data) > 0 and isinstance(bats_data[0], dict) and "tableValue" in bats_data[0]:
+                    charge_today = float(bats_data[0]["tableValue"]) / 10.0
+                if len(bats_data) > 1 and isinstance(bats_data[1], dict) and "tableValue" in bats_data[1]:
+                    discharge_today = float(bats_data[1]["tableValue"]) / 10.0
 
-            # Signed power series → split charge/discharge
-            # NOTE: API actually returns REVERSED: positive = discharge, negative = charge
-            # This contradicts API_PROTOCOL.md but matches actual device behavior
-            # Positive (+) = Discharge (pin phát năng lượng)
-            # Negative (-) = Charge (pin nhận năng lượng)
+            # This endpoint's series is signed with positive meaning DISCHARGE
+            # (which contradicts the old API_PROTOCOL.md; the device is the
+            # authority). Negate so the shared builder sees positive = charge.
             series_w = self._to_float_list(data.get("tableValueInfo"))
-            if series_w:
-                # Invert signs: API positive = discharge, API negative = charge
-                # For processing: Charge = negative values (invert to positive for kWh), Discharge = positive values
-                # But keep original signed in battery_series_5min_w for chart (will be inverted in sensor)
-                inverted_series_w = [
-                    -w for w in series_w
-                ]  # Invert: positive becomes negative (charge), negative becomes positive (discharge)
-                # Charge: was negative in API, now positive after inversion
-                charge_kwh5 = self._series_5min_kwh(
-                    [w if w > 0 else 0.0 for w in inverted_series_w]
-                )
-                # Discharge: was positive in API, now negative after inversion
-                discharge_kwh5 = self._series_5min_kwh(
-                    [abs(w) if w < 0 else 0.0 for w in inverted_series_w]
-                )
-                # Store inverted series for sensor processing (sensor expects: positive = charge, negative = discharge)
-                result.update(
-                    {
-                        "battery_series_5min_w": inverted_series_w,
-                        "battery_charge_series_hour_kwh": self._series_hour_kwh(charge_kwh5),
-                        "battery_discharge_series_hour_kwh": self._series_hour_kwh(discharge_kwh5),
-                    }
-                )
-
-            return result
+            return self._build_battery_result(
+                [-w for w in series_w], charge_today, discharge_today
+            )
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed battery stats ({type(exc).__name__}): {exc}")
             return {"charge_today": None, "discharge_today": None}
@@ -679,7 +802,7 @@ class LumentreeHttpApiClient:
             return {"charge_today": None, "discharge_today": None}
 
     async def _fetch_other_data(self, base_params: dict[str, str]) -> dict[str, Any]:
-        """Fetch grid and load data.
+        """Fetch grid and load data from the legacy endpoint.
 
         Args:
             base_params: Base query parameters
@@ -688,122 +811,10 @@ class LumentreeHttpApiClient:
             Grid and load data dictionary
         """
         try:
-            resp = await self._request(
-                "GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True
-            )
-            data = resp.get("data", {})
-
-            result: dict[str, Any] = {"grid_in_today": None, "load_today": None}
-
-            # Grid
-            grid_data = data.get("grid", {})
-            grid_val = grid_data.get("tableValue")
-            if grid_val is not None:
-                result["grid_in_today"] = float(grid_val) / 10.0
-            grid_series_w = self._to_float_list(grid_data.get("tableValueInfo"))
-            if grid_series_w:
-                g5 = self._series_5min_kwh(grid_series_w)
-                result.update(
-                    {
-                        "grid_series_5min_w": grid_series_w,
-                        "grid_series_5min_kwh": g5,
-                        "grid_series_hour_kwh": self._series_hour_kwh(g5),
-                    }
-                )
-
-            # Load and Essential (read together, process together)
-            load_data = data.get("homeload", {})
-            essential_data = data.get("essentialLoad", {})
-
-            # Extract daily totals
-            load_val = load_data.get("tableValue") if load_data else None
-            e_val = essential_data.get("tableValue") if isinstance(essential_data, dict) else None
-
-            if load_val is not None:
-                result["load_today"] = float(load_val) / 10.0
-            if e_val is not None:
-                result["essential_today"] = float(e_val) / 10.0
-
-            # Calculate total_load_today immediately when we have both values
-            load_value = result.get("load_today")
-            essential_value = result.get("essential_today")
-            if load_value is not None or essential_value is not None:
-                total_load_value = float(load_value or 0.0) + float(essential_value or 0.0)
-                if total_load_value > 0 or (load_value is not None and essential_value is not None):
-                    result["total_load_today"] = total_load_value
-
-            # Extract and process series data in parallel
-            load_series_w = (
-                self._to_float_list(load_data.get("tableValueInfo")) if load_data else []
-            )
-            e_series_w = (
-                self._to_float_list(essential_data.get("tableValueInfo"))
-                if isinstance(essential_data, dict)
-                else []
-            )
-
-            # Process load series
-            if load_series_w:
-                l5 = self._series_5min_kwh(load_series_w)
-                result.update(
-                    {
-                        "load_series_5min_w": load_series_w,
-                        "load_series_5min_kwh": l5,
-                        "load_series_hour_kwh": self._series_hour_kwh(l5),
-                    }
-                )
-
-            # Process essential series
-            if e_series_w:
-                e5 = self._series_5min_kwh(e_series_w)
-                result.update(
-                    {
-                        "essential_series_5min_w": e_series_w,
-                        "essential_series_5min_kwh": e5,
-                        "essential_series_hour_kwh": self._series_hour_kwh(e5),
-                    }
-                )
-
-            # Calculate total_load series immediately when we have both series
-            load_w = result.get("load_series_5min_w", [])
-            essential_w = result.get("essential_series_5min_w", [])
-            if load_w and essential_w:
-                # Handle different lengths by padding with zeros
-                max_len = max(len(load_w), len(essential_w))
-                load_w_padded = list(load_w) + [0.0] * (max_len - len(load_w))
-                essential_w_padded = list(essential_w) + [0.0] * (max_len - len(essential_w))
-                total_load_w = [
-                    float(lo or 0) + float(es or 0)
-                    for lo, es in zip(load_w_padded, essential_w_padded, strict=False)
-                ]
-
-                load_5min_kwh = result.get("load_series_5min_kwh", [])
-                essential_5min_kwh = result.get("essential_series_5min_kwh", [])
-                # Handle different lengths for kWh series too
-                max_len_kwh = max(len(load_5min_kwh), len(essential_5min_kwh))
-                load_5min_kwh_padded = list(load_5min_kwh) + [0.0] * (
-                    max_len_kwh - len(load_5min_kwh)
-                )
-                essential_5min_kwh_padded = list(essential_5min_kwh) + [0.0] * (
-                    max_len_kwh - len(essential_5min_kwh)
-                )
-                total_load_5min_kwh = [
-                    float(lo or 0) + float(es or 0)
-                    for lo, es in zip(load_5min_kwh_padded, essential_5min_kwh_padded, strict=False)
-                ]
-
-                result.update(
-                    {
-                        "total_load_series_5min_w": total_load_w,
-                        "total_load_series_5min_kwh": total_load_5min_kwh,
-                        "total_load_series_hour_kwh": self._series_hour_kwh(total_load_5min_kwh),
-                    }
-                )
-
-                # If we have series but no daily total yet, calculate from series sum
-                if "total_load_today" not in result and total_load_5min_kwh:
-                    result["total_load_today"] = self._sum(total_load_5min_kwh)
-
+            resp = await self._request("GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True)
+            data = resp.get("data") or {}
+            result = self._build_grid_result(data.get("grid"))
+            result.update(self._build_load_result(data.get("homeload"), data.get("essentialLoad")))
             return result
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed other stats ({type(exc).__name__}): {exc}")
@@ -811,6 +822,92 @@ class LumentreeHttpApiClient:
         except Exception:
             _LOGGER.exception("Unexpected other stats error")
             return {"grid_in_today": None, "load_today": None}
+
+    @classmethod
+    def _merge_all_day_payload(cls, payload: Any) -> dict[str, Any]:
+        """Turn a getAllDayData `data` object into the standard stats dict.
+
+        Split out from the request method so the mapping can be tested against
+        captured payloads without a live session -- the sign convention and the
+        absent-`batF` case are the parts worth pinning down, and neither needs
+        the network to exercise.
+        """
+        if not isinstance(payload, dict) or not payload:
+            return {}
+
+        data = payload
+        result = cls._build_pv_result(data.get("pv"))
+        result.update(cls._build_grid_result(data.get("grid")))
+        result.update(cls._build_load_result(data.get("homeload"), data.get("essentialLoad")))
+
+        charge_series = cls._metric_series_w(data.get("bat"))
+        discharge_series = cls._metric_series_w(data.get("batF"))
+        # Two unsigned series -> one signed series, positive meaning charge.
+        # Pad rather than truncate: a missing or short discharge series is the
+        # normal case (no discharge omits batF entirely rather than zero-filling
+        # it), and truncating would silently drop the charge series' tail.
+        length = max(len(charge_series), len(discharge_series))
+        charge_padded = list(charge_series) + [0.0] * (length - len(charge_series))
+        discharge_padded = list(discharge_series) + [0.0] * (length - len(discharge_series))
+        signed_series = [c - d for c, d in zip(charge_padded, discharge_padded, strict=False)]
+
+        charge_today = cls._metric_total_kwh(data.get("bat"))
+        discharge_today = cls._metric_total_kwh(data.get("batF"))
+        # The combined endpoint omits batF when the day had no discharge, where
+        # the legacy endpoint it replaces returned an explicit zero. Left as
+        # None that difference would leak to callers as `unknown` instead of
+        # `0 kWh`, so the two sources would not actually be interchangeable.
+        # A battery that reported charge is a battery that was present, so a
+        # missing batF alongside a present bat means "no discharge", not
+        # "no data".
+        if charge_today is not None and discharge_today is None:
+            discharge_today = 0.0
+
+        result.update(cls._build_battery_result(signed_series, charge_today, discharge_today))
+        return result
+
+    async def get_all_day_data(self, device_identifier: str, query_date: str) -> dict[str, Any]:
+        """Fetch a whole day's statistics in one request.
+
+        Replaces three concurrent calls (PV, battery, grid/load) with one. The
+        response carries every metric under `data`, plus a `titleParams` array
+        describing them.
+
+        Two representation differences from the legacy endpoints, both handled
+        in `_merge_all_day_payload` rather than at the call site:
+
+        * Battery arrives as two *unsigned* series -- `bat` (charge) and `batF`
+          (discharge) -- where the legacy endpoint used one signed series.
+        * `batF` is **omitted entirely** when the day had no discharge, rather
+          than being present and zero.
+
+        Args:
+            device_identifier: Device ID or serial number
+            query_date: Date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary with the same keys the legacy three-call path produces,
+            so callers cannot tell which endpoint served them.
+        """
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Fetching all-day data for %s @ %s", device_identifier, query_date)
+
+        try:
+            resp = await self._request(
+                "GET",
+                URL_GET_ALL_DAY_DATA,
+                params={"deviceId": device_identifier, "queryDate": query_date},
+                requires_auth=True,
+            )
+            return self._merge_all_day_payload(resp.get("data"))
+
+        except (ApiException, AuthException) as exc:
+            _LOGGER.warning(f"Failed all-day stats ({type(exc).__name__}): {exc}")
+            return {}
+        except Exception:
+            _LOGGER.exception("Unexpected all-day stats error")
+            return {}
+
 
     def _merge_stats_results(self, results: Iterable[Any]) -> dict[str, Any]:
         """Merge results from concurrent API calls.
