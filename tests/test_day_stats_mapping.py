@@ -184,11 +184,6 @@ def _combined_payload() -> dict:
     return {"pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]}}
 
 
-async def _async(value):
-    """Wrap a plain value in a coroutine, for stubbing an async fetcher."""
-    return value
-
-
 def _make_stub_session(responses: dict):
     """A recording aiohttp-session stub answering by endpoint path.
 
