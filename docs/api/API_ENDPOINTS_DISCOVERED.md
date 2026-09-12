@@ -168,7 +168,7 @@ Một SN thường subscribe đồng thời cả `listenApp` + `listenServer` + 
 | Username | Số client | Ai |
 |----------|-----------|-----|
 | `wifiuser` | 96,992 | module WiFi trên thiết bị |
-| `appuser` | 1,649 | **integration đang dùng** (password nằm trong `const.py`) |
+| *(masked — xem `const.py`)* | 1,649 | **integration đang dùng** |
 | `iaapp25` | 1,339 | **app 3.2.4** — password đọc từ `mqtt.dart`, không chép vào repo |
 | `admin` | 20 | server-side tooling |
 
@@ -234,6 +234,6 @@ File: [`docs/probe_results_tier1.json`](probe_results_tier1.json)
 
 ## 10. Tài liệu liên quan
 
-- [`docs/api/API_PROTOCOL.md`](API_PROTOCOL.md) — giao thức 8 endpoint hiện hành (**cần đính chính** mục 1.2 và polarity pin).
+- [`docs/api/API_PROTOCOL.md`](API_PROTOCOL.md) — giao thức 8 endpoint hiện hành. Hai đính chính của tài liệu này (mục 1.2 và polarity pin) đã được áp vào chính API_PROTOCOL.md.
 - [`docs/api/API_TEST_GUIDE.md`](API_TEST_GUIDE.md)
-- [`CLAUDE.md`](../../CLAUDE.md) — cây MQTT mô tả trong đó là **hư cấu**, xem mục 5.1 để có cây thật.
+- [`CLAUDE.md`](../../CLAUDE.md) — hợp đồng MQTT hai topic; xem mục 5.1 ở đây cho sáu namespace thật.
