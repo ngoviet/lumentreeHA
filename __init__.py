@@ -36,6 +36,12 @@ from .services.aggregator import StatsAggregator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
+# Delay before the monthly/yearly/total coordinators are warmed, so the backfill
+# that the daily coordinator kicks off has time to fill the cache they read.
+# Module-level so a test can shrink it; ten real seconds per entry otherwise
+# dominates the end-to-end suite.
+_STAGGER_DELAY_SECONDS = 10.0
+
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Lumentree integration."""
@@ -122,7 +128,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as e:
                 _LOGGER.warning("Daily coordinator first refresh failed: %s", e)
             # Give backfill time to populate cache, then refresh stats coordinators
-            await asyncio.sleep(10)
+            await asyncio.sleep(_STAGGER_DELAY_SECONDS)
             for coord, label in (
                 (monthly_coord, "monthly"),
                 (yearly_coord, "yearly"),

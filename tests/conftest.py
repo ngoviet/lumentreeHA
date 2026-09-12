@@ -24,6 +24,7 @@ single test runs.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import socket
 import sys
@@ -35,9 +36,46 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# Home Assistant is not a dependency of this suite.  The modules under test
-# (the MQTT payload parser and the cache store) are plain Python; only their
-# module-level imports need these names to exist.
+
+# --- Windows event loop ------------------------------------------------------
+# Home Assistant's aiohttp connector wires in ``aiodns`` whenever the running
+# loop is a ``SelectorEventLoop``, and ``aiodns`` raises outright when it is
+# not: "aiodns needs a SelectorEventLoop on Windows".  Windows defaults to
+# ``ProactorEventLoop``, so any test that lets the integration build its own
+# ``async_get_clientsession`` dies inside setup, before its first assertion.
+# Linux (and therefore CI) is unaffected.
+#
+# The policy cannot simply be replaced: ``pytest_homeassistant_custom_component``
+# installs ``HassEventLoopPolicy`` at plugin import and then hard-disables
+# further changes with ``asyncio.set_event_loop_policy = lambda policy: None``.
+# That policy subclasses ``DefaultEventLoopPolicy`` and leaves ``_loop_factory``
+# at the platform default, so the loop it builds is a Proactor loop.  Swapping
+# ``_loop_factory`` is what actually selects the loop; it must happen here,
+# before the pytest plugin applies its lock.
+if sys.platform == "win32":
+    _policy = asyncio.get_event_loop_policy()
+    if getattr(_policy, "_loop_factory", None) is not asyncio.SelectorEventLoop:
+        _policy._loop_factory = asyncio.SelectorEventLoop  # type: ignore[attr-defined]
+
+# Home Assistant is an optional dependency of this suite.  The modules under
+# test (the MQTT payload parser and the cache store) are plain Python; only
+# their module-level imports need these names to exist.  The end-to-end test
+# does need the real package, so probe for it before deciding which way to go.
+#
+# The probe must happen here rather than lazily: these names go into
+# ``sys.modules`` before any test module imports them, and a stubbed entry that
+# is already in ``sys.modules`` shadows a perfectly good installed package for
+# the rest of the run.
+def _home_assistant_installed() -> bool:
+    try:
+        import homeassistant  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+_HAS_REAL_HA = _home_assistant_installed()
+
 _HA_STUBS = (
     "homeassistant",
     "homeassistant.components",
@@ -57,12 +95,13 @@ _HA_STUBS = (
     "homeassistant.util.dt",
 )
 
-for _name in _HA_STUBS:
-    sys.modules.setdefault(_name, MagicMock())
+if not _HAS_REAL_HA:
+    for _name in _HA_STUBS:
+        sys.modules.setdefault(_name, MagicMock())
 
-# const.py calls these two at import time to build its timezone helper.
-sys.modules["homeassistant.util.dt"].get_time_zone = MagicMock(return_value=None)  # type: ignore[attr-defined]
-sys.modules["homeassistant.util.dt"].get_default_time_zone = MagicMock(return_value=None)  # type: ignore[attr-defined]
+    # const.py calls these two at import time to build its timezone helper.
+    sys.modules["homeassistant.util.dt"].get_time_zone = MagicMock(return_value=None)  # type: ignore[attr-defined]
+    sys.modules["homeassistant.util.dt"].get_default_time_zone = MagicMock(return_value=None)  # type: ignore[attr-defined]
 
 
 def _package(dotted: str, path: Path) -> types.ModuleType:
