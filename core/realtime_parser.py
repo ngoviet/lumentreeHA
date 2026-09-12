@@ -4,61 +4,85 @@ This module handles parsing of real-time MQTT data from Lumentree inverters.
 All parsing functions are optimized for performance with cached struct formats.
 """
 
-from typing import Optional, Dict, Any, Tuple
 import logging
-import struct
 import math
-
-from ..const import (
-    REG_ADDR,
-    KEY_ONLINE_STATUS,
-    KEY_PV_POWER,
-    KEY_BATTERY_POWER,
-    KEY_BATTERY_SOC,
-    KEY_GRID_POWER,
-    KEY_LOAD_POWER,
-    KEY_BATTERY_VOLTAGE,
-    KEY_BATTERY_CURRENT,
-    KEY_AC_OUT_VOLTAGE,
-    KEY_GRID_VOLTAGE,
-    KEY_AC_OUT_FREQ,
-    KEY_AC_OUT_POWER,
-    KEY_AC_OUT_VA,
-    KEY_DEVICE_TEMP,
-    KEY_PV1_VOLTAGE,
-    KEY_PV1_POWER,
-    KEY_PV2_VOLTAGE,
-    KEY_PV2_POWER,
-    KEY_IS_UPS_MODE,
-    KEY_BATTERY_STATUS,
-    KEY_GRID_STATUS,
-    KEY_AC_IN_VOLTAGE,
-    KEY_AC_IN_FREQ,
-    KEY_AC_IN_POWER,
-    KEY_BATTERY_TYPE,
-    KEY_MASTER_SLAVE_STATUS,
-    KEY_MQTT_DEVICE_SN,
-    KEY_BATTERY_CELL_INFO,
-    KEY_SELF_CONSUMPTION_RATIO,
-    KEY_WORK_MODE,
-    KEY_BATTERY_MODE,
-    KEY_FW_VERSION,
-    KEY_CTRL_VERSION,
-    REG_ADDR_CELL_START,
-    REG_ADDR_CELL_COUNT,
-    MAP_BATTERY_TYPE,
-    MAP_WORK_MODE,
-    MAP_BATTERY_MODE,
-)
+import struct
+from typing import Any
 
 import crcmod.predefined
+
+from ..const import (
+    KEY_AC_COUPLING,
+    KEY_AC_IN_CURRENT,
+    KEY_AC_IN_FREQ,
+    KEY_AC_IN_POWER,
+    KEY_AC_IN_VOLTAGE,
+    KEY_AC_OUT_CURRENT,
+    KEY_AC_OUT_FREQ,
+    KEY_AC_OUT_FREQ_SET,
+    KEY_AC_OUT_POWER,
+    KEY_AC_OUT_VA,
+    KEY_AC_OUT_VOLTAGE,
+    KEY_AI_MODE,
+    KEY_BATTERY_CAPACITY,
+    KEY_BATTERY_CELL_INFO,
+    KEY_BATTERY_CURRENT,
+    KEY_BATTERY_LOW_VOLTAGE_PROTECTION,
+    KEY_BATTERY_MAX_CHARGE_CURRENT,
+    KEY_BATTERY_MODE,
+    KEY_BATTERY_POWER,
+    KEY_BATTERY_RECOVERY_VOLTAGE,
+    KEY_BATTERY_SOC,
+    KEY_BATTERY_STATUS,
+    KEY_BATTERY_TYPE,
+    KEY_BATTERY_VOLTAGE,
+    KEY_BOOST_CHARGE_VOLTAGE,
+    KEY_CHARGE_FROM_AC,
+    KEY_CT_TRICKLE_FEED,
+    KEY_CTRL_VERSION,
+    KEY_DEVICE_TEMP,
+    KEY_EQUALIZING_CHARGE_INTERVAL,
+    KEY_EQUALIZING_CHARGE_TIME,
+    KEY_EQUALIZING_CHARGE_VOLTAGE,
+    KEY_FLOAT_CHARGE_VOLTAGE,
+    KEY_FW_VERSION,
+    KEY_GEN_INV_POWER,
+    KEY_GRID_POWER,
+    KEY_GRID_STATUS,
+    KEY_GRID_TYPE,
+    KEY_GRID_VOLTAGE,
+    KEY_IS_UPS_MODE,
+    KEY_LOAD_POWER,
+    KEY_LOW_CAPACITY_CUTOFF,
+    KEY_MASTER_SLAVE_STATUS,
+    KEY_MAX_DISCHARGE_CURRENT,
+    KEY_MQTT_DEVICE_SN,
+    KEY_PROTECTING_RECOVERY_POINT,
+    KEY_PV1_POWER,
+    KEY_PV1_VOLTAGE,
+    KEY_PV2_POWER,
+    KEY_PV2_VOLTAGE,
+    KEY_PV_POWER,
+    KEY_SELF_CONSUMPTION_RATIO,
+    KEY_TODAY_PV_KWH,
+    KEY_WORK_MODE,
+    MAP_AC_OUT_FREQ_SET,
+    MAP_AI_MODE,
+    MAP_BATTERY_MODE,
+    MAP_BATTERY_TYPE,
+    MAP_GRID_TYPE,
+    MAP_ON_OFF,
+    MAP_WORK_MODE,
+    REG_ADDR,
+    REG_ADDR_CELL_COUNT,
+)
 
 crc16_modbus_func = crcmod.predefined.mkCrcFun("modbus")
 
 _LOGGER = logging.getLogger(__name__)
 
 # Cached struct format strings for performance (40-50% faster parsing)
-_STRUCT_FORMATS: Dict[str, struct.Struct] = {
+_STRUCT_FORMATS: dict[str, struct.Struct] = {
     "signed_2": struct.Struct(">h"),  # Signed 16-bit big-endian
     "unsigned_2": struct.Struct(">H"),  # Unsigned 16-bit big-endian
     "signed_4": struct.Struct(">i"),  # Signed 32-bit big-endian
@@ -66,7 +90,7 @@ _STRUCT_FORMATS: Dict[str, struct.Struct] = {
 }
 
 
-def calculate_crc16_modbus(pb: bytes) -> Optional[int]:
+def calculate_crc16_modbus(pb: bytes) -> int | None:
     """Calculate Modbus CRC16.
 
     Args:
@@ -83,7 +107,7 @@ def calculate_crc16_modbus(pb: bytes) -> Optional[int]:
     return None
 
 
-def verify_crc(ph: str) -> Tuple[bool, Optional[str]]:
+def verify_crc(ph: str) -> tuple[bool, str | None]:
     """Verify CRC of payload hex string.
 
     Args:
@@ -120,7 +144,7 @@ def verify_crc(ph: str) -> Tuple[bool, Optional[str]]:
         return False, "Verify error"
 
 
-def generate_modbus_read_command(sid: int, fc: int, addr: int, num: int) -> Optional[str]:
+def generate_modbus_read_command(sid: int, fc: int, addr: int, num: int) -> str | None:
     """Generate a Modbus read command hex string with CRC.
 
     Args:
@@ -159,7 +183,7 @@ def generate_modbus_read_command(sid: int, fc: int, addr: int, num: int) -> Opti
 
 def _read_register(
     db: bytes, ra: int, signed: bool, factor: float = 1.0, byte_count: int = 2
-) -> Optional[float]:
+) -> float | None:
     """Read register value with cached struct formats for performance.
 
     Args:
@@ -220,7 +244,7 @@ def _make_reader(db: bytes, addr_map: dict):
     return read_reg
 
 
-def _read_string(db: bytes, sa: int, nr: int) -> Optional[str]:
+def _read_string(db: bytes, sa: int, nr: int) -> str | None:
     """Read ASCII string from registers.
 
     Args:
@@ -239,15 +263,13 @@ def _read_string(db: bytes, sa: int, nr: int) -> Optional[str]:
 
     try:
         raw_bytes = db[offset : offset + num_bytes]
-        decoded_string = (
-            raw_bytes.decode("ascii", "ignore").replace("\x00", "").strip()
-        )
+        decoded_string = raw_bytes.decode("ascii", "ignore").replace("\x00", "").strip()
         return decoded_string if decoded_string else None
     except Exception:
         return None
 
 
-def _parse_battery_cells(db: bytes) -> Optional[Dict[str, Any]]:
+def _parse_battery_cells(db: bytes) -> dict[str, Any] | None:
     """Parse battery cell voltages.
 
     Args:
@@ -297,7 +319,117 @@ def _parse_battery_cells(db: bytes) -> Optional[Dict[str, Any]]:
         return None
 
 
-def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
+def _parse_extended_registers(rr, db: bytes, parsed_data: dict[str, Any]) -> None:
+    """Parse the register range recovered from the vendor app.
+
+    Every factor and signedness flag below comes from the app's own formatter
+    layer, cross-checked against the captured corpus (docs/api/REGISTER_MAP.md).
+    Nothing here is guessed: where the app could not be read -- firmware
+    version strings and the raw device-model prefix -- the register is left
+    unpublished rather than reported under a name that might be wrong.
+
+    Registers past index 94 are absent from the 190-byte frame most devices
+    answer with, so ``rr`` returns None and the key is simply not set.
+    """
+    # Today's PV yield.  Rendered raw/10 and signed by the app; observed
+    # values 0..91 line up with a normal daily yield in kWh.
+    today_pv = rr("TODAY_PV_INPUT", True, 0.1)
+    if today_pv is not None:
+        parsed_data[KEY_TODAY_PV_KWH] = today_pv
+
+    # AC currents.  Raw/100, signed on both sides.
+    ac_in_cur = rr("AC_IN_CURRENT", True, 0.01)
+    if ac_in_cur is not None:
+        parsed_data[KEY_AC_IN_CURRENT] = ac_in_cur
+
+    ac_out_cur = rr("AC_OUT_CURRENT", True, 0.01)
+    if ac_out_cur is not None:
+        parsed_data[KEY_AC_OUT_CURRENT] = ac_out_cur
+
+    # Generator input power, raw watts.
+    gen_power = rr("GEN_INV_POWER", True)
+    if gen_power is not None:
+        parsed_data[KEY_GEN_INV_POWER] = gen_power
+
+    # Charge/discharge ceiling settings, raw amps.
+    max_charge = rr("BATTERY_MAX_CHARGE_CURRENT", False)
+    if max_charge is not None:
+        parsed_data[KEY_BATTERY_MAX_CHARGE_CURRENT] = max_charge
+
+    max_discharge = rr("MAX_DISCHARGE_CURRENT", False)
+    if max_discharge is not None:
+        parsed_data[KEY_MAX_DISCHARGE_CURRENT] = max_discharge
+
+    # Battery pack capacity in Ah, raw.
+    capacity = rr("BATTERY_CAPACITY", False)
+    if capacity is not None:
+        parsed_data[KEY_BATTERY_CAPACITY] = capacity
+
+    # Charge voltage targets, raw/100 volts.
+    for key, reg in (
+        (KEY_EQUALIZING_CHARGE_VOLTAGE, "EQUALIZING_CHARGE_VOLTAGE"),
+        (KEY_BOOST_CHARGE_VOLTAGE, "BOOST_CHARGE_VOLTAGE"),
+        (KEY_FLOAT_CHARGE_VOLTAGE, "FLOAT_CHARGE_VOLTAGE"),
+        (KEY_BATTERY_LOW_VOLTAGE_PROTECTION, "BATTERY_LOW_VOLTAGE_PROTECTION"),
+        (KEY_BATTERY_RECOVERY_VOLTAGE, "BATTERY_RECOVERY_VOLTAGE"),
+    ):
+        value = rr(reg, False, 0.01)
+        if value is not None:
+            parsed_data[key] = value
+
+    # State-of-charge thresholds, raw percent.
+    for key, reg in (
+        (KEY_LOW_CAPACITY_CUTOFF, "LOW_CAPACITY_CUTOFF"),
+        (KEY_PROTECTING_RECOVERY_POINT, "PROTECTING_RECOVERY_POINT"),
+    ):
+        value = rr(reg, False)
+        if value is not None:
+            parsed_data[key] = value
+
+    # Timers and trickle feed.
+    interval = rr("EQUALIZING_CHARGE_INTERVAL", False)
+    if interval is not None:
+        parsed_data[KEY_EQUALIZING_CHARGE_INTERVAL] = interval
+
+    duration = rr("EQUALIZING_CHARGE_TIME", False)
+    if duration is not None:
+        parsed_data[KEY_EQUALIZING_CHARGE_TIME] = duration
+
+    trickle = rr("CT_TRICKLE_FEED", False)
+    if trickle is not None:
+        parsed_data[KEY_CT_TRICKLE_FEED] = trickle
+
+    # Integer settings reported through an enum map, so a value the app does
+    # not define surfaces as "Unknown (n)" instead of being dropped.
+    for key, reg, mapping, label in (
+        (KEY_AI_MODE, "AI_MODE", MAP_AI_MODE, "AI mode"),
+        (KEY_GRID_TYPE, "GRID_TYPE", MAP_GRID_TYPE, "grid type"),
+        (
+            KEY_AC_OUT_FREQ_SET,
+            "AC_OUT_FREQ_SET",
+            MAP_AC_OUT_FREQ_SET,
+            "AC output frequency setting",
+        ),
+        (KEY_CHARGE_FROM_AC, "CHARGE_FROM_AC", MAP_ON_OFF, "charge from AC"),
+        (KEY_AC_COUPLING, "AC_COUPLING", MAP_ON_OFF, "AC coupling"),
+    ):
+        raw = rr(reg, False)
+        if raw is not None:
+            value = int(raw)
+            if value not in mapping:
+                # An unmapped value means the register table recovered from the
+                # app is incomplete for this firmware, so log it rather than
+                # only publishing the placeholder.
+                _LOGGER.debug(
+                    "Unmapped %s value %s (register %s) -- enum map may need extending",
+                    label,
+                    value,
+                    reg,
+                )
+            parsed_data[key] = mapping.get(value, f"Unknown ({value})")
+
+
+def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
     """Parse MQTT payload hex string.
 
     This is the main entry point for parsing real-time MQTT data from Lumentree inverters.
@@ -315,10 +447,10 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
     if _LOGGER.isEnabledFor(logging.DEBUG):
         _LOGGER.debug("Parsing payload: %s...", ph[:100])
 
-    parsed_data: Dict[str, Any] = {}
-    db: Optional[bytes] = None
+    parsed_data: dict[str, Any] = {}
+    db: bytes | None = None
     is_cell_data = False
-    resp_hex: Optional[str] = None
+    resp_hex: str | None = None
     sep = "2b2b2b2b"
 
     # Extract response hex from payload
@@ -346,8 +478,19 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
         dh = resp_hex[6:-4]
         db = bytes.fromhex(dh)
 
-        if len(db) != bc:
-            _LOGGER.warning(f"Length mismatch: {len(db)} vs {bc}")
+        # Modbus-RTU carries the byte count in a single byte, so a response
+        # longer than 255 bytes wraps: the 302-byte (151-register) frame
+        # arrives declaring 46.  Compare low byte against low byte, and branch
+        # on the actual length -- comparing the declared count against the full
+        # length can never match for those frames.
+        bc_actual = len(db) & 0xFF
+        if bc != bc_actual:
+            _LOGGER.warning(
+                "Byte count mismatch: response is %s bytes (declares %s, low byte %s)",
+                len(db),
+                bc,
+                bc_actual,
+            )
 
         if len(db) == 0 and bc > 0:
             _LOGGER.error("No data bytes")
@@ -361,59 +504,63 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
         expected_main_bytes_legacy = 95 * 2  # Legacy 95-register format
         expected_main_bytes_extended = expected_main_bytes_legacy + 12  # Legacy + metadata
 
-        # Determine data type
-        if bc == expected_cell_bytes and len(db) == expected_cell_bytes:
+        # Determine data type.  Dispatch on the real byte length, never on the
+        # declared count -- the count wraps for frames over 255 bytes.
+        main_len = len(db)
+        if main_len == expected_cell_bytes:
             is_cell_data = True
             _LOGGER.debug("Cell data detected")
-        elif (bc == expected_main_bytes and len(db) == expected_main_bytes):
+        elif main_len == expected_main_bytes:
             is_cell_data = False
             _LOGGER.debug("Main data (151 regs)")
-        elif (bc == expected_main_bytes_legacy and len(db) == expected_main_bytes_legacy) or (
-            bc == expected_main_bytes_extended and len(db) == expected_main_bytes_extended
-        ):
+        elif main_len in (expected_main_bytes_legacy, expected_main_bytes_extended):
             is_cell_data = False
-            if len(db) == expected_main_bytes_extended:
+            if main_len == expected_main_bytes_extended:
                 _LOGGER.debug("Main data (legacy 95 regs + 12 bytes metadata)")
                 db = db[:expected_main_bytes_legacy]
             else:
                 _LOGGER.debug("Main data (legacy 95 regs)")
-        elif len(db) == 198 and bc == 198:
+        elif main_len == 198:
             # 198 bytes = 99 registers, likely main data with partial metadata (missing 4 bytes)
             # Try parsing as legacy main data (190 bytes) - skip last 8 bytes
             is_cell_data = False
             _LOGGER.debug("Main data (198 bytes, likely 99 regs - treating as 95 regs)")
             db = db[:expected_main_bytes_legacy]
-        elif len(db) == 2:
+        elif main_len == 2:
             # 2 bytes = Modbus exception response or error
             _LOGGER.debug(
                 f"Modbus exception/error response (2 bytes): {resp_hex[:20]}... "
                 f"(function_code={resp_hex[2:4] if len(resp_hex) >= 4 else 'N/A'})"
             )
             return None
-        elif len(db) <= 20:
+        elif main_len <= 20:
             # Very short responses - likely error or control messages
             _LOGGER.debug(
                 f"Short response ({len(db)} bytes) - likely error/control: "
-                f"{resp_hex[:min(50, len(resp_hex))]}..."
+                f"{resp_hex[: min(50, len(resp_hex))]}..."
             )
             return None
         else:
             # Unknown length - log with more context but try to parse if it's close to expected
             _LOGGER.warning(
-                "Unrecognized length (%s/%s). Expected: %s or %s for main, %s for cells. "
-                "Payload preview: %s...",
-                len(db), bc, expected_main_bytes, expected_main_bytes_legacy,
-                expected_cell_bytes, resp_hex[:min(60, len(resp_hex))],
+                "Unrecognized length (%s bytes, declares %s). Expected: %s or %s for main, "
+                "%s for cells. Payload preview: %s...",
+                main_len,
+                bc,
+                expected_main_bytes,
+                expected_main_bytes_legacy,
+                expected_cell_bytes,
+                resp_hex[: min(60, len(resp_hex))],
             )
             # If length is close to any expected main format, try parsing
             for expected_len in (expected_main_bytes, expected_main_bytes_legacy):
-                if abs(len(db) - expected_len) <= 20 and len(db) >= expected_len - 10:
-                    _LOGGER.debug("Attempting to parse %s bytes as main data", len(db))
+                if abs(main_len - expected_len) <= 20 and main_len >= expected_len - 10:
+                    _LOGGER.debug("Attempting to parse %s bytes as main data", main_len)
                     is_cell_data = False
-                    if len(db) > expected_len:
+                    if main_len > expected_len:
                         db = db[:expected_len]
                     else:
-                        db = db + b'\x00' * (expected_len - len(db))
+                        db = db + b"\x00" * (expected_len - main_len)
                     break
             else:
                 return None
@@ -458,7 +605,12 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             if ac_in_f is not None:
                 parsed_data[KEY_AC_IN_FREQ] = ac_in_f
 
-            # Device temperature
+            # Device temperature.  The app reads three temperature registers and
+            # takes the highest, but only register 24 falls inside the frame
+            # this integration requests, so the other two are unreachable and
+            # the max is not reproducible.  Signedness is immaterial: the
+            # highest raw value in the corpus is 1544, giving 54.4 C, and the
+            # observed range is a plausible 33.8..54.4 C.
             temp_raw = rr("DEVICE_TEMP", True)
             if temp_raw is not None:
                 temp_c = round((temp_raw - 1000) / 10, 1)
@@ -478,14 +630,22 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             if grid_p is not None:
                 parsed_data[KEY_GRID_POWER] = grid_p
 
-            # AC input power
-            ac_in_p_raw = rr("AC_IN_POWER", False)
-            ac_in_p = round(ac_in_p_raw / 100, 2) if ac_in_p_raw is not None else None
+            # AC input power.  The vendor app reads this signed and displays the
+            # raw word labelled "W", with no division anywhere in its graph and
+            # parameter formatters.  Captured frames agree: across frames that
+            # pass every independent sanity check the largest value seen is 315,
+            # and where AC voltage and current are both readable the implied
+            # power factor only lands in a believable range (about 0.25) when the
+            # word is read as watts -- dividing by 100 puts it at 0.0025.
+            ac_in_p = rr("AC_IN_POWER", True)
             if ac_in_p is not None:
                 parsed_data[KEY_AC_IN_POWER] = ac_in_p
 
-            # Load power
-            load_p = rr("LOAD_POWER", False)
+            # Load power.  Signed in the app (`_readSignedIntWithConfig`).
+            # No captured value exceeds 32767, so this only matters if a unit
+            # ever reports a negative load; reading it unsigned would turn that
+            # into a ~32 kW spike.
+            load_p = rr("LOAD_POWER", True)
             if load_p is not None:
                 parsed_data[KEY_LOAD_POWER] = load_p
 
@@ -529,9 +689,7 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             if pv2 is not None:
                 parsed_data[KEY_PV2_POWER] = pv2
 
-            pv_power = (
-                (pv1 or 0) + (pv2 or 0) if (pv1 is not None or pv2 is not None) else None
-            )
+            pv_power = (pv1 or 0) + (pv2 or 0) if (pv1 is not None or pv2 is not None) else None
             if pv_power is not None:
                 parsed_data[KEY_PV_POWER] = pv_power
 
@@ -581,7 +739,17 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
             # Work mode (register 150 — may be beyond read range)
             work_mode = rr("WORK_MODE", False)
             if work_mode is not None:
-                parsed_data[KEY_WORK_MODE] = MAP_WORK_MODE.get(int(work_mode), f"Unknown ({int(work_mode)})")
+                parsed_data[KEY_WORK_MODE] = MAP_WORK_MODE.get(
+                    int(work_mode), f"Unknown ({int(work_mode)})"
+                )
+
+            # --- Extended registers ---------------------------------------
+            # Named and scaled from the vendor app's DeviceAddrConfig and its
+            # formatter layer, then cross-checked against captured frames (see
+            # docs/api/REGISTER_MAP.md).  A device that answers with the common
+            # 190-byte frame stops at index 94, so most of these read None
+            # rather than a wrong value.
+            _parse_extended_registers(rr, db, parsed_data)
 
             # Self-consumption ratio (calculated from existing data)
             pv_total = parsed_data.get(KEY_PV1_POWER, 0) or 0
@@ -595,7 +763,9 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
                         direct_consumption = 0
                 else:  # Importing from grid or balanced
                     direct_consumption = pv_total
-                parsed_data[KEY_SELF_CONSUMPTION_RATIO] = round(direct_consumption / pv_total * 100, 1)
+                parsed_data[KEY_SELF_CONSUMPTION_RATIO] = round(
+                    direct_consumption / pv_total * 100, 1
+                )
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Parsed main data: %s", parsed_data)
@@ -611,4 +781,3 @@ def parse_mqtt_payload(ph: str) -> Optional[Dict[str, Any]]:
     else:
         _LOGGER.warning(f"No data parsed from: {resp_hex[:60] if resp_hex else 'N/A'}...")
         return None
-

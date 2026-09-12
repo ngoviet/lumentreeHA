@@ -21,14 +21,14 @@ import logging
 import os
 import tempfile
 import threading
-from typing import Dict, Any, Tuple
+from typing import Any
 
 from ..const import DEFAULT_TARIFF_VND_PER_KWH
 
 _LOGGER = logging.getLogger(__name__)
 
 # Per-file threading locks to prevent concurrent read-modify-write races
-_file_locks: Dict[str, threading.Lock] = {}
+_file_locks: dict[str, threading.Lock] = {}
 _file_locks_guard = threading.Lock()
 
 
@@ -40,23 +40,36 @@ def _get_file_lock(device_id: str, year: int) -> threading.Lock:
             _file_locks[key] = threading.Lock()
         return _file_locks[key]
 
+
 CACHE_BASE_DIR = os.path.join(".storage", "lumentree_stats")
 
-_MONTHLY_KEYS = ("pv", "grid", "load", "essential", "total_load", "charge", "discharge", "saved_kwh", "savings_vnd")
+_MONTHLY_KEYS = (
+    "pv",
+    "grid",
+    "load",
+    "essential",
+    "total_load",
+    "charge",
+    "discharge",
+    "saved_kwh",
+    "savings_vnd",
+)
 
 
 def _ensure_dir(path: str) -> None:
     try:
         os.makedirs(path, exist_ok=True)
-    except Exception:
-        pass
+    except Exception as err:
+        # save_year() will surface the real error when it tries to write; failing
+        # here only means the directory could not be pre-created.
+        _LOGGER.debug("Could not create cache directory %s: %s", path, err)
 
 
 def _empty_month() -> list[float]:
     return [0.0 for _ in range(12)]
 
 
-def _empty_cache() -> Dict[str, Any]:
+def _empty_cache() -> dict[str, Any]:
     return {
         "daily": {},
         "monthly": {
@@ -70,7 +83,17 @@ def _empty_cache() -> Dict[str, Any]:
             "saved_kwh": _empty_month(),
             "savings_vnd": _empty_month(),
         },
-        "yearly_total": {"pv": 0.0, "grid": 0.0, "load": 0.0, "essential": 0.0, "total_load": 0.0, "charge": 0.0, "discharge": 0.0, "saved_kwh": 0.0, "savings_vnd": 0.0},
+        "yearly_total": {
+            "pv": 0.0,
+            "grid": 0.0,
+            "load": 0.0,
+            "essential": 0.0,
+            "total_load": 0.0,
+            "charge": 0.0,
+            "discharge": 0.0,
+            "saved_kwh": 0.0,
+            "savings_vnd": 0.0,
+        },
         "meta": {
             "version": 1,
             "last_backfill_date": None,
@@ -88,18 +111,18 @@ def cache_path(device_id: str, year: int) -> str:
     return os.path.join(dev_dir, f"{year}.json")
 
 
-def _needs_recompute(cache: Dict[str, Any]) -> bool:
+def _needs_recompute(cache: dict[str, Any]) -> bool:
     """Check if cache needs recompute based on monthly arrays consistency.
-    
+
     Returns True if monthly arrays appear incorrect (all values same or missing).
     """
     if not cache.get("daily"):
         return False
-    
+
     monthly = cache.get("monthly", {})
     if not monthly:
         return True
-    
+
     # Check if monthly arrays have valid data
     # If all months (except last) have same value, likely needs recompute
     for key in ["pv", "grid", "load"]:
@@ -111,11 +134,11 @@ def _needs_recompute(cache: Dict[str, Any]) -> bool:
         # Check if first 11 months all have same value (likely incorrect)
         if len(set(arr[:11])) <= 1 and arr[0] != 0.0:
             return True
-    
+
     return False
 
 
-def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[str, Any]:
+def load_year(device_id: str, year: int, auto_recompute: bool = True) -> dict[str, Any]:
     """Load cache for a year, optionally auto-recomputing aggregates if needed.
 
     On JSON parse failure, attempts restoration from .json.bak backup file.
@@ -134,7 +157,7 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[st
         return _empty_cache()
 
     def _read_json(filepath):
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             return json.load(f)
 
     data = None
@@ -153,8 +176,16 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[st
                     _LOGGER.warning("Restored cache from backup %s", backup_path)
                     try:
                         save_year(device_id, year, data)
-                    except Exception:
-                        pass
+                    except Exception as err:
+                        # The restore itself succeeded and data is in memory; only
+                        # persisting it back failed, so the caller still gets a
+                        # usable cache.
+                        _LOGGER.debug(
+                            "Could not persist restored cache %s/%s: %s",
+                            device_id,
+                            year,
+                            err,
+                        )
                 else:
                     data = None
             except Exception:
@@ -169,13 +200,15 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> Dict[st
         data = recompute_aggregates(data)
         try:
             save_year(device_id, year, data)
-        except Exception:
-            pass
+        except Exception as err:
+            # The recomputed data is returned either way; only the write-back is
+            # best-effort, so a read-only or full disk is not fatal here.
+            _LOGGER.debug("Could not persist recomputed cache %s/%s: %s", device_id, year, err)
 
     return data
 
 
-def save_year(device_id: str, year: int, data: Dict[str, Any]) -> None:
+def save_year(device_id: str, year: int, data: dict[str, Any]) -> None:
     """Save cache atomically with file-level locking (write to temp file then rename).
 
     Raises:
@@ -196,6 +229,7 @@ def save_year(device_id: str, year: int, data: Dict[str, Any]) -> None:
             except OSError:
                 # Fallback for Windows/filesystems where os.replace isn't fully atomic
                 import shutil
+
                 shutil.move(tmp_path, path)
         except Exception:
             try:
@@ -207,8 +241,8 @@ def save_year(device_id: str, year: int, data: Dict[str, Any]) -> None:
 
 
 def update_daily(
-    cache: Dict[str, Any], date_str: str, values: Dict[str, float]
-) -> Tuple[Dict[str, Any], int]:
+    cache: dict[str, Any], date_str: str, values: dict[str, float]
+) -> tuple[dict[str, Any], int]:
     """Update one day in cache using incremental month/year updates (O(1)).
 
     Returns (cache, month_index)
@@ -244,15 +278,15 @@ def update_daily(
             cov["earliest"] = date_str
         if cov["latest"] is None or date_str > cov["latest"]:
             cov["latest"] = date_str
-    except Exception:
-        pass
+    except Exception as err:
+        _LOGGER.debug("Could not update cache coverage with %s: %s", date_str, err)
     try:
         empties = set(meta.setdefault("empty_dates", []))
         if date_str in empties:
             empties.discard(date_str)
-            meta["empty_dates"] = sorted(list(empties))
-    except Exception:
-        pass
+            meta["empty_dates"] = sorted(empties)
+    except Exception as err:
+        _LOGGER.debug("Could not clear empty-date marker for %s: %s", date_str, err)
 
     try:
         month = int(date_str[5:7])
@@ -280,7 +314,7 @@ def update_daily(
     return cache, m_idx
 
 
-def mark_empty(cache: Dict[str, Any], date_str: str) -> Dict[str, Any]:
+def mark_empty(cache: dict[str, Any], date_str: str) -> dict[str, Any]:
     """Đánh dấu một ngày là rỗng để bỏ qua khi backfill/gap-fill.
 
     Không lưu daily cho ngày rỗng, chỉ ghi chú trong meta.empty_dates.
@@ -288,7 +322,7 @@ def mark_empty(cache: Dict[str, Any], date_str: str) -> Dict[str, Any]:
     meta = cache.setdefault("meta", {})
     empties = set(meta.setdefault("empty_dates", []))
     empties.add(date_str)
-    meta["empty_dates"] = sorted(list(empties))
+    meta["empty_dates"] = sorted(empties)
     return cache
 
 
@@ -299,7 +333,7 @@ def _get_total_load(data: dict[str, float]) -> float:
     return float(data.get("load", 0.0)) + float(data.get("essential", 0.0))
 
 
-def summarize_month(cache: Dict[str, Any], month: int) -> Dict[str, float]:
+def summarize_month(cache: dict[str, Any], month: int) -> dict[str, float]:
     idx = month - 1
     m = cache.get("monthly", {})
     load_val = float(m.get("load", _empty_month())[idx])
@@ -322,22 +356,22 @@ def summarize_month(cache: Dict[str, Any], month: int) -> Dict[str, float]:
     }
 
 
-def summarize_year(cache: Dict[str, Any]) -> Dict[str, float]:
+def summarize_year(cache: dict[str, Any]) -> dict[str, float]:
     """Summarize year totals, with backward compatibility for old data without total_load."""
     yearly_total = cache.get("yearly_total", {})
     result = {k: float(v) for k, v in yearly_total.items()}
-    
+
     # Backward compatibility: calculate total_load if missing
     if "total_load" not in yearly_total or result.get("total_load", 0.0) == 0.0:
         load_val = result.get("load", 0.0)
         essential_val = result.get("essential", 0.0)
         if load_val != 0.0 or essential_val != 0.0:
             result["total_load"] = round(load_val + essential_val, 1)
-    
+
     return result
 
 
-def recompute_aggregates(cache: Dict[str, Any]) -> Dict[str, Any]:
+def recompute_aggregates(cache: dict[str, Any]) -> dict[str, Any]:
     """Rebuild monthly arrays and yearly totals from daily map."""
     monthly = {
         "pv": _empty_month(),
@@ -354,6 +388,9 @@ def recompute_aggregates(cache: Dict[str, Any]) -> Dict[str, Any]:
         try:
             month = int(d[5:7]) - 1
         except Exception:
+            # A malformed date key cannot be placed in any month bucket; skip it
+            # rather than dropping the whole rebuild.
+            _LOGGER.debug("Skipping daily entry with unparsable date %r", d)
             continue
         for key in monthly.keys():
             if key == "total_load":
@@ -368,13 +405,17 @@ def recompute_aggregates(cache: Dict[str, Any]) -> Dict[str, Any]:
                     monthly[key][month] += round(load_val + essential_val, 1)
             elif key == "saved_kwh":
                 # Calculate saved_kwh from total_load - grid if not already stored
-                total_load_val = float(v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0))))
+                total_load_val = float(
+                    v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0)))
+                )
                 grid_val = float(v.get("grid", 0.0))
                 saved_kwh_val = max(0.0, total_load_val - grid_val)
                 monthly[key][month] += saved_kwh_val
             elif key == "savings_vnd":
                 # Calculate savings_vnd from saved_kwh if not already stored
-                total_load_val = float(v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0))))
+                total_load_val = float(
+                    v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0)))
+                )
                 grid_val = float(v.get("grid", 0.0))
                 saved_kwh_val = max(0.0, total_load_val - grid_val)
                 monthly[key][month] += saved_kwh_val * DEFAULT_TARIFF_VND_PER_KWH
@@ -406,8 +447,10 @@ def purge_year(device_id: str, year: int) -> bool:
         if os.path.exists(path):
             os.remove(path)
             return True
-    except Exception:
-        pass
+    except Exception as err:
+        # Windows raises if the file is open elsewhere; the caller gets False and
+        # the file stays on disk, which is the safe outcome for a purge failure.
+        _LOGGER.warning("Failed to purge cache %s/%s: %s", device_id, year, err)
     return False
 
 
@@ -430,5 +473,3 @@ def purge_device(device_id: str) -> bool:
     except Exception as e:
         _LOGGER.error("Failed to purge device cache: %s", e)
     return False
-
-

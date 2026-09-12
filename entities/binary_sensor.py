@@ -1,12 +1,13 @@
 """Binary sensor entities for Lumentree integration."""
 
 import logging
-from typing import Any, Dict, Optional, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
-    BinarySensorDeviceClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -17,12 +18,12 @@ from homeassistant.util import slugify
 
 from ..common import build_device_info
 from ..const import (
-    DOMAIN,
-    CONF_DEVICE_SN,
     CONF_DEVICE_NAME,
-    SIGNAL_UPDATE_FORMAT,
-    KEY_ONLINE_STATUS,
+    CONF_DEVICE_SN,
+    DOMAIN,
     KEY_IS_UPS_MODE,
+    KEY_ONLINE_STATUS,
+    SIGNAL_UPDATE_FORMAT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ class LumentreeBinarySensor(BinarySensorEntity):
         self.entity_id = generate_entity_id("binary_sensor.{}", self._attr_object_id, hass=hass)
         self._attr_device_info = device_info
         self._attr_is_on = None
-        self._remove_dispatcher: Optional[Callable] = None
+        self._remove_dispatcher: Callable | None = None
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
@@ -118,22 +119,18 @@ class LumentreeBinarySensor(BinarySensorEntity):
             )
 
     @callback
-    def _handle_update(self, data: Dict[str, Any]) -> None:
+    def _handle_update(self, data: dict[str, Any]) -> None:
         """Handle updates from the dispatcher."""
         if self.entity_description.key in data:
             new_state = data[self.entity_description.key]
             # Handle both True and False
             if isinstance(new_state, bool):
                 if self._attr_is_on != new_state:
-                    _LOGGER.info(
-                        f"Binary sensor {self.entity_id} state changing to: {new_state}"
-                    )
+                    _LOGGER.info(f"Binary sensor {self.entity_id} state changing to: {new_state}")
                     self._attr_is_on = new_state
                     self.async_write_ha_state()
             else:
-                _LOGGER.warning(
-                    f"Received non-boolean value for {self.unique_id}: {new_state}"
-                )
+                _LOGGER.warning(f"Received non-boolean value for {self.unique_id}: {new_state}")
 
     async def async_added_to_hass(self) -> None:
         """Register dispatcher connection."""
@@ -149,4 +146,3 @@ class LumentreeBinarySensor(BinarySensorEntity):
             self._remove_dispatcher = None
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Binary sensor %s unregistered", self.unique_id)
-

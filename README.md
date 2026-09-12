@@ -42,9 +42,10 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 - **Battery Management**: Power, voltage, current, SOC (%), status (Charging/Discharging)
 - **Grid Power**: Import/export power + status
 - **Load Power**: Total consumption monitoring
-- **AC Output**: Voltage, frequency, power, apparent power
-- **AC Input**: Voltage, frequency, power
-- **Device**: Temperature, online status, UPS mode, serial number
+- **AC Output**: Voltage, frequency, power, apparent power, current
+- **AC Input**: Voltage, frequency, power, current
+- **Battery Settings**: Capacity, charge/discharge current limits, charge voltages, protection thresholds
+- **Device**: Temperature, online status, UPS mode, serial number, inverter/generator power
 - **Battery Cells**: Individual cell voltage monitoring
 
 ### Daily Statistics (HTTP API — 5min refresh)
@@ -53,11 +54,12 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 - **288-point 5-minute series** for detailed charts
 
 ### Monthly Statistics
-- 9 metrics: PV, Charge, Discharge, Grid, Load, Essential, Total Load, Saved (kWh), Savings (VND)
+- 7 metrics: PV, Charge, Discharge, Grid, Load, Essential, Total Load
+- Saved (kWh) and Savings (VND) as state attributes
 - **Daily arrays** for month-view charts (1-31 days)
 
 ### Yearly Statistics
-- 9 metrics with **monthly arrays** for year-view charts (1-12 months)
+- 7 metrics with **monthly arrays** for year-view charts (1-12 months)
 - Historical data across multiple years via disk cache
 
 ### Lifetime/Total Statistics
@@ -75,8 +77,8 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 
 ## Requirements
 
-- **Home Assistant**: 2023.1+
-- **Python**: 3.9+
+- **Home Assistant**: 2024.4+ (`config_flow.py` imports `ConfigFlowResult`, added in 2024.4; `hacs.json` still declares `2023.1.0`)
+- **Python**: 3.11+ (the coordinators use `asyncio.timeout`, added in 3.11; the parser and sensor modules also annotate signatures with `X | None` without `from __future__ import annotations`, which Python 3.9 evaluates at import time and rejects)
 - **Dependencies**: aiohttp>=3.8.0, paho-mqtt>=1.6.0, crcmod>=1.7
 - **Network**: Internet (API + MQTT to `lesvr.suntcn.com`)
 
@@ -107,23 +109,29 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 
 ## Available Entities
 
-### Real-time Sensors (26 entities)
+### Real-time Sensors (48 entities enabled, 55 defined)
 | Category | Sensors |
 |----------|---------|
-| Power | PV1, PV2, PV Total, Battery, Grid, Load, AC Output, AC Input, Total Load |
-| Voltage | Battery, PV1, PV2, Grid, AC Output, AC Input |
-| Current | Battery |
+| Power | PV Power, PV1, PV2, Battery, Grid, Load, Total Load, AC Output, AC Input, Apparent Power, Generator, CT Trickle Feed |
+| Voltage | Battery, PV1, PV2, Grid, AC Output, AC Input, Equalizing/Boost/Float Charge Voltage, Battery Low Voltage Protection, Battery Recovery Voltage |
+| Current | Battery, AC Input, AC Output, Battery Maximum Charge Current, Maximum Discharge Current |
+| Energy | PV Input Today |
 | Frequency | AC Output, AC Input |
-| Status | Battery SOC (%), Battery Status, Grid Status, Battery Type, UPS Mode, Master/Slave |
-| Info | Device Temperature, MQTT Device SN, Battery Cell Info |
+| Status | Battery SOC (%), Battery Status, Grid Status, Battery Type, UPS Mode, Master/Slave, AI Mode, Self-Consumption Ratio |
+| Setting (diagnostic) | Battery Capacity, Low Capacity Cutoff Point, Protecting Recovery Point, Equalizing Charge Interval, Equalizing Charge Time, Grid Type, AC Output Frequency Setting, Charge From AC, AC Coupling |
+| Info (diagnostic) | Device Temperature, Work Mode, Battery Mode, Firmware Version, Controller Version, Battery Cell Info, MQTT Device SN |
+
+Seven real-time sensors ship disabled by default (PV1/PV2 power and voltage, AC Input Voltage, MQTT Device SN, Last Raw MQTT Hex); enable them in the entity registry if you need them. The voltage, current and setting entities stay `unknown` on units that answer with the shorter common frame, rather than reporting a fabricated value. See [docs/api/REGISTER_MAP.md](docs/api/REGISTER_MAP.md).
 
 ### Statistics Sensors (28 entities)
 | Period | Metrics | Refresh |
 |--------|---------|---------|
 | Daily (7) | PV, Charge, Discharge, Grid, Load, Essential, Total Load | 5 min |
-| Monthly (7) | Same + Saved (kWh) + Savings (VND) | 5 min |
-| Yearly (7) | Same + monthly arrays for charting | 5 min |
+| Monthly (7) | Same as Daily | 5 min |
+| Yearly (7) | Same, plus monthly arrays as attributes for charting | 5 min |
 | Total (7) | Lifetime cumulative sums | 5 min |
+
+Saved energy (kWh) and cost savings (VND) are exposed as state attributes on the statistics sensors, not as separate entities.
 
 ### Binary Sensors (2 entities)
 - Online Status, UPS Mode
