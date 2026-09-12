@@ -27,10 +27,14 @@ import asyncio
 import pytest
 
 # Shape modelled on GET /lesvr/getAllDayData on a real device (abridged).  The
-# pv/grid/homeload/essentialLoad values are from that capture; the bat/batF
-# values are constructed and unverified, because the captured device reports no
-# battery.  Two things to preserve when editing: bat/batF are separate unsigned
-# series, and batF is missing rather than zero when the day had no discharge.
+# tableValue totals are taken from that capture (pv 60, grid 116, homeload 170,
+# essentialLoad 0).  The tableValueInfo arrays are four-point stand-ins, not
+# excerpts -- a real day carries 288 points, so a four-element array cannot be
+# one.  Only homeload's opening values come from the capture; the rest are
+# chosen so the arithmetic stays legible.  bat/batF are constructed and
+# unverified, because the captured device reports no battery.  Two things to
+# preserve when editing: bat/batF are separate unsigned series, and batF is
+# missing rather than zero when the day had no discharge.
 ALL_DAY_WITH_DISCHARGE = {
     "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
     "grid": {"tableValue": 116, "tableValueInfo": [485, 485, 0, 400]},
