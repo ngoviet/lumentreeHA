@@ -1,12 +1,13 @@
 """Binary sensor entities for Lumentree integration."""
 
 import logging
-from typing import Any, Dict, Optional, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
     BinarySensorEntity,
     BinarySensorEntityDescription,
-    BinarySensorDeviceClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -17,12 +18,12 @@ from homeassistant.util import slugify
 
 from ..common import build_device_info
 from ..const import (
-    DOMAIN,
-    CONF_DEVICE_SN,
     CONF_DEVICE_NAME,
-    SIGNAL_UPDATE_FORMAT,
-    KEY_ONLINE_STATUS,
+    CONF_DEVICE_SN,
+    DOMAIN,
     KEY_IS_UPS_MODE,
+    KEY_ONLINE_STATUS,
+    SIGNAL_UPDATE_FORMAT,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ class LumentreeBinarySensor(BinarySensorEntity):
         self.entity_id = generate_entity_id("binary_sensor.{}", self._attr_object_id, hass=hass)
         self._attr_device_info = device_info
         self._attr_is_on = None
-        self._remove_dispatcher: Optional[Callable] = None
+        self._remove_dispatcher: Callable | None = None
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
@@ -118,7 +119,7 @@ class LumentreeBinarySensor(BinarySensorEntity):
             )
 
     @callback
-    def _handle_update(self, data: Dict[str, Any]) -> None:
+    def _handle_update(self, data: dict[str, Any]) -> None:
         """Handle updates from the dispatcher."""
         if self.entity_description.key in data:
             new_state = data[self.entity_description.key]

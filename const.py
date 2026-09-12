@@ -55,7 +55,6 @@ CONF_HTTP_TOKEN: Final = "http_token"
 
 # --- Polling and Timeout ---
 DEFAULT_POLLING_INTERVAL = 5
-DEFAULT_STATS_INTERVAL = 600 # 10 minutes
 
 # New intervals for statistics coordinators
 DEFAULT_DAILY_INTERVAL: Final = 300        # 5 minutes (server updates every 5 minutes)
@@ -98,6 +97,45 @@ REG_ADDR = {
     # Registers 100+ may only be available if device returns extra data
     "BATTERY_MODE": 100,
     "WORK_MODE": 150,
+    # --- Extended range ---------------------------------------------------
+    # Recovered from the LightEarth app's DeviceAddrConfig, which binds every
+    # signal to one address per wire protocol (protocol_1 is the one this
+    # integration speaks).  The address law is app_addr == 2 * register_index,
+    # verified against the device serial number, which sits at register 3 in
+    # every captured frame while the app binds it to address 6.
+    #
+    # A device is free to answer with fewer registers than were asked for: the
+    # common 190-byte frame carries only indices 0..94, so everything at index
+    # 95 and above reads None on those units rather than raising.
+    #
+    # Scale and signedness come from the app's formatter layer and were
+    # cross-checked against captured frames -- see docs/api/REGISTER_MAP.md.
+    "FW_VERSION_CONTROLLER_ADDR": 9,   # app addr 18; app renders this as a string
+    "FW_VERSION_LCD": 10,              # app addr 20; app renders this as a string
+    "SOLAR_SELL_GRAPH": 19,            # app addr 38; flag values only, not a measurement
+    "TODAY_PV_INPUT": 33,              # app addr 66; raw/10, signed -> kWh
+    "AC_IN_CURRENT": 54,               # app addr 108; raw/100, signed -> A
+    "AC_OUT_CURRENT": 62,              # app addr 124; raw/100, signed -> A
+    "GEN_INV_POWER": 82,               # app addr 164; raw watts, signed
+    "DEVICE_IMAGE_FLAG": 94,           # app addr 188; selects the product image
+    "AI_MODE": 96,                     # app addr 192; 0/1/2
+    "EQUALIZING_CHARGE_VOLTAGE": 101,  # app addr 202; raw/100 -> V
+    "BOOST_CHARGE_VOLTAGE": 102,       # app addr 204; raw/100 -> V
+    "FLOAT_CHARGE_VOLTAGE": 103,       # app addr 206; raw/100 -> V
+    "BATTERY_CAPACITY": 104,           # app addr 208; raw -> Ah
+    "BATTERY_MAX_CHARGE_CURRENT": 106, # app addr 212; raw -> A
+    "MAX_DISCHARGE_CURRENT": 107,      # app addr 214; raw -> A
+    "LOW_CAPACITY_CUTOFF": 111,        # app addr 222; raw -> %
+    "PROTECTING_RECOVERY_POINT": 112,  # app addr 224; raw -> %
+    "BATTERY_LOW_VOLTAGE_PROTECTION": 114,  # app addr 228; raw/100 -> V
+    "BATTERY_RECOVERY_VOLTAGE": 115,   # app addr 230; raw/100 -> V
+    "CHARGE_FROM_AC": 120,             # app addr 240; 0/1
+    "AC_OUT_FREQ_SET": 123,            # app addr 246; two options, values 0 and 2
+    "AC_COUPLING": 124,                # app addr 248; 0/1
+    "GRID_TYPE": 125,                  # app addr 250; 0/2/4
+    "CT_TRICKLE_FEED": 147,            # app addr 294; raw watts
+    "EQUALIZING_CHARGE_INTERVAL": 148, # app addr 296; raw days
+    "EQUALIZING_CHARGE_TIME": 149,     # app addr 298; raw minutes
 }
 REG_ADDR_CELL_START: Final = 250
 REG_ADDR_CELL_COUNT: Final = 50
@@ -201,6 +239,33 @@ KEY_BATTERY_MODE: Final = "battery_mode"
 KEY_FW_VERSION: Final = "fw_version"
 KEY_CTRL_VERSION: Final = "ctrl_version"
 
+# --- Extended real-time keys (see the extended block in REG_ADDR) ---
+# The firmware cells at indices 9 and 10 are deliberately not published: the
+# vendor app renders them as strings, so a numeric entity would report a wrong
+# value.  See docs/api/REGISTER_MAP.md.
+KEY_TODAY_PV_KWH: Final = "pv_today_kwh"           # distinct from the HTTP KEY_DAILY_PV_KWH
+KEY_AC_IN_CURRENT: Final = "ac_input_current"
+KEY_AC_OUT_CURRENT: Final = "ac_output_current"
+KEY_GEN_INV_POWER: Final = "generator_power"
+KEY_AI_MODE: Final = "ai_mode"
+KEY_EQUALIZING_CHARGE_VOLTAGE: Final = "equalizing_charge_voltage"
+KEY_BOOST_CHARGE_VOLTAGE: Final = "boost_charge_voltage"
+KEY_FLOAT_CHARGE_VOLTAGE: Final = "float_charge_voltage"
+KEY_BATTERY_CAPACITY: Final = "battery_capacity"
+KEY_BATTERY_MAX_CHARGE_CURRENT: Final = "battery_max_charge_current"
+KEY_MAX_DISCHARGE_CURRENT: Final = "max_discharge_current"
+KEY_LOW_CAPACITY_CUTOFF: Final = "low_capacity_cutoff"
+KEY_PROTECTING_RECOVERY_POINT: Final = "protecting_recovery_point"
+KEY_BATTERY_LOW_VOLTAGE_PROTECTION: Final = "battery_low_voltage_protection"
+KEY_BATTERY_RECOVERY_VOLTAGE: Final = "battery_recovery_voltage"
+KEY_CHARGE_FROM_AC: Final = "charge_from_ac"
+KEY_AC_OUT_FREQ_SET: Final = "ac_output_frequency_set"
+KEY_AC_COUPLING: Final = "ac_coupling"
+KEY_GRID_TYPE: Final = "grid_type"
+KEY_CT_TRICKLE_FEED: Final = "ct_trickle_feed"
+KEY_EQUALIZING_CHARGE_INTERVAL: Final = "equalizing_charge_interval"
+KEY_EQUALIZING_CHARGE_TIME: Final = "equalizing_charge_time"
+
 # --- Mappings for Modes ---
 
 MAP_BATTERY_TYPE: Final = {2: "No Battery"}
@@ -218,5 +283,36 @@ MAP_BATTERY_MODE: Final = {
     0: "User Defined",
     1: "Special Battery Pack",
     2: "No Battery",
+}
+
+# Recovered from the app's device_detail_ai_mode_alert page, which lists the
+# three choices in this order; 255 comes from the detail page's "no value"
+# default.
+MAP_AI_MODE: Final = {
+    0: "Sunny",
+    1: "Cloudy",
+    2: "Rainy",
+}
+
+# The app's grid_type page offers three options with values 0, 2 and 4 and
+# shows the terminal labels "220V" and "240V".  Only those two labels are
+# recoverable from the disassembly; the remaining one is reported numerically
+# rather than guessed.
+MAP_GRID_TYPE: Final = {
+    0: "220V",
+    4: "240V",
+}
+
+# The app's ac_output_frequency_set page offers exactly two options, with
+# values 0 and 2, and never states 50 or 60 as a literal anywhere.  Report the
+# raw selection instead of inventing a Hz label.
+MAP_AC_OUT_FREQ_SET: Final = {
+    0: "Option 0",
+    2: "Option 2",
+}
+
+MAP_ON_OFF: Final = {
+    0: "Off",
+    1: "On",
 }
 

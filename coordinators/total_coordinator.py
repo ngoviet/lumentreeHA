@@ -2,37 +2,35 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import asyncio
+import datetime as dt
 import logging
-import os
-from typing import Dict, Optional, Any
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from ..services.aggregator import StatsAggregator
-from ..services import cache as cache_io
 from ..const import (
-    DOMAIN,
     DEFAULT_YEARLY_INTERVAL,  # Use same interval as yearly
-    get_timezone,
-    KEY_TOTAL_PV_KWH,
-    KEY_TOTAL_GRID_IN_KWH,
-    KEY_TOTAL_LOAD_KWH,
-    KEY_TOTAL_ESSENTIAL_KWH,
-    KEY_TOTAL_TOTAL_LOAD_KWH,
+    DOMAIN,
     KEY_TOTAL_CHARGE_KWH,
     KEY_TOTAL_DISCHARGE_KWH,
+    KEY_TOTAL_ESSENTIAL_KWH,
+    KEY_TOTAL_GRID_IN_KWH,
+    KEY_TOTAL_LOAD_KWH,
+    KEY_TOTAL_PV_KWH,
     KEY_TOTAL_SAVED_KWH,
     KEY_TOTAL_SAVINGS_VND,
+    KEY_TOTAL_TOTAL_LOAD_KWH,
 )
+from ..services import cache as cache_io
+from ..services.aggregator import StatsAggregator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+class TotalStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     __slots__ = ("aggregator", "device_sn", "_entry_id")
 
     def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
@@ -47,10 +45,10 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             always_update=False,
         )
 
-    async def _async_update_data(self) -> Dict[str, Any]:
+    async def _async_update_data(self) -> dict[str, Any]:
         try:
             _LOGGER.info(f"Total coordinator: Calculating lifetime totals for {self.device_sn}")
-            
+
             # Calculate totals from all cached years
             total_pv = 0.0
             total_grid = 0.0
@@ -61,7 +59,7 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             total_discharge = 0.0
             total_saved_kwh = 0.0
             total_savings_vnd = 0.0
-            
+
             # Get current year and scan backwards, loading cache years in parallel
             current_year = dt_util.now().year
             years_processed = 0
@@ -78,7 +76,7 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             ]
             year_caches = await asyncio.gather(*load_tasks)
 
-            for offset, cache in zip(year_indices, year_caches):
+            for offset, cache in zip(year_indices, year_caches, strict=False):
                 year = current_year - offset
 
                 if not cache.get("daily"):
@@ -118,9 +116,9 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                         total_discharge += float(day_data.get("discharge", 0.0))
                         total_saved_kwh += float(day_data.get("saved_kwh", 0.0))
                         total_savings_vnd += float(day_data.get("savings_vnd", 0.0))
-                
+
                 _LOGGER.debug(f"Total coordinator: Year {year} - PV: {yearly_totals.get('pv', 0.0):.1f} kWh")
-            
+
             # Add current year's data if we haven't included it yet (cộng dồn năm hiện tại)
             # Only add if current year is not already processed in the loop above
             current_year = dt_util.now().year
@@ -137,10 +135,10 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     total_saved_kwh += float(current_year_data.get("saved_kwh", 0.0))
                     total_savings_vnd += float(current_year_data.get("savings_vnd", 0.0))
                     latest_year = current_year
-            
+
             _LOGGER.info(f"Total coordinator: Processed {years_processed} years ({earliest_year}-{latest_year})")
             _LOGGER.info(f"Total coordinator: Lifetime totals - PV: {total_pv:.1f} kWh, Charge: {total_charge:.1f} kWh")
-            
+
             return {
                 # Lifetime totals (including current year if applicable) - keep full precision
                 KEY_TOTAL_PV_KWH: total_pv,
@@ -158,32 +156,32 @@ class TotalStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "latest_year": latest_year,
                 "last_updated": dt_util.now().isoformat(),
             }
-            
-        except asyncio.TimeoutError as err:
+
+        except TimeoutError as err:
             raise UpdateFailed("Timeout total") from err
         except Exception as err:
             _LOGGER.exception("Unexpected total update error")
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
-    def _get_current_year_data(self) -> Dict[str, float] | None:
+    def _get_current_year_data(self) -> dict[str, float] | None:
         """Get current year's data from yearly coordinator."""
         try:
             if not self._entry_id:
                 return None
-            
+
             domain_data = self.hass.data.get(DOMAIN, {})
             entry_data = domain_data.get(self._entry_id, {})
-            
+
             # Get yearly coordinator data (has current month included)
             yearly_coord = entry_data.get("yearly_coordinator")
             if yearly_coord and yearly_coord.data:
                 from ..const import (
-                    KEY_YEARLY_PV_KWH,
-                    KEY_YEARLY_GRID_IN_KWH,
-                    KEY_YEARLY_LOAD_KWH,
-                    KEY_YEARLY_ESSENTIAL_KWH,
                     KEY_YEARLY_CHARGE_KWH,
                     KEY_YEARLY_DISCHARGE_KWH,
+                    KEY_YEARLY_ESSENTIAL_KWH,
+                    KEY_YEARLY_GRID_IN_KWH,
+                    KEY_YEARLY_LOAD_KWH,
+                    KEY_YEARLY_PV_KWH,
                     KEY_YEARLY_SAVED_KWH,
                     KEY_YEARLY_SAVINGS_VND,
                 )

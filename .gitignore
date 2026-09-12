@@ -92,6 +92,7 @@ PREPARE_GITHUB.md
 # MCP / editor tooling (local only)
 .mcp.json
 .playwright-mcp/
+.lavish/
 
 # RE artifacts and vendor dumps (local only)
 # Contains live tokens, EMQX admin credentials, and captured device records — never publish.

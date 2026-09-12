@@ -2,44 +2,37 @@
 
 from __future__ import annotations
 
-import datetime as dt
-import asyncio
-import logging
 import calendar
-from typing import Dict, Optional, Any
+import datetime as dt
+import logging
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
-from ..services.aggregator import StatsAggregator
-from ..services import cache as cache_io
-from ..const import DEFAULT_TARIFF_VND_PER_KWH, get_timezone
 from ..const import (
-    DOMAIN,
     DEFAULT_MONTHLY_INTERVAL,
-    KEY_MONTHLY_PV_KWH,
-    KEY_MONTHLY_GRID_IN_KWH,
-    KEY_MONTHLY_LOAD_KWH,
-    KEY_MONTHLY_ESSENTIAL_KWH,
-    KEY_MONTHLY_TOTAL_LOAD_KWH,
+    DEFAULT_TARIFF_VND_PER_KWH,
+    DOMAIN,
     KEY_MONTHLY_CHARGE_KWH,
     KEY_MONTHLY_DISCHARGE_KWH,
+    KEY_MONTHLY_ESSENTIAL_KWH,
+    KEY_MONTHLY_GRID_IN_KWH,
+    KEY_MONTHLY_LOAD_KWH,
+    KEY_MONTHLY_PV_KWH,
     KEY_MONTHLY_SAVED_KWH,
     KEY_MONTHLY_SAVINGS_VND,
-    KEY_DAILY_PV_KWH,
-    KEY_DAILY_GRID_IN_KWH,
-    KEY_DAILY_LOAD_KWH,
-    KEY_DAILY_ESSENTIAL_KWH,
-    KEY_DAILY_CHARGE_KWH,
-    KEY_DAILY_DISCHARGE_KWH,
+    KEY_MONTHLY_TOTAL_LOAD_KWH,
+    get_timezone,
 )
-
+from ..services import cache as cache_io
+from ..services.aggregator import StatsAggregator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
+class MonthlyStatsCoordinator(DataUpdateCoordinator[dict[str, float]]):
     __slots__ = ("aggregator", "device_sn", "_entry_id", "_last_month")
 
     def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
@@ -61,7 +54,7 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
             now = dt_util.now(timezone)
             year = now.year
             month = now.month
-            
+
             # Check if month has changed - if so, finalize previous month's data
             if self._last_month is not None and self._last_month != (year, month):
                 prev_year, prev_month = self._last_month
@@ -71,11 +64,11 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
             cache = await self.hass.async_add_executor_job(
                 cache_io.load_year, self.aggregator._device_id, year, True
             )
-            
+
             _LOGGER.info(f"Monthly coordinator: Using device_id: {self.aggregator._device_id}")
             _LOGGER.info(f"Monthly coordinator: Cache loaded for {year}: {len(cache.get('daily', {}))} days")
             _LOGGER.info(f"Monthly coordinator: Cache sample dates: {list(cache.get('daily', {}).keys())[:5]}")
-            
+
             # Check if we have data for current month
             month_dates = [f"{year}-{month:02d}-{day:02d}" for day in range(1, 32)]
             month_data_count = sum(1 for date in month_dates if date in cache.get("daily", {}))
@@ -95,7 +88,6 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
 
             # Get today's data if we're in the current month
             today = now.date()
-            today_str = today.strftime("%Y-%m-%d")
             today_day = today.day
             today_data_from_coord = None
             if today.year == year and today.month == month:
@@ -103,7 +95,7 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
 
             for day in range(1, days_in_month + 1):
                 date_str = f"{year}-{month:02d}-{day:02d}"
-                
+
                 # If this is today and we have real-time data, use it
                 if day == today_day and today_data_from_coord:
                     daily_pv.append(float(today_data_from_coord.get("pv_today") or 0.0))
@@ -139,7 +131,7 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
 
             # Summarize the month from cache (các ngày đã chốt)
             m = await self.aggregator.summarize_month(year, month)
-            
+
             # Add today's data if we're in the current month (cộng dồn ngày hiện tại)
             today = now.date()
             if today.year == year and today.month == month:
@@ -159,12 +151,12 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
                     saved_kwh_today = float(today_data.get("saved_kwh") or max(0.0, (load_val + essential_val) - float(today_data.get("grid_in_today") or 0.0)))
                     m["saved_kwh"] = m.get("saved_kwh", 0.0) + saved_kwh_today
                     m["savings_vnd"] = m.get("savings_vnd", 0.0) + float(today_data.get("savings_vnd") or (saved_kwh_today * DEFAULT_TARIFF_VND_PER_KWH))
-            
+
             _LOGGER.info(f"Monthly coordinator: Summary for {year}-{month:02d} (with today): PV={m.get('pv', 0.0)}, Charge={m.get('charge', 0.0)}")
-            
+
             # Update last_month tracking
             self._last_month = (year, month)
-            
+
             return {
                 # Monthly totals (including today if current month)
                 KEY_MONTHLY_PV_KWH: m.get("pv", 0.0),
@@ -190,7 +182,7 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
                 "year": year,
                 "month": month,
             }
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise UpdateFailed("Timeout monthly") from err
         except Exception as err:
             _LOGGER.exception("Unexpected monthly update error")
@@ -200,35 +192,38 @@ class MonthlyStatsCoordinator(DataUpdateCoordinator[Dict[str, float]]):
         """Finalize previous month's data by ensuring cache is up-to-date."""
         try:
             _LOGGER.info(f"Month changed: Finalizing data for {previous_year}-{previous_month:02d}")
-            # Load cache
-            cache = await self.hass.async_add_executor_job(
-                cache_io.load_year, self.aggregator._device_id, previous_year
-            )
-            
-            # Ensure monthly aggregates are recomputed for the previous month
-            # This is already done by update_daily, but we recompute to be safe
-            cache = cache_io.recompute_aggregates(cache)
-            
-            # Save finalized cache
-            await self.hass.async_add_executor_job(
-                cache_io.save_year, self.aggregator._device_id, previous_year, cache
-            )
-            
+
+            # Load, recompute and save in one executor job.  recompute_aggregates
+            # walks the whole daily map of the year, so running it on the event
+            # loop blocks every entity update for the duration.  The load and
+            # save around it were already offloaded.
+            def _finalize() -> None:
+                c = cache_io.load_year(
+                    self.aggregator._device_id, previous_year, auto_recompute=False
+                )
+                cache_io.save_year(
+                    self.aggregator._device_id,
+                    previous_year,
+                    cache_io.recompute_aggregates(c),
+                )
+
+            await self.hass.async_add_executor_job(_finalize)
+
             _LOGGER.info(f"Finalized data for month {previous_year}-{previous_month:02d}")
         except Exception as err:
             _LOGGER.warning(f"Failed to finalize month {previous_year}-{previous_month:02d}: {err}")
             # Don't raise - this is a best-effort operation
 
-    def _get_today_data_from_daily_coord(self) -> Dict[str, Any] | None:
+    def _get_today_data_from_daily_coord(self) -> dict[str, Any] | None:
         """Get today's real-time data from daily coordinator."""
         try:
             if not self._entry_id:
                 return None
-            
+
             domain_data = self.hass.data.get(DOMAIN, {})
             entry_data = domain_data.get(self._entry_id, {})
             daily_coord = entry_data.get("daily_coordinator")
-            
+
             if daily_coord and daily_coord.data:
                 return daily_coord.data
             return None

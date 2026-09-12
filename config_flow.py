@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigFlowResult
-from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
-    DOMAIN,
     CONF_DEVICE_ID,
-    CONF_DEVICE_SN,
     CONF_DEVICE_NAME,
+    CONF_DEVICE_SN,
     CONF_HTTP_TOKEN,
+    DOMAIN,
 )
 from .core.api_client import LumentreeHttpApiClient
-from .core.exceptions import AuthException, ApiException
+from .core.exceptions import ApiException, AuthException
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,12 +31,12 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize config flow."""
-        self._device_id_input: Optional[str] = None
-        self._http_token: Optional[str] = None
-        self._device_sn_from_api: Optional[str] = None
-        self._device_name: Optional[str] = None
-        self._api_client: Optional[LumentreeHttpApiClient] = None
-        self._reauth_entry: Optional[config_entries.ConfigEntry] = None
+        self._device_id_input: str | None = None
+        self._http_token: str | None = None
+        self._device_sn_from_api: str | None = None
+        self._device_name: str | None = None
+        self._api_client: LumentreeHttpApiClient | None = None
+        self._reauth_entry: config_entries.ConfigEntry | None = None
 
     async def _get_api_client(self) -> LumentreeHttpApiClient:
         """Get or create HTTP API client.
@@ -96,10 +94,10 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self._api_client
 
-    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
-        errors: Dict[str, str] = {}
-        api: Optional[LumentreeHttpApiClient] = None
+        errors: dict[str, str] = {}
+        api: LumentreeHttpApiClient | None = None
 
         if user_input is not None:
             self._device_id_input = user_input[CONF_DEVICE_ID].strip()
@@ -131,10 +129,10 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema({vol.Required(CONF_DEVICE_ID, default=self._device_id_input or ""): str})
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
-    async def async_step_confirm_device(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
+    async def async_step_confirm_device(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle device confirmation step."""
-        errors: Dict[str, str] = {}
-        api: Optional[LumentreeHttpApiClient] = None
+        errors: dict[str, str] = {}
+        api: LumentreeHttpApiClient | None = None
 
         if not self._http_token:
             _LOGGER.error("Token missing")
@@ -251,7 +249,7 @@ class LumentreeConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         _LOGGER.info(f"Creating new entry for SN/ID: {self._device_sn_from_api}")
         return self.async_create_entry(title=self._device_name, data=config_data)
 
-    async def async_step_reauth(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
+    async def async_step_reauth(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle reauth flow."""
         _LOGGER.info("Reauth flow started")
         self._reauth_entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
