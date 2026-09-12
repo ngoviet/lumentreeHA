@@ -873,13 +873,15 @@ class LumentreeHttpApiClient:
 
         charge_today = cls._metric_total_kwh(data.get("bat"))
         discharge_today = cls._metric_total_kwh(data.get("batF"))
-        # The combined endpoint omits batF when the day had no discharge, where
-        # the legacy endpoint it replaces returned an explicit zero. Left as
-        # None that difference would leak to callers as `unknown` instead of
-        # `0 kWh`, so the two sources would not actually be interchangeable.
-        # A battery that reported charge is a battery that was present, so a
-        # missing batF alongside a present bat means "no discharge", not
-        # "no data".
+        # The observed shape is that the combined endpoint reports batF in
+        # titleParams at zero and omits it from `data`, while a day that
+        # discharged carries it there; that is consistent with "no discharge",
+        # so absence alongside a present bat is normalised to 0.0 kWh. The
+        # legacy endpoint it replaces returned an explicit zero, and leaving
+        # None would leak to callers as `unknown` instead of `0 kWh`, so the
+        # two sources would not be interchangeable. Counterfactual: a day that
+        # discharged while omitting batF would be reported as 0 kWh rather than
+        # unknown, and no payload in this repo can rule that out.
         if charge_today is not None and discharge_today is None:
             discharge_today = 0.0
 

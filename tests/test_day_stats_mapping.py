@@ -15,8 +15,9 @@ if mapped wrong:
 * ``batF`` absence.  With no discharge, the combined endpoint omits ``batF``
   entirely rather than returning zeros.  Code that indexes it raises.
 
-These tests use captured payloads from the real device, so a change in the
-server's shape shows up as a test failure rather than as wrong kWh.
+The payload literals below are modelled on a capture from the real device
+rather than invented, so the builders are pinned to a real shape; they do not
+track the live server, and a shape change there will not fail these tests.
 """
 
 from __future__ import annotations
@@ -25,9 +26,11 @@ import asyncio
 
 import pytest
 
-# Shape captured from GET /lesvr/getAllDayData on a real device (abridged).
-# Two things to preserve when editing: bat/batF are separate unsigned series,
-# and batF is missing rather than zero when the day had no discharge.
+# Shape modelled on GET /lesvr/getAllDayData on a real device (abridged).  The
+# pv/grid/homeload/essentialLoad values are from that capture; the bat/batF
+# values are constructed and unverified, because the captured device reports no
+# battery.  Two things to preserve when editing: bat/batF are separate unsigned
+# series, and batF is missing rather than zero when the day had no discharge.
 ALL_DAY_WITH_DISCHARGE = {
     "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
     "grid": {"tableValue": 116, "tableValueInfo": [485, 485, 0, 400]},

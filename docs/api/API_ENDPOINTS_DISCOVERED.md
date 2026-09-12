@@ -90,7 +90,7 @@ Hai kết luận của bản đầu, cả hai đều cần chỉnh:
 
 Tiền tố `v2/` xuất hiện trong `libapp.so` vì app 3.2.4 trỏ vào host **khác** (`lesvrjm.suntcn.com`). Trên host integration đang dùng, đường dẫn không có `v2/`. Bản đầu kết luận "muốn dùng endpoint gộp thì phải chuyển host" — **kết luận đó sai**; không cần chuyển host.
 
-Các endpoint ngày khác (`getPVDayData`, `getBatDayData`, `getOtherDayData`) vẫn chạy, và **cho cùng giá trị** với `getAllDayData` trên cùng một ngày — xem mục 7.
+Các endpoint ngày khác (`getPVDayData`, `getBatDayData`, `getOtherDayData`) vẫn chạy. Phép đối chiếu ở mục 7.2 đo được `pv`, `grid`, `homeload`, `essentialLoad` **khớp nhau** trên cả hai đường; phần **pin thì chưa kiểm chứng được** (thiết bị test báo không có pin nên cả hai đường đều ra 0).
 
 
 ### 1.3. `iot_class: cloud_polling` ⇒ chỉ Tier 1
