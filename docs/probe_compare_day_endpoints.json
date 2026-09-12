@@ -1,0 +1,61 @@
+{
+  "date": "2026-09-11",
+  "device": "H240909079",
+  "compared": [
+    {
+      "metric": "pv.tableValue",
+      "legacy": 60,
+      "new": 60,
+      "legacy_source": "getPVDayData:data.pv.tableValue",
+      "new_source": "getAllDayData:data.pv.tableValue",
+      "match": true
+    },
+    {
+      "metric": "grid.tableValue",
+      "legacy": 116,
+      "new": 116,
+      "legacy_source": "getOtherDayData:data.grid.tableValue",
+      "new_source": "getAllDayData:data.grid.tableValue",
+      "match": true
+    },
+    {
+      "metric": "homeload.tableValue",
+      "legacy": 170,
+      "new": 170,
+      "legacy_source": "getOtherDayData:data.homeload.tableValue",
+      "new_source": "getAllDayData:data.homeload.tableValue",
+      "match": true
+    },
+    {
+      "metric": "essentialLoad.tableValue",
+      "legacy": 0,
+      "new": 0,
+      "legacy_source": "getOtherDayData:data.essentialLoad.tableValue",
+      "new_source": "getAllDayData:data.essentialLoad.tableValue",
+      "match": true
+    },
+    {
+      "metric": "bat.charge",
+      "legacy": 0,
+      "new": 0,
+      "legacy_source": "getBatDayData:data.bats[0].tableValue",
+      "new_source": "getAllDayData:data.bat.tableValue",
+      "match": true
+    },
+    {
+      "metric": "bat.discharge",
+      "legacy": 0,
+      "new": null,
+      "legacy_source": "getBatDayData:data.bats[1].tableValue",
+      "new_source": "getAllDayData:data.batF.tableValue",
+      "match": false
+    }
+  ],
+  "all_match": false,
+  "battery_caveat": "device reports no battery; bat/batF totals are 0 on both paths, so this comparison cannot confirm battery mapping",
+  "series_lengths": {
+    "legacy_bat_signed": 288,
+    "new_bat_charge": 288,
+    "new_batF_discharge": 0
+  }
+}
