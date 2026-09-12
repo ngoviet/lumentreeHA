@@ -33,14 +33,8 @@
 
 ## API Endpoints
 
-> **Endpoint status:** the four daily endpoints below (`getPVDayData`,
-> `getBatDayData`, `getOtherDayData`) are **legacy aliases** — they still work
-> server-side and the integration still uses them, but they no longer appear in
-> the vendor app, which now calls a single combined
-> `lesvr/v2/getAllDayData` instead. That combined endpoint does not answer on
-> this host. See
-> [`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#12-bốn-endpoint-integration-đang-dùng-là-alias-legacy)
-> before treating any endpoint here as current.
+> **Endpoint status:** the integration uses the three daily endpoints documented below.
+> See the [endpoint survey](API_ENDPOINTS_DISCOVERED.md#12-bốn-endpoint-integration-đang-dùng-là-alias-legacy) for their legacy status and the vendor app's combined endpoint.
 
 ### Daily Data APIs
 
