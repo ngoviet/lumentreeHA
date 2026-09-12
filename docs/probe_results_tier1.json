@@ -1,0 +1,567 @@
+{
+  "tool_version": "probe_tier1_readonly/1.0",
+  "timestamp": "2026-09-11T19:47:39.773241+00:00",
+  "safety": "GET-only, 1 req/endpoint, no retry, read-only endpoints only",
+  "probes": [
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "auth",
+      "strategy": "getServerTime + shareDevices",
+      "method": "POST",
+      "endpoint": "/lesvr/shareDevices",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "uid": "<redacted>",
+          "svrPermission": "",
+          "nickname": "<redacted>",
+          "userType": 1,
+          "expiredTime": "2027-11-28 16:26",
+          "token": "<redacted>"
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "day_all",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/v2/getAllDayData",
+      "params": {
+        "deviceId": "H240909079",
+        "queryDate": "2026-09-10"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 998,
+        "msg": "您访问对页面不存在"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "history_year",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getHistoryYearData",
+      "params": {
+        "deviceId": "H240909079",
+        "queryYear": "2026"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "month",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getMonthData",
+      "params": {
+        "deviceId": "H240909079",
+        "queryMonth": "2026-09"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "year",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getYearData",
+      "params": {
+        "deviceId": "H240909079",
+        "queryYear": "2026"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "master_slave",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getMasterSlaveInfo",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "online_status",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getOnlineStatus",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "onlineStatus": 0
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "device_info",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/deviceInfo",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "masterStatus": 0
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "get_device",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getDevice",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 203,
+        "msg": "未登录"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "get_dt",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getDT",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "quick_list",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getDeviceQuickList",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "deviceQuickList": [
+            {
+              "id": 1,
+              "registerType": 1,
+              "registerAddress": 240,
+              "registerHex": "20",
+              "registerDesc": "20A电流",
+              "deviceVersion": 1
+            },
+            {
+              "id": 2,
+              "registerType": 1,
+              "registerAddress": 241,
+              "registerHex": "1",
+              "registerDesc": "对报错日志清零",
+              "deviceVersion": 1
+            },
+            {
+              "id": 3,
+              "registerType": 1,
+              "registerAddress": 99,
+              "registerHex": "85",
+              "registerDesc": "重启控制板",
+              "deviceVersion": 1
+            },
+            {
+              "id": 8,
+              "registerType": 1,
+              "registerAddress": 202,
+              "registerHex": "0",
+              "registerDesc": "停机按钮",
+              "deviceVersion": 1
+            },
+            {
+              "id": 9,
+              "registerType": 1,
+              "registerAddress": 206,
+              "registerHex": "1",
+              "registerDesc": "SOLAR_SELL_ENABLE",
+              "deviceVersion": 1
+            },
+            {
+              "id": 10,
+              "registerType": 1,
+              "registerAddress": 206,
+              "registerHex": "0",
+              "registerDesc": "SOLAR_SELL_DISABLE",
+              "deviceVersion": 1
+            },
+            {
+              "id": 14,
+              "registerType": 1,
+              "registerAddress": 94,
+              "registerHex": "2",
+              "registerDesc": "MAXSKY LOGO",
+              "deviceVersion": 1
+            },
+            {
+              "id": 15,
+              "registerType": 1,
+              "registerAddress": 124,
+              "registerHex": "1",
+              "registerDesc": "AC_COUP_Enable",
+              "deviceVersion": 1
+            },
+            {
+              "id": 16,
+              "registerType": 1,
+              "registerAddress": 124,
+              "registerHex": "0",
+              "registerDesc": "AC_COUP_Disable",
+              "deviceVersion": 1
+            }
+          ]
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "user_device",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getUserDevice",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 203,
+        "msg": "未登录"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "user_device_list",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/userDeviceList",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 203,
+        "msg": "未登录"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "user_info",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getUserInfo",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 203,
+        "msg": "未登录"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "version_info",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getVersionInfo",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "get_version",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/getVersion",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "controller": {
+            "firmwareType": "2",
+            "firmwareName": "控制固件列表",
+            "firmwareEnName": "Control Firmware Listt",
+            "versions": []
+          },
+          "controller2": {
+            "firmwareType": "0",
+            "firmwareName": "副控制板",
+            "firmwareEnName": "controller2",
+            "versions": []
+          },
+          "screen": {
+            "firmwareType": "3",
+            "firmwareName": "屏幕",
+            "firmwareEnName": "screen",
+            "versions": []
+          },
+          "liquidCrystal": {
+            "firmwareType": "1",
+            "firmwareName": "液晶屏固件列表",
+            "firmwareEnName": "LCD screen firmware list",
+            "versions": []
+          }
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "check_update",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/checkUpdate",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "app_param",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/app/getAppParam",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "continentImgUrl": "{\"亚洲\":\"https://rsdown.suntcn.com/dark/img/yz2@3x.png\",\"欧洲\":\"...<truncated>",
+          "maxDiffData": "10000",
+          "maxEsMsgUnreadCount": "500",
+          "delUserOpen": "0",
+          "snParam": "{\"snHead\":\"P,H\",\"snYear\":\"24,25,26\",\"deviceTypes\":\"3.6kw,5.5...<truncated>",
+          "userKeepTime": "1051200",
+          "deviceTypeImg": "https://rsdown.suntcn.com/dark/typeimg/",
+          "emailSendCount": "3",
+          "yearPre": "1",
+          "defaultAvatar": "http://sq-res.eenovance.cn//defaultAvatar/1.png",
+          "extFirmware": "{\"inreview\":\"1\",\"version_android\":\"1.0.6\",\"isrenew_android\":...<truncated>",
+          "imgServer": "https://rsdown.suntcn.com/dark/",
+          "oriShareOpen": "1",
+          "breakSns": "P240308001,H230426002,P240719008,H240911053,H250319016,H2409...<truncated>",
+          "updateUserOpen": "0",
+          "deviceSetting": "{\"powerLevel\":{\"1\":\"3.6kw\",\"2\":\"5.5kw\",\"3\":\"4kw\"},\"deviceTyp...<truncated>",
+          "userManual": "https://rsdown.suntcn.com/dark/others/userManual.pdf",
+          "stopSign": "https://rsdown.suntcn.com/dark/others/stopSign.pdf",
+          "lhgImg": "https://rsdown.suntcn.com/dark/img/lhg.png",
+          "whiteUserIds": "11132",
+          "maxMsgUnreadCount": "10000",
+          "htDeviceType": "4.0,6.0,8.0,10.0,12.0",
+          "deviceTypes": "3.6kw,5.5kw,6.0kw,8.0kw,4.0kw",
+          "userManualHt": "https://rsdown.suntcn.com/dark/others/userManual.html",
+          "privateManual": "https://rsdown.suntcn.com/dark/bins/bluet/private.html",
+          "stopSignHt": "https://rsdown.suntcn.com/dark/others/stopSign.html"
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "device_type_list",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/device/getTypeList",
+      "params": {},
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "deviceTypes": [
+            {
+              "id": 2,
+              "deviceType": "SUNT-4.0kW-HP V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707090317026.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 3,
+              "deviceType": "SUNT-6.0kW-HP V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707090500035.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 4,
+              "deviceType": "SUNT-8.0kW-HP V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707090612324.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 5,
+              "deviceType": "SUNT-6.0kW-HT V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707090733137.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 6,
+              "deviceType": "SUNT-8.0kW-HT V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707093128759.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 7,
+              "deviceType": "SUNT-12.0kW-HT V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707093232358.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 8,
+              "deviceType": "SUNT-4.0kW-SH V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707094404116.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 9,
+              "deviceType": "SUNT-6.0kW-SH V1.3",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707094435489.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 10,
+              "deviceType": "SUNT-6.0kW-S V1.1",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707100155873.pdf",
+              "del": 0,
+              "sortNo": 0
+            },
+            {
+              "id": 11,
+              "deviceType": "SUNT-8.0kW-S V1.0",
+              "userDesc": "https://rsdown.suntcn.com/dark/PDF/20260707100302276.pdf",
+              "del": 0,
+              "sortNo": 0
+            }
+          ]
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "http://lesvr.suntcn.com",
+      "label": "type_setting",
+      "strategy": "read-only GET",
+      "method": "GET",
+      "endpoint": "/lesvr/deviceTypeSettingList",
+      "params": {
+        "blueTooth": "0",
+        "version": "4"
+      },
+      "status": 200,
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "deviceTypeSettings": [],
+          "total": 0
+        }
+      },
+      "success": true
+    },
+    {
+      "server": "https://lesvrjm.suntcn.com",
+      "label": "auth",
+      "strategy": "getServerTime + shareDevices",
+      "method": "POST",
+      "endpoint": "/lesvr/shareDevices",
+      "raw_response": {
+        "stage": "getServerTime",
+        "response": {
+          "returnValue": 2,
+          "msg": "服务器繁忙，请稍后重试"
+        }
+      },
+      "success": false
+    }
+  ],
+  "summary": {
+    "total_probes": 19,
+    "servers": [
+      "http://lesvr.suntcn.com",
+      "https://lesvrjm.suntcn.com"
+    ],
+    "by_label_any_success": {
+      "day_all": false,
+      "history_year": false,
+      "month": false,
+      "year": false,
+      "master_slave": false,
+      "online_status": true,
+      "device_info": true,
+      "get_device": false,
+      "get_dt": false,
+      "quick_list": true,
+      "user_device": false,
+      "user_device_list": false,
+      "user_info": false,
+      "version_info": false,
+      "get_version": true,
+      "check_update": false,
+      "app_param": true,
+      "device_type_list": true,
+      "type_setting": true
+    }
+  }
+}

@@ -21,7 +21,7 @@ Cảm ơn bạn đã quan tâm đóng góp! Dự án này được duy trì bở
 5. Submit a pull request
 
 ### Code style
-- Python 3.9+, Home Assistant 2023.1+
+- Python 3.11+, Home Assistant 2024.4+
 - Follow existing patterns in the codebase
 - Use `__slots__` for new classes
 - Log with module-level `_LOGGER`

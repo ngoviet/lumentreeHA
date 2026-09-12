@@ -4,37 +4,34 @@ import asyncio
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional, Callable
+from collections.abc import Callable
 from functools import partial
+from typing import Any
 
 import paho.mqtt.client as paho
-from paho.mqtt.client import MQTTMessage
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_call_later
+from paho.mqtt.client import MQTTMessage
 
 from ..const import (
-    DOMAIN,
+    DEFAULT_POLLING_INTERVAL,
+    KEY_LAST_RAW_MQTT,
+    KEY_ONLINE_STATUS,
     MQTT_BROKER,
-    MQTT_PORT,
-    MQTT_USERNAME,
-    MQTT_PASSWORD,
-    MQTT_SUB_TOPIC_FORMAT,
-    MQTT_PUB_TOPIC_FORMAT,
-    SIGNAL_UPDATE_FORMAT,
-    CONF_DEVICE_SN,
-    CONF_DEVICE_ID,
     MQTT_CLIENT_ID_FORMAT,
     MQTT_KEEPALIVE,
-    KEY_ONLINE_STATUS,
-    KEY_LAST_RAW_MQTT,
-    DEFAULT_POLLING_INTERVAL,
-    REG_ADDR_CELL_START,
+    MQTT_PASSWORD,
+    MQTT_PORT,
+    MQTT_PUB_TOPIC_FORMAT,
+    MQTT_SUB_TOPIC_FORMAT,
+    MQTT_USERNAME,
     REG_ADDR_CELL_COUNT,
+    REG_ADDR_CELL_START,
+    SIGNAL_UPDATE_FORMAT,
 )
-from .realtime_parser import parse_mqtt_payload, generate_modbus_read_command
+from .realtime_parser import generate_modbus_read_command, parse_mqtt_payload
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,7 +83,7 @@ class LumentreeMqttClient:
         self.entry = entry
         self._device_sn = device_sn
         self._device_id = device_id
-        self._mqttc: Optional[paho.Client] = None
+        self._mqttc: paho.Client | None = None
 
         timestamp = int(time.time())
         try:
@@ -111,12 +108,12 @@ class LumentreeMqttClient:
         self._stopping_lock = threading.Lock()
         self._connected_event = asyncio.Event()
         self._online: bool = False
-        self._offline_timer_unsub: Optional[Callable] = None
+        self._offline_timer_unsub: Callable | None = None
         self._offline_timer_gen: int = 0
 
         # Batch update optimization
-        self._batch_timer: Optional[asyncio.Task] = None
-        self._pending_updates: Dict[str, Any] = {}
+        self._batch_timer: asyncio.Task | None = None
+        self._pending_updates: dict[str, Any] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -124,7 +121,15 @@ class LumentreeMqttClient:
         return self._is_connected
 
     def _cancel_offline_timer(self) -> None:
-        """Cancel the offline timer if active."""
+        """Cancel the offline timer if active.
+
+        Event-loop-only: the TimerHandle's unsubscribe is not thread-safe, so
+        a call arriving off-loop is deferred onto the loop instead of reaching
+        the handle directly.
+        """
+        if not self._is_on_event_loop():
+            self._call_soon(self._cancel_offline_timer)
+            return
         if self._offline_timer_unsub:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Cancelling offline timer %s", self._client_id)
@@ -159,9 +164,7 @@ class LumentreeMqttClient:
 
             if self._pending_updates:
                 # Send all updates at once
-                async_dispatcher_send(
-                    self.hass, self._signal_update, self._pending_updates.copy()
-                )
+                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
                 self._pending_updates.clear()
 
                 if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -169,16 +172,14 @@ class LumentreeMqttClient:
         except asyncio.CancelledError:
             # Timer cancelled, send remaining updates
             if self._pending_updates:
-                async_dispatcher_send(
-                    self.hass, self._signal_update, self._pending_updates.copy()
-                )
+                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
                 self._pending_updates.clear()
         except Exception as exc:
             _LOGGER.error(f"Error in batch update processing: {exc}")
         finally:
             self._batch_timer = None
 
-    def _queue_update(self, data: Dict[str, Any]) -> None:
+    def _queue_update(self, data: dict[str, Any]) -> None:
         """Add update to queue for batch processing.
 
         Args:
@@ -186,22 +187,49 @@ class LumentreeMqttClient:
         """
         self._pending_updates.update(data)
 
-        # Start timer if not already running
-        # Schedule batch timer from event loop (thread-safe)
-        # This method is called from MQTT callback thread via call_soon_threadsafe
+        # Start timer if not already running.
+        # _queue_update is reached from the paho thread via call_soon_threadsafe,
+        # so _batch_timer is only ever touched on the loop -- but keep the
+        # marshalling so a direct call from anywhere stays safe.
         if self._batch_timer is None:
-            self.hass.loop.call_soon_threadsafe(
-                lambda: self.hass.async_create_task(self._start_batch_timer())
-            )
+            self._call_soon(lambda: self.hass.async_create_task(self._start_batch_timer()))
 
-    @callback
+    def _is_on_event_loop(self) -> bool:
+        """Return True when running on this instance's event loop thread."""
+        try:
+            return asyncio.get_running_loop() is self.hass.loop
+        except RuntimeError:  # No running loop at all -> not the loop thread
+            return False
+
+    def _call_soon(self, func: Callable, *args) -> None:
+        """Marshal ``func`` onto the event loop unless we are already there.
+
+        The paho callbacks and Home Assistant's executor-run timer targets can
+        fire from any thread; the APIs they reach for (the dispatcher, the
+        offline-timer unsubscribe) are event-loop-only.
+        """
+        if self._is_on_event_loop():
+            func(*args)
+        else:
+            self.hass.loop.call_soon_threadsafe(func, *args)
+
     def _set_offline(self, gen: int = -1, *args) -> None:
         """Set status to offline and dispatch update.
+
+        Safe to call from any thread.  _on_disconnect runs on the paho network
+        thread, and Home Assistant runs a bare ``lambda`` handed to
+        ``async_call_later`` in an executor thread -- only a ``@callback``
+        target stays on the loop.  Both the dispatcher call and the
+        offline-timer unsubscribe below are event-loop-only APIs, so a call
+        arriving off-loop is marshalled onto the loop first.
 
         Args:
             gen: Timer generation. Only applies if gen matches _offline_timer_gen
                  (prevents stale timer callbacks from cancelling fresh timers).
         """
+        if not self._is_on_event_loop():
+            self.hass.loop.call_soon_threadsafe(self._set_offline, gen)
+            return
         if gen >= 0 and gen != self._offline_timer_gen:
             return  # Stale timer callback, ignore
         _LOGGER.info("MQTT data timeout or disconnect %s. Setting offline.", self._client_id)
@@ -211,14 +239,23 @@ class LumentreeMqttClient:
             async_dispatcher_send(self.hass, self._signal_update, {KEY_ONLINE_STATUS: False})
 
     def _start_offline_timer(self) -> None:
-        """Start or restart the offline timer."""
+        """Start or restart the offline timer.
+
+        Event-loop-only: ``async_call_later`` and the handle it returns are not
+        thread-safe, so a call arriving off-loop is deferred onto the loop.
+        """
+        if not self._is_on_event_loop():
+            self._call_soon(self._start_offline_timer)
+            return
         self._cancel_offline_timer()
         self._offline_timer_gen += 1
         gen = self._offline_timer_gen
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
                 "Starting offline timer (%ss, gen=%s) for %s",
-                OFFLINE_TIMEOUT_SECONDS, gen, self._client_id,
+                OFFLINE_TIMEOUT_SECONDS,
+                gen,
+                self._client_id,
             )
         self._offline_timer_unsub = async_call_later(
             self.hass, OFFLINE_TIMEOUT_SECONDS, lambda _now: self._set_offline(gen)
@@ -254,16 +291,16 @@ class LumentreeMqttClient:
                 )
 
                 try:
-                    await asyncio.wait_for(
-                        self._connected_event.wait(), timeout=CONNECT_TIMEOUT
-                    )
+                    await asyncio.wait_for(self._connected_event.wait(), timeout=CONNECT_TIMEOUT)
                     if not self._is_connected:
                         raise ConnectionRefusedError("MQTT connection refused")
                     _LOGGER.info(f"MQTT connected successfully {self._client_id}")
-                except asyncio.TimeoutError:
+                except TimeoutError as err:
                     _LOGGER.error(f"MQTT connection timeout {self._client_id}")
                     await self.disconnect()
-                    raise ConnectionRefusedError("MQTT connection timeout")
+                    # Chained so the timeout stays visible in the traceback
+                    # instead of being hidden behind the re-raise.
+                    raise ConnectionRefusedError("MQTT connection timeout") from err
             except Exception as exc:
                 _LOGGER.error(f"Failed MQTT connect {self._client_id}: {exc}")
                 if self._mqttc:
@@ -293,7 +330,9 @@ class LumentreeMqttClient:
         if rc == paho.CONNACK_ACCEPTED:
             _LOGGER.info(
                 "MQTT connected (rc=%s) %s. Subscribing to: %s",
-                rc, self._client_id, self._topic_sub,
+                rc,
+                self._client_id,
+                self._topic_sub,
             )
             self._reconnect_attempts = 0
             try:
@@ -309,11 +348,11 @@ class LumentreeMqttClient:
             except Exception as exc:
                 _LOGGER.error("MQTT subscribe failed %s: %s", self._client_id, exc)
                 self._is_connected = False
-                self.hass.loop.call_soon_threadsafe(self._connected_event.set)
-                self.hass.loop.call_soon_threadsafe(self._set_offline)
-                self.hass.loop.call_soon_threadsafe(self._safe_schedule_reconnect)
+                self._call_soon(self._connected_event.set)
+                self._call_soon(self._set_offline)
+                self._call_soon(self._safe_schedule_reconnect)
                 return
-            self.hass.loop.call_soon_threadsafe(self._connected_event.set)
+            self._call_soon(self._connected_event.set)
         else:
             err_map = {
                 1: "Protocol",
@@ -325,9 +364,9 @@ class LumentreeMqttClient:
             err = err_map.get(rc, "Unknown")
             _LOGGER.error(f"MQTT connection refused {self._client_id} (rc={rc}): {err}")
             self._is_connected = False
-            self.hass.loop.call_soon_threadsafe(self._connected_event.set)
-            self.hass.loop.call_soon_threadsafe(self._set_offline)
-            self.hass.loop.call_soon_threadsafe(self._safe_schedule_reconnect)
+            self._call_soon(self._connected_event.set)
+            self._call_soon(self._set_offline)
+            self._call_soon(self._safe_schedule_reconnect)
 
     def _on_disconnect(self, client, userdata, rc, properties=None) -> None:
         """Callback when disconnected.
@@ -339,7 +378,9 @@ class LumentreeMqttClient:
             properties: Disconnect properties (MQTT v5)
         """
         self._is_connected = False
-        self._cancel_offline_timer()
+        # _set_offline cancels the offline timer itself, on the event loop.
+        # Cancelling it here as well would touch the TimerHandle from the paho
+        # thread, which is not thread-safe.
         self._set_offline()
 
         if rc == 0:
@@ -347,7 +388,7 @@ class LumentreeMqttClient:
         else:
             _LOGGER.warning(f"MQTT unexpected disconnect {self._client_id} (rc={rc})")
 
-        self.hass.loop.call_soon_threadsafe(self._safe_schedule_reconnect)
+        self._call_soon(self._safe_schedule_reconnect)
 
     @callback
     def _safe_schedule_reconnect(self) -> None:
@@ -370,25 +411,25 @@ class LumentreeMqttClient:
         self._reconnect_attempts += 1
 
         if self._reconnect_attempts <= MAX_RECONNECT_ATTEMPTS:
-            delay = min(
-                RECONNECT_DELAY_SECONDS * (2 ** (self._reconnect_attempts - 1)), 60
-            )
+            delay = min(RECONNECT_DELAY_SECONDS * (2 ** (self._reconnect_attempts - 1)), 60)
             _LOGGER.info(
                 "Scheduling MQTT soft reconnect %s/%s for %s in %ss",
-                self._reconnect_attempts, MAX_RECONNECT_ATTEMPTS,
-                self._client_id, delay,
+                self._reconnect_attempts,
+                MAX_RECONNECT_ATTEMPTS,
+                self._client_id,
+                delay,
             )
         else:
             delay = 120
             _LOGGER.warning(
                 "MQTT soft reconnects exhausted (%sx) for %s. "
                 "Will attempt hard reconnect (fresh connection) in %ss",
-                MAX_RECONNECT_ATTEMPTS, self._client_id, delay,
+                MAX_RECONNECT_ATTEMPTS,
+                self._client_id,
+                delay,
             )
 
-        self.hass.loop.call_soon_threadsafe(
-            lambda: self.hass.async_create_task(self._async_reconnect(delay))
-        )
+        self._call_soon(lambda: self.hass.async_create_task(self._async_reconnect(delay)))
 
     async def _async_reconnect(self, delay: float) -> None:
         """Wait for delay and attempt reconnection.
@@ -432,14 +473,28 @@ class LumentreeMqttClient:
         self._pending_updates.clear()
 
         if old_mqttc:
+            # Both calls are best-effort: the old client is already detached, so a
+            # failure here does not change the outcome.  It is logged at debug
+            # rather than swallowed silently because a failing loop_stop() leaves
+            # the paho network-loop thread behind, and a leak of those across
+            # repeated reconnects is exactly the kind of thing that only shows up
+            # as an unexplained thread count later.
             try:
                 old_mqttc.loop_stop()
             except Exception:
-                pass
+                _LOGGER.debug(
+                    "MQTT hard reconnect: loop_stop() failed for %s",
+                    self._client_id,
+                    exc_info=True,
+                )
             try:
                 old_mqttc.disconnect()
             except Exception:
-                pass
+                _LOGGER.debug(
+                    "MQTT hard reconnect: disconnect() failed for %s",
+                    self._client_id,
+                    exc_info=True,
+                )
 
         self._is_connected = False
         self._connected_event.clear()
@@ -485,20 +540,22 @@ class LumentreeMqttClient:
                     if _LOGGER.isEnabledFor(logging.DEBUG):
                         _LOGGER.debug("Parsed data %s: %s", self._client_id, parsed_data)
 
-                    # Update online status and reset timer
+                    # Update online status and reset timer.  _start_offline_timer
+                    # touches the TimerHandle and async_call_later, neither of
+                    # which is thread-safe, so it is marshalled onto the loop.
                     if not self._online:
                         self._online = True
                         parsed_data[KEY_ONLINE_STATUS] = True
-                    self._start_offline_timer()
+                    self._call_soon(self._start_offline_timer)
 
                     # Add raw hex data
                     parsed_data[KEY_LAST_RAW_MQTT] = payload_hex
 
                     # Use batch update instead of immediate dispatch
-                    self.hass.loop.call_soon_threadsafe(self._queue_update, parsed_data)
+                    self._call_soon(self._queue_update, parsed_data)
             else:
                 _LOGGER.warning(f"Unexpected topic {self._client_id}: {topic}")
-        except Exception as exc:
+        except Exception:
             _LOGGER.exception(f"Error processing MQTT message {topic} {self._client_id}")
 
     async def _publish_command(self, command_hex: str) -> bool:
@@ -515,7 +572,9 @@ class LumentreeMqttClient:
             return False
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
-            _LOGGER.debug("Publishing to %s (%s): %s", self._topic_pub, self._client_id, command_hex)
+            _LOGGER.debug(
+                "Publishing to %s (%s): %s", self._topic_pub, self._client_id, command_hex
+            )
 
         try:
             payload_bytes = bytes.fromhex(command_hex)
@@ -547,13 +606,16 @@ class LumentreeMqttClient:
         slave_id = 1
         func_code = 3
 
-        command_hex = generate_modbus_read_command(slave_id, func_code, start_address, num_registers)
+        command_hex = generate_modbus_read_command(
+            slave_id, func_code, start_address, num_registers
+        )
         if command_hex:
             await self._publish_command(command_hex)
         else:
             _LOGGER.error(
                 "Failed to generate Modbus read (0-%s) %s",
-                num_registers - 1, self._client_id,
+                num_registers - 1,
+                self._client_id,
             )
 
     async def async_request_battery_cells(self) -> None:
@@ -577,7 +639,7 @@ class LumentreeMqttClient:
         self._stopping = True
         self._reconnect_attempts = MAX_RECONNECT_ATTEMPTS
         self._connected_event.set()
-        
+
         # Cancel all timers
         self._cancel_offline_timer()
         self._cancel_batch_timer()
@@ -603,7 +665,7 @@ class LumentreeMqttClient:
                     _LOGGER.warning(
                         f"Error unsubscribing from {self._topic_sub} {self._client_id}: {unsub_exc}"
                     )
-                
+
                 if _LOGGER.isEnabledFor(logging.DEBUG):
                     _LOGGER.debug("Stopping MQTT loop %s", self._client_id)
                 await self.hass.async_add_executor_job(mqttc_to_disconnect.loop_stop)
@@ -616,4 +678,3 @@ class LumentreeMqttClient:
         else:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("MQTT client already None %s", self._client_id)
-

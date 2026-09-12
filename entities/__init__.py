@@ -9,4 +9,3 @@ This package contains all entity types:
 __all__ = [
     "LumentreeBaseEntity",
 ]
-
