@@ -33,12 +33,35 @@
 
 ## API Endpoints
 
-> **Endpoint status:** the integration uses the three daily endpoints documented below.
-> See the [endpoint survey](API_ENDPOINTS_DISCOVERED.md#12-bốn-endpoint-integration-đang-dùng-là-alias-legacy) for their legacy status and the vendor app's combined endpoint.
+> **Endpoint status:** `getAllDayData` is the integration's primary daily path — one
+> request returns PV, battery, load and grid for a day. The three per-metric
+> endpoints below are its **fallback** and still answer identically. See the
+> [endpoint survey](API_ENDPOINTS_DISCOVERED.md) for their legacy status.
 
 ### Daily Data APIs
 
-#### Get PV Day Data
+#### Get All Day Data (primary)
+- **Endpoint**: `/lesvr/getAllDayData`
+- **Method**: `GET`
+- **Auth**: Required (`Authorization` header — see the note on 998 vs 1000 below)
+- **Params**: `deviceId`, `queryDate` (`yyyy-MM-dd`)
+- **Response**: one `data` object carrying every metric — `pv`, `bat` (charge),
+  `batF` (discharge), `homeload`, `essentialLoad`, `grid` — each with its own
+  `tableValue` / `tableValueInfo` (288 points), plus a `titleParams` array
+  listing the same metrics with their display names.
+- **Caveat**: `batF` is **omitted entirely** when there was no discharge, where
+  `getBatDayData` returns an explicit zero. The client normalises this (charge
+  present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
+  interchangeable for callers.
+- **Path note**: the APK contains `lesvr/v2/getAllDayData` because app 3.2.4
+  targets a different host (`lesvrjm.suntcn.com`), where `v2/` is correct.
+  Against `lesvr.suntcn.com` the `v2/` form answers `998` (does not exist) and
+  this un-prefixed form answers `1`. An earlier version of this document had
+  that backwards.
+- **Used by**: [core/api_client.py](../../core/api_client.py) `get_all_day_data()`,
+  which `get_daily_stats()` calls first.
+
+#### Get PV Day Data (fallback)
 - **Endpoint**: `/lesvr/getPVDayData`
 - **Method**: `GET`
 - **Auth**: Required (Authorization header)
@@ -49,7 +72,7 @@
   - `tableValue`: Total daily value (in 0.1 kWh units)
   - `tableValueInfo`: Array of 288 values (5-minute intervals, 24h × 12 points/hour)
 
-#### Get Battery Day Data
+#### Get Battery Day Data (fallback)
 - **Endpoint**: `/lesvr/getBatDayData`
 - **Method**: `GET`
 - **Auth**: Required
@@ -88,7 +111,7 @@
   - `bats[1]` = Discharge total
   - `tableValueInfo`: Signed power series — see the sign convention note in the sample response above
 
-#### Get Other Day Data
+#### Get Other Day Data (fallback)
 - **Endpoint**: `/lesvr/getOtherDayData`
 - **Method**: `GET`
 - **Auth**: Required
