@@ -21,6 +21,8 @@ server's shape shows up as a test failure rather than as wrong kWh.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 # Shape captured from GET /lesvr/getAllDayData on a real device (abridged).
@@ -162,6 +164,151 @@ class TestAllDayDataMapping:
     def test_empty_payload_does_not_raise(self, lumentree_api_client) -> None:
         """A response with no metrics at all yields no data rather than an error."""
         assert self._merged(lumentree_api_client, {}) == {}
+
+    def test_a_payload_with_no_usable_metric_is_indistinguishable_from_empty(
+        self, lumentree_api_client
+    ) -> None:
+        """A response whose every metric is unusable must read as "no data".
+
+        This is the same answer the three legacy endpoints give, and the answer
+        ``get_daily_stats`` tests before deciding to fall back.  A dict that is
+        merely non-empty here -- carrying six keys whose values are all None --
+        would suppress the fallback and let the coordinator cache a day of
+        zeros, so emptiness has to mean "nothing usable", not "some keys".
+        """
+        assert self._merged(lumentree_api_client, {"pv": None, "grid": "nonsense"}) == {}
+
+
+def _combined_payload() -> dict:
+    """A combined payload with one usable metric, for the fallback tests."""
+    return {"pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]}}
+
+
+async def _async(value):
+    """Wrap a plain value in a coroutine, for stubbing an async fetcher."""
+    return value
+
+
+def _make_stub_session(responses: dict):
+    """A recording aiohttp-session stub answering by endpoint path.
+
+    ``responses`` maps an endpoint path to the JSON body to answer it with, so
+    the client's real ``_request`` path runs and the calls it makes are
+    observable in ``session.calls``.
+    """
+
+    class _Response:
+        def __init__(self, payload: dict) -> None:
+            self._payload = payload
+            self.status = 200
+            self.ok = True
+
+        async def text(self) -> str:
+            return str(self._payload)
+
+        async def json(self, content_type=None) -> dict:
+            return self._payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+    class _Request:
+        def __init__(self, recorder, path, headers) -> None:
+            self._recorder, self._path, self._headers = recorder, path, headers
+
+        async def __aenter__(self):
+            self._recorder.append({"path": self._path, "headers": dict(self._headers)})
+            return _Response(responses[self._path])
+
+        async def __aexit__(self, *exc_info) -> bool:
+            return False
+
+    class _Session:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def request(self, method, url, **kwargs):
+            path = url.split("suntcn.com", 1)[-1].split("?")[0]
+            return _Request(self.calls, path, kwargs.get("headers", {}))
+
+    return _Session()
+
+
+class TestDailyStatsFallback:
+    """A combined endpoint that reports nothing usable must not mask the day.
+
+    ``get_daily_stats`` prefers the combined endpoint and falls back to the
+    three per-metric endpoints when it reports no data.  Both sources now
+    answer "no data" with an empty dict, so the gate reads the endpoint's own
+    answer rather than the arity of a partly-populated dict.
+    """
+
+    _LEGACY = {
+        "/lesvr/getPVDayData": {
+            "returnValue": 1,
+            "data": {"pv": {"tableValue": 60, "tableValueInfo": [0, 0]}},
+        },
+        "/lesvr/getBatDayData": {
+            "returnValue": 1,
+            "data": {"bats": [{"tableValue": 30}, {"tableValue": 12}], "tableValueInfo": []},
+        },
+        "/lesvr/getOtherDayData": {
+            "returnValue": 1,
+            "data": {
+                "grid": {"tableValue": 116, "tableValueInfo": []},
+                "homeload": {"tableValue": 170, "tableValueInfo": []},
+                "essentialLoad": {"tableValue": 0, "tableValueInfo": []},
+            },
+        },
+    }
+
+    def _client(self, lumentree_api_client, responses):
+        session = _make_stub_session(responses)
+        client = lumentree_api_client.LumentreeHttpApiClient(session=session)
+        client.set_token("stub-token")
+        return client, session
+
+    def test_an_unusable_combined_response_falls_back_and_keeps_serving(
+        self, lumentree_api_client
+    ) -> None:
+        """The day must still be reported through the legacy path.
+
+        Regression: an unusable combined response used to come back as a
+        non-empty dict of None values, which is truthy, so the fallback never
+        ran and the coordinator cached the day with grid and load as zero.
+        """
+        responses = dict(self._LEGACY)
+        responses["/lesvr/getAllDayData"] = {
+            "returnValue": 1,
+            "data": {"pv": None, "grid": "nonsense"},
+        }
+        client, session = self._client(lumentree_api_client, responses)
+
+        result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+
+        assert result["total_load_today"] == 17.0
+        assert result["grid_in_today"] == 11.6
+        assert result["pv_today"] == 6.0
+        assert len(session.calls) == 4, f"combined + 3 legacy expected, saw {session.calls}"
+        assert {c["path"] for c in session.calls} == {
+            "/lesvr/getAllDayData",
+            "/lesvr/getPVDayData",
+            "/lesvr/getBatDayData",
+            "/lesvr/getOtherDayData",
+        }
+
+    def test_a_usable_combined_response_is_served_without_the_legacy_calls(
+        self, lumentree_api_client
+    ) -> None:
+        """The one-request path stays the one-request path."""
+        responses = dict(self._LEGACY)
+        responses["/lesvr/getAllDayData"] = {"returnValue": 1, "data": _combined_payload()}
+        client, session = self._client(lumentree_api_client, responses)
+
+        result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+
+        assert result["pv_today"] == 6.0
+        assert [c["path"] for c in session.calls] == ["/lesvr/getAllDayData"]
 
 
 class TestPayloadShapeGuards:

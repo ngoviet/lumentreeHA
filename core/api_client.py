@@ -600,9 +600,12 @@ class LumentreeHttpApiClient:
 
         Tries GET /lesvr/getAllDayData first: one request instead of three, and
         one round of server-side work instead of three. Falls back to the three
-        per-metric legacy endpoints when that returns nothing usable -- they
-        were the only path for a long time and still answer identically, so a
-        failure of the combined endpoint degrades speed rather than function.
+        per-metric legacy endpoints when that comes back empty -- a transport
+        error, or a response whose every metric was unusable -- they were the
+        only path for a long time and still answer identically, so a failure
+        of the combined endpoint degrades speed rather than function. An empty
+        result means exactly that for both sources, so this test is the
+        endpoint's own "no data" answer either way.
 
         Args:
             device_identifier: Device ID or serial number
@@ -823,9 +826,26 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected other stats error")
             return {"grid_in_today": None, "load_today": None}
 
+    @staticmethod
+    def _drop_none_scalars(stats: dict[str, Any]) -> dict[str, Any]:
+        """Keep series data and real readings; drop metrics that came back None.
+
+        A None scalar means the metric was reported unusable, and the two
+        sources of a day's statistics both have to answer that the same way.
+        """
+        return {
+            key: value
+            for key, value in stats.items()
+            if isinstance(value, list) or value is not None
+        }
+
     @classmethod
     def _merge_all_day_payload(cls, payload: Any) -> dict[str, Any]:
         """Turn a getAllDayData `data` object into the standard stats dict.
+
+        Returns an empty dict when the payload carried no usable metric at all,
+        the same as the three per-metric endpoints do, so a caller can treat
+        "empty" as "no data" regardless of which source answered.
 
         Split out from the request method so the mapping can be tested against
         captured payloads without a live session -- the sign convention and the
@@ -864,7 +884,7 @@ class LumentreeHttpApiClient:
             discharge_today = 0.0
 
         result.update(cls._build_battery_result(signed_series, charge_today, discharge_today))
-        return result
+        return cls._drop_none_scalars(result)
 
     async def get_all_day_data(self, device_identifier: str, query_date: str) -> dict[str, Any]:
         """Fetch a whole day's statistics in one request.
@@ -887,7 +907,9 @@ class LumentreeHttpApiClient:
 
         Returns:
             Dictionary with the same keys the legacy three-call path produces,
-            so callers cannot tell which endpoint served them.
+            so callers cannot tell which endpoint served them. Empty when the
+            call failed or every metric was unusable -- the same "no data"
+            answer the legacy path gives, so a caller can fall back on it.
         """
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Fetching all-day data for %s @ %s", device_identifier, query_date)
@@ -929,12 +951,4 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Merged daily stats: %s", merged)
 
-        # Filter out None values but keep lists (series data) and other valid values
-        # This preserves series data even if tableValue is None
-        filtered = {}
-        for k, v in merged.items():
-            # Keep lists (series data) and non-None values, skip None scalar values
-            if isinstance(v, list) or v is not None:
-                filtered[k] = v
-
-        return filtered
+        return self._drop_none_scalars(merged)
