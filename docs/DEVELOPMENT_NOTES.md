@@ -11,10 +11,10 @@ There are two environments, and they collect different numbers:
 ```bash
 # CI's environment: pytest + aiohttp + paho + crcmod only.
 # Home Assistant is absent, so the end-to-end test skips.
-python -m pytest tests/ -q     # 64 passed, 6 skipped
+python -m pytest tests/ -q     # 67 passed, 6 skipped
 
 # The real end-to-end harness: Home Assistant installed.
-"D:/code/_e2e_lumentree/.venv/Scripts/python.exe" -m pytest tests/ -q   # 70 passed
+"D:/code/_e2e_lumentree/.venv/Scripts/python.exe" -m pytest tests/ -q   # 73 passed
 ```
 
 The end-to-end test (`tests/test_e2e_mqtt_to_entity.py`) **skips**, it does not

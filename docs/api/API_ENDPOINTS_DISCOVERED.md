@@ -166,7 +166,7 @@ Cộng thêm `_decrypt` dùng một hằng số AES (`svr_aes`) và một key đ
 | `lesvr/v2/getAllDayData` | GET | ❌ `998` | **Sai path** — đúng là `/lesvr/getAllDayData` |
 | `lesvr/getUserInfo` | GET | ❌ `203` | Tài khoản guest không đủ quyền (không phải lỗi endpoint) |
 
-**Giá trị cao nhất:** `/lesvr/getAllDayData` — gộp PV + battery + load + grid vào **một call duy nhất**, thay cho 3 call riêng (`getPVDayData` + `getBatDayData` + `getOtherDayData`) mà integration đang dùng. Đã đo là cho **cùng giá trị** — xem mục 7.1.
+**Giá trị cao nhất:** `/lesvr/getAllDayData` — gộp PV + battery + load + grid vào **một call duy nhất**, thay cho 3 call riêng (`getPVDayData` + `getBatDayData` + `getOtherDayData`) mà integration đang dùng. Phép đối chiếu ở mục 7.2 đo được `pv`, `grid`, `homeload`, `essentialLoad` **khớp nhau** trên cả hai đường; phần **pin thì chưa kiểm chứng được** (thiết bị test báo không có pin nên cả hai đường đều ra 0).
 
 
 ### Tier 2 — Cần đánh giá thêm
