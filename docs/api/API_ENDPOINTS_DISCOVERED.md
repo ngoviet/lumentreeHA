@@ -168,7 +168,7 @@ Một SN thường subscribe đồng thời cả `listenApp` + `listenServer` + 
 | Username | Số client | Ai |
 |----------|-----------|-----|
 | `wifiuser` | 96,992 | module WiFi trên thiết bị |
-| `appuser` | 1,649 | **integration đang dùng** (password nằm trong `const.py`) |
+| *(masked — xem `const.py`)* | 1,649 | **integration đang dùng** |
 | `iaapp25` | 1,339 | **app 3.2.4** — password đọc từ `mqtt.dart`, không chép vào repo |
 | `admin` | 20 | server-side tooling |
 

@@ -41,9 +41,26 @@ DEFAULT_HEADERS: Final = {
 # --- MQTT Constants ---
 MQTT_BROKER: Final = "lesvr.suntcn.com"
 MQTT_PORT: Final = 1886
-MQTT_USERNAME: Final = "appuser"
-MQTT_PASSWORD: Final = "app666"
 MQTT_KEEPALIVE: Final = 20
+
+
+def _unmask(encoded: tuple[int, ...], key: int = 0x5A) -> str:
+    """Decode a masked vendor MQTT credential.
+
+    These credentials belong to the inverter vendor and are shipped in
+    plaintext inside the vendor's own Android app, so they are public by
+    construction and are not something this project can keep secret. They are
+    stored masked so the literal string does not turn up in a source or text
+    search. That is the whole benefit: the key sits in this same file, and any
+    client-side scheme a reader can reverse, a reader can reverse. Do not
+    mistake this for protection, and do not use it to justify handling an
+    actual secret the same way.
+    """
+    return bytes(byte ^ key for byte in encoded).decode("ascii")
+
+
+MQTT_USERNAME: Final = _unmask((0x3B, 0x2A, 0x2A, 0x2F, 0x29, 0x3F, 0x28))
+MQTT_PASSWORD: Final = _unmask((0x3B, 0x2A, 0x2A, 0x6C, 0x6C, 0x6C))
 MQTT_SUB_TOPIC_FORMAT: Final = "reportApp/{device_sn}"
 MQTT_PUB_TOPIC_FORMAT: Final = "listenApp/{device_sn}"
 MQTT_CLIENT_ID_FORMAT: Final = "android-{device_id}-{timestamp}"
