@@ -136,7 +136,14 @@ class TestAllDayDataMapping:
     def test_totals_match_the_legacy_per_metric_endpoints(self, lumentree_api_client) -> None:
         """The combined endpoint must report the same totals, not merely similar ones.
 
-        Values checked against a live comparison between the two paths.
+        The PV, grid, load and essential totals were checked against the live
+        comparison recorded in docs/probe_compare_day_endpoints.json, which
+        marks those four ``match: true``.  The battery totals come from the
+        constructed ``bat``/``batF`` literals in ``ALL_DAY_WITH_DISCHARGE`` and
+        are **not** verified: that same file records ``bat.discharge`` as
+        ``match: false`` with ``all_match: false``, and its caveat says the test
+        device reports no battery, so the comparison cannot confirm the battery
+        mapping.
         """
         merged = self._merged(lumentree_api_client, ALL_DAY_WITH_DISCHARGE)
         assert merged["pv_today"] == 6.0
