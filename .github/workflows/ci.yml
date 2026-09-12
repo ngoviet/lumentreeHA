@@ -45,7 +45,18 @@ jobs:
     name: Hassfest
     runs-on: ubuntu-latest
     steps:
+      # hassfest compares manifest["domain"] against the *integration
+      # directory name*, and has no notion of hacs.json's content_in_root.
+      # This repo deliberately keeps the integration at the repository root
+      # (hacs.json "content_in_root": true), so a plain checkout presents
+      # hassfest with a directory named after the runner workspace and the
+      # domain check can never pass. Checking out into custom_components/,
+      # the layout hassfest expects, gives it a directory whose name matches
+      # the domain. This only relocates the checkout: the mounted workspace
+      # and the set of files hassfest validates are unchanged.
       - uses: actions/checkout@v5
+        with:
+          path: custom_components/lumentree
       - uses: home-assistant/actions/hassfest@master
 
   hacs:
