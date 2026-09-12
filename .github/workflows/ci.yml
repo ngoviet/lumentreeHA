@@ -32,11 +32,12 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          # crcmod and paho-mqtt are manifest.json runtime requirements: the
-          # suite loads core/realtime_parser.py and core/mqtt_client.py by
-          # path, and both import them at module scope, so collection fails
-          # without them even though no test opens a broker connection.
-          pip install pytest pytest-asyncio "paho-mqtt>=1.6.0" "crcmod>=1.7"
+          # aiohttp, crcmod and paho-mqtt are manifest.json runtime
+          # requirements: the suite loads core/api_client.py,
+          # core/realtime_parser.py and core/mqtt_client.py by path, and each
+          # imports its transport at module scope, so the API-client tests fail
+          # to import without them even though no test opens a real connection.
+          pip install pytest pytest-asyncio "aiohttp>=3.8.0" "paho-mqtt>=1.6.0" "crcmod>=1.7"
       - name: Run tests
         run: pytest tests/ -v
 
