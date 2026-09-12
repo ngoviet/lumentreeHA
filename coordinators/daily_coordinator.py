@@ -2,26 +2,31 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import asyncio
+import datetime as dt
 import logging
-from typing import Dict, Optional, Any
+from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ..const import (
+    ATTR_SAVED_KWH,
+    ATTR_SAVINGS_VND,
+    DEFAULT_DAILY_INTERVAL,
+    DEFAULT_TARIFF_VND_PER_KWH,
+    get_timezone,
+)
 from ..core.api_client import LumentreeHttpApiClient
 from ..core.exceptions import ApiException, AuthException
-from ..const import DEFAULT_DAILY_INTERVAL, DEFAULT_TARIFF_VND_PER_KWH, get_timezone
-from ..services.aggregator import StatsAggregator
 from ..services import cache as cache_io
-
+from ..services.aggregator import StatsAggregator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
+class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     __slots__ = ("api", "aggregator", "device_sn", "_last_date")
 
     def __init__(
@@ -35,7 +40,7 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self.api = api
         self.aggregator = aggregator
         self.device_sn = device_sn
-        self._last_date: Optional[str] = None
+        self._last_date: str | None = None
 
         super().__init__(
             hass,
@@ -50,36 +55,39 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         try:
             timezone = get_timezone(self.hass)
             today_str = dt_util.now(timezone).strftime("%Y-%m-%d")
-            
+
             # Check if day has changed - if so, save yesterday's data to cache
             if self._last_date is not None and self._last_date != today_str:
                 await self._save_yesterday_to_cache(self._last_date)
-            
+
             # Fetch today's data with extended timeout (retry logic is in API client)
             async with asyncio.timeout(90):  # Extended timeout for retries
                 new_data = await self.api.get_daily_stats(self.device_sn, today_str)
-            
+
             # Calculate savings: Energy saved = Total Load - Grid Import
             # This represents energy not purchased from grid (from PV + battery discharge)
             total_load = float(new_data.get("total_load_today") or 0.0)
             grid_in = float(new_data.get("grid_in_today") or 0.0)
             saved_kwh = max(0.0, total_load - grid_in)  # Ensure non-negative
             savings_vnd = saved_kwh * DEFAULT_TARIFF_VND_PER_KWH
-            
-            # Add savings to data - round to match API precision
-            new_data["saved_kwh"] = round(saved_kwh, 1)
-            new_data["savings_vnd"] = round(savings_vnd, 0)  # Money: no decimals
-            
+
+            # Add savings to data - round to match API precision.
+            # The ATTR_* constants are used so the key written here and the key
+            # read in entities/sensor.py cannot drift apart; they are attribute
+            # names, so changing their value would break existing installs.
+            new_data[ATTR_SAVED_KWH] = round(saved_kwh, 1)
+            new_data[ATTR_SAVINGS_VND] = round(savings_vnd, 0)  # Money: no decimals
+
             # Update last_date tracking
             self._last_date = today_str
-            
+
             return new_data
-            
+
         except AuthException as err:
             # Auth errors - don't retry, requires user intervention
             _LOGGER.error(f"Authentication failed: {err}. Please check configuration.")
             raise UpdateFailed(f"Auth error: {err}") from err
-            
+
         except ApiException as err:
             # Network/API errors - check if we can use cached data as fallback
             error_msg = str(err).lower()
@@ -87,53 +95,53 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "connection failed", "server may be down", "network unavailable",
                 "timeout", "unreachable", "refused"
             ])
-            
+
             if is_network_error:
                 _LOGGER.warning(
                     f"Network error fetching daily data: {err}. "
                     "Will retry automatically on next update interval."
                 )
-            
+
             # Raise UpdateFailed - HA's DataUpdateCoordinator will automatically retry
             # on next interval, and will keep using last known good data
             raise UpdateFailed(f"API error: {err}") from err
-            
-        except asyncio.TimeoutError as err:
+
+        except TimeoutError as err:
             _LOGGER.warning(
-                f"Timeout fetching daily data after all retries. "
+                "Timeout fetching daily data after all retries. "
                 "Will retry automatically on next update interval."
             )
             raise UpdateFailed("Timeout fetching daily data") from err
-            
+
         except Exception as err:
             _LOGGER.exception("Unexpected daily update error")
             raise UpdateFailed(f"Unexpected error: {err}") from err
 
     async def _save_yesterday_to_cache(self, yesterday_date: str) -> None:
         """Save yesterday's data to cache by querying API for final data.
-        
+
         Instead of using data from memory (which may be incomplete if different
         endpoints finalize at different times), we query the API one more time
         for yesterday's date to ensure we get the final, finalized data from server.
         """
         try:
-            
+
             year = int(yesterday_date[:4])
             cache = await self.hass.async_add_executor_job(
                 cache_io.load_year, self.aggregator._device_id, year
             )
-            
+
             # Skip if already exists (avoid unnecessary API call)
             if yesterday_date in cache.get("daily", {}):
                 _LOGGER.debug(f"Data for {yesterday_date} already exists in cache, skipping")
                 return
-            
+
             # Query API one more time with yesterday's date to get finalized data
             # This ensures all 6 data types are synchronized from the same API call
             _LOGGER.info(f"Fetching finalized data for {yesterday_date} from API...")
             async with asyncio.timeout(60):
                 finalized_data = await self.api.get_daily_stats(self.device_sn, yesterday_date)
-            
+
             # Extract values from API response format to cache format
             # API returns integers divided by 10, so precision is 1 decimal place for kWh
             load_val = float(finalized_data.get("load_today") or 0.0)
@@ -145,7 +153,7 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 total_load_val = round(load_val + essential_val, 1)
             else:
                 total_load_val = round(total_load_val, 1)
-            
+
             grid_val = round(float(finalized_data.get("grid_in_today") or 0.0), 1)
             saved_kwh = max(0.0, round(total_load_val - grid_val, 1))
             savings_vnd = round(saved_kwh * DEFAULT_TARIFF_VND_PER_KWH, 0)  # Money: no decimals
@@ -160,10 +168,10 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                 "saved_kwh": saved_kwh,
                 "savings_vnd": savings_vnd,
             }
-            
+
             # Check if data is meaningful (not all zeros)
             is_empty = all(abs(v) < 1e-6 for v in values.values())
-            
+
             if is_empty:
                 _LOGGER.debug(f"Finalized data for {yesterday_date} is empty, marking as empty")
                 cache = cache_io.mark_empty(cache, yesterday_date)
@@ -171,19 +179,23 @@ class DailyStatsCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     cache_io.save_year, self.aggregator._device_id, year, cache
                 )
                 return
-            
-            # Update cache with finalized data
-            cache, _m = cache_io.update_daily(cache, yesterday_date, values)
-            cache.setdefault("meta", {})["last_backfill_date"] = yesterday_date
 
-            # Recompute aggregates to keep monthly/yearly totals consistent
-            cache = cache_io.recompute_aggregates(cache)
+            # Update the cache, recompute the aggregates and write it back in one
+            # executor job.  update_daily is blocking file work and
+            # recompute_aggregates walks the whole daily map, so running either
+            # on the event loop stalls every entity update for the duration.
+            # The save at the end was already offloaded; these two were not.
+            def _persist() -> None:
+                updated, _m = cache_io.update_daily(cache, yesterday_date, values)
+                updated.setdefault("meta", {})["last_backfill_date"] = yesterday_date
+                cache_io.save_year(
+                    self.aggregator._device_id,
+                    year,
+                    cache_io.recompute_aggregates(updated),
+                )
 
-            # Save cache
-            await self.hass.async_add_executor_job(
-                cache_io.save_year, self.aggregator._device_id, year, cache
-            )
-            
+            await self.hass.async_add_executor_job(_persist)
+
             _LOGGER.info(
                 f"Auto-saved finalized data for {yesterday_date} to cache: "
                 f"PV={values['pv']:.2f}kWh, Grid={values['grid']:.2f}kWh, "

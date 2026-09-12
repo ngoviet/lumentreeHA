@@ -1,6 +1,8 @@
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -16,11 +18,15 @@ ignore = [
     "C901",  # too complex
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["E501", "F401"]
 
 [tool.mypy]
 python_version = "3.12"
+# tools/ and legacy/ hold reverse-engineering artifacts and vendor dumps, not
+# integration code -- tools/ alone contains a full Dart SDK whose own build.py
+# collides with the real one and aborts the run before anything is checked.
+exclude = ["^tools/", "^legacy/"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

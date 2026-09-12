@@ -1,26 +1,26 @@
 """Sensor entities for Lumentree integration."""
 
-from typing import Any, Dict, Optional, Callable
 import logging
-import re
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
-    SensorDeviceClass,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
-    UnitOfPower,
-    UnitOfEnergy,
     PERCENTAGE,
-    UnitOfTemperature,
-    UnitOfElectricPotential,
-    UnitOfFrequency,
-    UnitOfElectricCurrent,
-    UnitOfApparentPower,
     EntityCategory,
+    UnitOfApparentPower,
+    UnitOfElectricCurrent,
+    UnitOfElectricPotential,
+    UnitOfEnergy,
+    UnitOfFrequency,
+    UnitOfPower,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -28,81 +28,103 @@ from homeassistant.helpers.entity import DeviceInfo, generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import slugify
 from homeassistant.util import dt as dt_util
+from homeassistant.util import slugify
 
 from ..common import build_device_info
 from ..const import (
-    DOMAIN,
-    CONF_DEVICE_SN,
     CONF_DEVICE_NAME,
-    SIGNAL_UPDATE_FORMAT,
-    KEY_PV_POWER,
-    KEY_BATTERY_POWER,
-    KEY_BATTERY_SOC,
-    KEY_GRID_POWER,
-    KEY_LOAD_POWER,
-    KEY_BATTERY_VOLTAGE,
-    KEY_BATTERY_CURRENT,
-    KEY_AC_OUT_VOLTAGE,
-    KEY_GRID_VOLTAGE,
-    KEY_AC_OUT_FREQ,
-    KEY_AC_OUT_POWER,
-    KEY_AC_OUT_VA,
-    KEY_DEVICE_TEMP,
-    KEY_PV1_VOLTAGE,
-    KEY_PV1_POWER,
-    KEY_PV2_VOLTAGE,
-    KEY_PV2_POWER,
-    KEY_BATTERY_STATUS,
-    KEY_GRID_STATUS,
-    KEY_AC_IN_VOLTAGE,
+    CONF_DEVICE_SN,
+    DOMAIN,
+    KEY_AC_COUPLING,
+    KEY_AC_IN_CURRENT,
     KEY_AC_IN_FREQ,
     KEY_AC_IN_POWER,
-    KEY_BATTERY_TYPE,
-    KEY_MASTER_SLAVE_STATUS,
-    KEY_MQTT_DEVICE_SN,
+    KEY_AC_IN_VOLTAGE,
+    KEY_AC_OUT_CURRENT,
+    KEY_AC_OUT_FREQ,
+    KEY_AC_OUT_FREQ_SET,
+    KEY_AC_OUT_POWER,
+    KEY_AC_OUT_VA,
+    KEY_AC_OUT_VOLTAGE,
+    KEY_AI_MODE,
+    KEY_BATTERY_CAPACITY,
     KEY_BATTERY_CELL_INFO,
-    KEY_SELF_CONSUMPTION_RATIO,
-    KEY_WORK_MODE,
+    KEY_BATTERY_CURRENT,
+    KEY_BATTERY_LOW_VOLTAGE_PROTECTION,
+    KEY_BATTERY_MAX_CHARGE_CURRENT,
     KEY_BATTERY_MODE,
-    KEY_FW_VERSION,
+    KEY_BATTERY_POWER,
+    KEY_BATTERY_RECOVERY_VOLTAGE,
+    KEY_BATTERY_SOC,
+    KEY_BATTERY_STATUS,
+    KEY_BATTERY_TYPE,
+    KEY_BATTERY_VOLTAGE,
+    KEY_BOOST_CHARGE_VOLTAGE,
+    KEY_CHARGE_FROM_AC,
+    KEY_CT_TRICKLE_FEED,
     KEY_CTRL_VERSION,
-    KEY_DAILY_PV_KWH,
     KEY_DAILY_CHARGE_KWH,
     KEY_DAILY_DISCHARGE_KWH,
+    KEY_DAILY_ESSENTIAL_KWH,
     KEY_DAILY_GRID_IN_KWH,
     KEY_DAILY_LOAD_KWH,
-    KEY_DAILY_ESSENTIAL_KWH,
+    KEY_DAILY_PV_KWH,
     KEY_DAILY_TOTAL_LOAD_KWH,
-    KEY_TOTAL_LOAD_POWER,
+    KEY_DEVICE_TEMP,
+    KEY_EQUALIZING_CHARGE_INTERVAL,
+    KEY_EQUALIZING_CHARGE_TIME,
+    KEY_EQUALIZING_CHARGE_VOLTAGE,
+    KEY_FLOAT_CHARGE_VOLTAGE,
+    KEY_FW_VERSION,
+    KEY_GEN_INV_POWER,
+    KEY_GRID_POWER,
+    KEY_GRID_STATUS,
+    KEY_GRID_TYPE,
+    KEY_GRID_VOLTAGE,
     KEY_LAST_RAW_MQTT,
-    KEY_MONTHLY_PV_KWH,
-    KEY_MONTHLY_GRID_IN_KWH,
-    KEY_MONTHLY_LOAD_KWH,
-    KEY_MONTHLY_ESSENTIAL_KWH,
-    KEY_MONTHLY_TOTAL_LOAD_KWH,
+    KEY_LOAD_POWER,
+    KEY_LOW_CAPACITY_CUTOFF,
+    KEY_MASTER_SLAVE_STATUS,
+    KEY_MAX_DISCHARGE_CURRENT,
     KEY_MONTHLY_CHARGE_KWH,
     KEY_MONTHLY_DISCHARGE_KWH,
-    KEY_YEARLY_PV_KWH,
-    KEY_YEARLY_GRID_IN_KWH,
-    KEY_YEARLY_LOAD_KWH,
-    KEY_YEARLY_ESSENTIAL_KWH,
-    KEY_YEARLY_TOTAL_LOAD_KWH,
-    KEY_YEARLY_CHARGE_KWH,
-    KEY_YEARLY_DISCHARGE_KWH,
-    KEY_TOTAL_PV_KWH,
-    KEY_TOTAL_GRID_IN_KWH,
-    KEY_TOTAL_LOAD_KWH,
-    KEY_TOTAL_ESSENTIAL_KWH,
-    KEY_TOTAL_TOTAL_LOAD_KWH,
+    KEY_MONTHLY_ESSENTIAL_KWH,
+    KEY_MONTHLY_GRID_IN_KWH,
+    KEY_MONTHLY_LOAD_KWH,
+    KEY_MONTHLY_PV_KWH,
+    KEY_MONTHLY_TOTAL_LOAD_KWH,
+    KEY_MQTT_DEVICE_SN,
+    KEY_PROTECTING_RECOVERY_POINT,
+    KEY_PV1_POWER,
+    KEY_PV1_VOLTAGE,
+    KEY_PV2_POWER,
+    KEY_PV2_VOLTAGE,
+    KEY_PV_POWER,
+    KEY_SELF_CONSUMPTION_RATIO,
+    KEY_TODAY_PV_KWH,
     KEY_TOTAL_CHARGE_KWH,
     KEY_TOTAL_DISCHARGE_KWH,
+    KEY_TOTAL_ESSENTIAL_KWH,
+    KEY_TOTAL_GRID_IN_KWH,
+    KEY_TOTAL_LOAD_KWH,
+    KEY_TOTAL_LOAD_POWER,
+    KEY_TOTAL_PV_KWH,
+    KEY_TOTAL_TOTAL_LOAD_KWH,
+    KEY_WORK_MODE,
+    KEY_YEARLY_CHARGE_KWH,
+    KEY_YEARLY_DISCHARGE_KWH,
+    KEY_YEARLY_ESSENTIAL_KWH,
+    KEY_YEARLY_GRID_IN_KWH,
+    KEY_YEARLY_LOAD_KWH,
+    KEY_YEARLY_PV_KWH,
+    KEY_YEARLY_TOTAL_LOAD_KWH,
+    SIGNAL_UPDATE_FORMAT,
 )
 from ..coordinators.daily_coordinator import DailyStatsCoordinator
 from ..coordinators.monthly_coordinator import MonthlyStatsCoordinator
-from ..coordinators.yearly_coordinator import YearlyStatsCoordinator
 from ..coordinators.total_coordinator import TotalStatsCoordinator
+from ..coordinators.yearly_coordinator import YearlyStatsCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -359,6 +381,198 @@ REALTIME_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
         icon="mdi:information-outline",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=True,
+    ),
+    # --- Extended registers -----------------------------------------------
+    # Values published from register indices recovered from the vendor app.
+    # Not every device answers with a frame long enough to carry these -- the
+    # 190-byte frame most units return stops at index 94 -- in which case the
+    # matching entity stays unknown rather than showing a fabricated number.
+    SensorEntityDescription(
+        key=KEY_TODAY_PV_KWH,
+        name="PV Input Today",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        device_class=SensorDeviceClass.ENERGY,
+        state_class=SensorStateClass.TOTAL_INCREASING,
+        icon="mdi:solar-power",
+        suggested_display_precision=1,
+    ),
+    SensorEntityDescription(
+        key=KEY_AC_IN_CURRENT,
+        name="AC Input Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:current-ac",
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_AC_OUT_CURRENT,
+        name="AC Output Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:current-ac",
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_GEN_INV_POWER,
+        name="Generator Power",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:engine",
+    ),
+    SensorEntityDescription(
+        key=KEY_BATTERY_MAX_CHARGE_CURRENT,
+        name="Battery Maximum Charge Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-plus",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_MAX_DISCHARGE_CURRENT,
+        name="Maximum Discharge Current",
+        native_unit_of_measurement=UnitOfElectricCurrent.AMPERE,
+        device_class=SensorDeviceClass.CURRENT,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-minus",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_BATTERY_CAPACITY,
+        name="Battery Capacity",
+        native_unit_of_measurement="Ah",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-high",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_EQUALIZING_CHARGE_VOLTAGE,
+        name="Equalizing Charge Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-charging",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_BOOST_CHARGE_VOLTAGE,
+        name="Boost Charge Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-charging",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_FLOAT_CHARGE_VOLTAGE,
+        name="Float Charge Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-charging",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_BATTERY_LOW_VOLTAGE_PROTECTION,
+        name="Battery Low Voltage Protection",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-alert",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_BATTERY_RECOVERY_VOLTAGE,
+        name="Battery Recovery Voltage",
+        native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        device_class=SensorDeviceClass.VOLTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-sync",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=2,
+    ),
+    SensorEntityDescription(
+        key=KEY_LOW_CAPACITY_CUTOFF,
+        name="Low Capacity Cutoff Point",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-arrow-down-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_PROTECTING_RECOVERY_POINT,
+        name="Protecting Recovery Point",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:battery-arrow-up-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_EQUALIZING_CHARGE_INTERVAL,
+        name="Equalizing Charge Interval",
+        native_unit_of_measurement="d",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:calendar-clock",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_EQUALIZING_CHARGE_TIME,
+        name="Equalizing Charge Time",
+        native_unit_of_measurement="min",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:timer-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_CT_TRICKLE_FEED,
+        name="CT Trickle Feed",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:transmission-tower",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_AI_MODE,
+        name="AI Mode",
+        device_class=SensorDeviceClass.ENUM,
+        icon="mdi:weather-partly-cloudy",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_GRID_TYPE,
+        name="Grid Type",
+        device_class=SensorDeviceClass.ENUM,
+        icon="mdi:transmission-tower-export",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_AC_OUT_FREQ_SET,
+        name="AC Output Frequency Setting",
+        device_class=SensorDeviceClass.ENUM,
+        icon="mdi:sine-wave",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_CHARGE_FROM_AC,
+        name="Charge From AC",
+        device_class=SensorDeviceClass.ENUM,
+        icon="mdi:power-plug-battery",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    SensorEntityDescription(
+        key=KEY_AC_COUPLING,
+        name="AC Coupling",
+        device_class=SensorDeviceClass.ENUM,
+        icon="mdi:connection",
+        entity_category=EntityCategory.DIAGNOSTIC,
     ),
 )
 
@@ -622,10 +836,10 @@ async def async_setup_entry(
 
     try:
         entry_data = hass.data[DOMAIN][entry.entry_id]
-        daily_coord: Optional[DailyStatsCoordinator] = entry_data.get("daily_coordinator")
-        monthly_coord: Optional[MonthlyStatsCoordinator] = entry_data.get("monthly_coordinator")
-        yearly_coord: Optional[YearlyStatsCoordinator] = entry_data.get("yearly_coordinator")
-        total_coord: Optional[TotalStatsCoordinator] = entry_data.get("total_coordinator")
+        daily_coord: DailyStatsCoordinator | None = entry_data.get("daily_coordinator")
+        monthly_coord: MonthlyStatsCoordinator | None = entry_data.get("monthly_coordinator")
+        yearly_coord: YearlyStatsCoordinator | None = entry_data.get("yearly_coordinator")
+        total_coord: TotalStatsCoordinator | None = entry_data.get("total_coordinator")
         device_sn = entry.data[CONF_DEVICE_SN]
         device_name = entry.data.get(CONF_DEVICE_NAME, device_sn)
         device_api_info = entry_data.get("device_api_info", {})
@@ -722,7 +936,7 @@ class LumentreeMqttSensor(SensorEntity, RestoreEntity):
         entry: ConfigEntry,
         device_info: DeviceInfo,
         description: SensorEntityDescription,
-        initial_data: Dict[str, Any],
+        initial_data: dict[str, Any],
     ) -> None:
         """Initialize MQTT sensor."""
         self.hass = hass
@@ -733,7 +947,7 @@ class LumentreeMqttSensor(SensorEntity, RestoreEntity):
         self._attr_object_id = object_id
         self.entity_id = generate_entity_id("sensor.{}", self._attr_object_id, hass=hass)
         self._attr_device_info = device_info
-        self._remove_dispatcher: Optional[Callable[[], None]] = None
+        self._remove_dispatcher: Callable[[], None] | None = None
         self._attr_native_value = self._process_value(initial_data.get(description.key))
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
@@ -774,7 +988,7 @@ class LumentreeMqttSensor(SensorEntity, RestoreEntity):
         return processed_value
 
     @callback
-    def _handle_update(self, data: Dict[str, Any]) -> None:
+    def _handle_update(self, data: dict[str, Any]) -> None:
         """Handle update from dispatcher."""
         key = self.entity_description.key
         if key == KEY_BATTERY_CELL_INFO:
@@ -835,7 +1049,7 @@ class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
         entry: ConfigEntry,
         device_info: DeviceInfo,
         description: SensorEntityDescription,
-        initial_data: Dict[str, Any],
+        initial_data: dict[str, Any],
     ) -> None:
         """Initialize cell sensor."""
         self.hass = hass
@@ -846,8 +1060,8 @@ class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
         self._attr_object_id = object_id
         self.entity_id = generate_entity_id("sensor.{}", self._attr_object_id, hass=hass)
         self._attr_device_info = device_info
-        self._attr_extra_state_attributes: Dict[str, Any] = {}
-        self._remove_dispatcher: Optional[Callable[[], None]] = None
+        self._attr_extra_state_attributes: dict[str, Any] = {}
+        self._remove_dispatcher: Callable[[], None] | None = None
 
         initial_cell_info = initial_data.get(KEY_BATTERY_CELL_INFO)
         if isinstance(initial_cell_info, dict):
@@ -865,7 +1079,7 @@ class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
             )
 
     @callback
-    def _handle_update(self, data: Dict[str, Any]) -> None:
+    def _handle_update(self, data: dict[str, Any]) -> None:
         """Handle update from dispatcher."""
         if KEY_BATTERY_CELL_INFO in data:
             cell_info_dict = data[KEY_BATTERY_CELL_INFO]
@@ -972,14 +1186,14 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         return self.coordinator.last_update_success
 
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes with hourly and 5-minute series data."""
         if not self.coordinator.data:
             return {}
-        
+
         key = self.entity_description.key
-        attrs: Dict[str, Any] = {}
-        
+        attrs: dict[str, Any] = {}
+
         # Map sensor keys to series data keys
         series_mapping = {
             KEY_DAILY_PV_KWH: {
@@ -1014,7 +1228,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
                 "series_hour_kwh": "battery_discharge_series_hour_kwh",
             },
         }
-        
+
         # Get mapping for this sensor key
         if key in series_mapping:
             mapping = series_mapping[key]
@@ -1022,7 +1236,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
                 value = self.coordinator.data.get(data_key)
                 if value is not None:
                     attrs[attr_key] = value
-            
+
             # For battery sensors, also include 5min_w if available (charge/discharge separated)
             if key in (KEY_DAILY_CHARGE_KWH, KEY_DAILY_DISCHARGE_KWH):
                 battery_series = self.coordinator.data.get("battery_series_5min_w")
@@ -1037,14 +1251,14 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
                     else:  # discharge
                         # Discharge: keep negative values (show below 0 on chart)
                         attrs["series_5min_w"] = [w if w < 0 else 0.0 for w in battery_series]
-                    
+
                     # Convert to kWh
                     if attrs.get("series_5min_w"):
                         attrs["series_5min_kwh"] = [
-                            round(w * (5.0 / 60.0) / 1000.0, 6) 
+                            round(w * (5.0 / 60.0) / 1000.0, 6)
                             for w in attrs["series_5min_w"]
                         ]
-        
+
         # Add source date if available (from coordinator update time or query_date)
         # Try to get from data first, otherwise use current date from coordinator
         if "source_date" in self.coordinator.data:
@@ -1052,13 +1266,13 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         else:
             # Fallback: use today's date (coordinator fetches today's data)
             attrs["source_date"] = dt_util.now(self._timezone).strftime("%Y-%m-%d")
-        
+
         # Add savings data if available (calculated in daily coordinator)
         if "saved_kwh" in self.coordinator.data:
             attrs["saved_kwh"] = self.coordinator.data["saved_kwh"]
         if "savings_vnd" in self.coordinator.data:
             attrs["savings_vnd"] = self.coordinator.data["savings_vnd"]
-        
+
         return attrs
 
 
@@ -1088,7 +1302,7 @@ class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
         entry: ConfigEntry,
         device_info: DeviceInfo,
         description: SensorEntityDescription,
-        initial_data: Dict[str, Any],
+        initial_data: dict[str, Any],
     ) -> None:
         """Initialize total load power sensor."""
         self.hass = hass
@@ -1099,11 +1313,11 @@ class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
         self._attr_object_id = object_id
         self.entity_id = generate_entity_id("sensor.{}", self._attr_object_id, hass=hass)
         self._attr_device_info = device_info
-        self._remove_dispatcher: Optional[Callable] = None
+        self._remove_dispatcher: Callable | None = None
 
         # Store component values
-        self._load_power: Optional[float] = None
-        self._ac_output_power: Optional[float] = None
+        self._load_power: float | None = None
+        self._ac_output_power: float | None = None
 
         # Calculate initial value
         self._load_power = self._safe_float(initial_data.get(KEY_LOAD_POWER))
@@ -1119,7 +1333,7 @@ class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
                 self._attr_native_value,
             )
 
-    def _safe_float(self, value: Any) -> Optional[float]:
+    def _safe_float(self, value: Any) -> float | None:
         """Convert value to float safely."""
         if value is not None:
             try:
@@ -1136,7 +1350,7 @@ class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
             self._attr_native_value = None
 
     @callback
-    def _handle_update(self, data: Dict[str, Any]) -> None:
+    def _handle_update(self, data: dict[str, Any]) -> None:
         """Handle update from MQTT dispatcher."""
         updated = False
 
@@ -1225,13 +1439,13 @@ class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
 class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
     def __init__(self, coordinator: MonthlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
         super().__init__(coordinator, device_info, description)
-    
+
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes for charting."""
         if not self.coordinator.data:
             return {}
-        
+
         return {
             "daily_pv": self.coordinator.data.get("daily_pv", []),
             "daily_charge": self.coordinator.data.get("daily_charge", []),
@@ -1251,13 +1465,13 @@ class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
 class LumentreeYearlyStatsSensor(_BaseCoordinatorSensor):
     def __init__(self, coordinator: YearlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
         super().__init__(coordinator, device_info, description)
-    
+
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes for yearly charting."""
         if not self.coordinator.data:
             return {}
-        
+
         return {
             "monthly_pv": self.coordinator.data.get("monthly_pv", []),
             "monthly_grid": self.coordinator.data.get("monthly_grid", []),
@@ -1275,13 +1489,13 @@ class LumentreeYearlyStatsSensor(_BaseCoordinatorSensor):
 class LumentreeTotalStatsSensor(_BaseCoordinatorSensor):
     def __init__(self, coordinator: TotalStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
         super().__init__(coordinator, device_info, description)
-    
+
     @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
+    def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra state attributes for total statistics."""
         if not self.coordinator.data:
             return {}
-        
+
         return {
             "years_processed": self.coordinator.data.get("years_processed", 0),
             "earliest_year": self.coordinator.data.get("earliest_year"),
