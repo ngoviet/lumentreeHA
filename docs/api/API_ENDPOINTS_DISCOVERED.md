@@ -1,6 +1,7 @@
 # API Discovery — LightEarth 3.2.4 vs. lumentreeHA 5.2.0
 
 > **Trạng thái:** khảo sát (survey) + đính chính lần hai. Chưa implement sensor nào.
+> **Phiên bản:** tài liệu này thuộc đợt 5.2.0; `manifest.json` vẫn ghi `5.1.3` cho tới khi release.
 > **Nguồn:** `blutter` trên `libapp.so` (Dart 3.9.2, `light_earth` 3.2.4), `web_app.js` (admin console), EMQX exports, và probe read-only có kiểm soát.
 > **Ngày:** 2026-09-12 (đính chính lần hai cùng ngày, xem mục 0)
 
@@ -342,7 +343,7 @@ Sau ~30 request nhanh, host cũ bắt đầu ngắt kết nối (`RemoteDisconne
 
 ## 9. Ranh giới an toàn (bắt buộc, không thương lượng)
 
-- **Chỉ read-only.** Không endpoint Tier 3/4 nào bị gọi, kể cả để test.
+- **Chỉ read-only.** Integration không gọi endpoint Tier 3/4 nào. Ngoại lệ duy nhất từng chạy là **một** probe read-only vào route admin `/manage/lesvr/getErrorLog` (mục 6) — POST body rỗng, không credential, không retry, chỉ để trả lời câu hỏi `getErrorLog`; route đó không đi vào code chạy thật.
 - **Không ghi vào hạ tầng vendor**: không register, không bind device, không `upSnAddress`, không `device/sendMsg`.
 - `tools/` (gồm `emqx_clients.json` 128 MB có credential admin EMQX) **đã được `.gitignore` chặn** ở Phase 0 — không bao giờ commit.
 - **Không** đưa token/uid/nickname/phone thô vào bất kỳ file nào được track. Trong tài liệu này chúng là `<redacted>`.

@@ -43,7 +43,7 @@
 #### Get All Day Data (primary)
 - **Endpoint**: `/lesvr/getAllDayData`
 - **Method**: `GET`
-- **Auth**: Required (`Authorization` header — see the note on 998 vs 1000 below)
+- **Auth**: Required (`Authorization` header — see the note on 998 below)
 - **Params**: `deviceId`, `queryDate` (`yyyy-MM-dd`)
 - **Response**: one `data` object carrying every metric — `pv`, `bat` (charge),
   `batF` (discharge), `homeload`, `essentialLoad`, `grid` — each with its own
