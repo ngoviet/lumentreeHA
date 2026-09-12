@@ -104,9 +104,10 @@ Observed aligned frame lengths, with counts from the captured corpus:
 
 ### Extended range
 
-Added in this revision, recovered from the app register table. All of these sit
-at index ≥ 95, so they read `None` on any unit answering with the common
-190-byte frame.
+Recovered from the app register table, these additions span both the common and extended frame ranges.
+Availability depends on the register index, not on whether the entity was added in this revision: see [Frame layout](#frame-layout).
+The common 190-byte frame includes today's PV yield, AC input/output currents and generator power; higher-index settings require a longer main frame.
+The parser's bounds check in [`_read_register`](../../core/realtime_parser.py) omits values outside the available register buffer.
 
 | Register | Index | App addr | Raw → value |
 |---|---|---|---|

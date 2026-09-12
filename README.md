@@ -121,7 +121,8 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 | Setting (diagnostic) | Battery Capacity, Low Capacity Cutoff Point, Protecting Recovery Point, Equalizing Charge Interval, Equalizing Charge Time, Grid Type, AC Output Frequency Setting, Charge From AC, AC Coupling |
 | Info (diagnostic) | Device Temperature, Work Mode, Battery Mode, Firmware Version, Controller Version, Battery Cell Info, MQTT Device SN |
 
-Seven real-time sensors ship disabled by default (PV1/PV2 power and voltage, AC Input Voltage, MQTT Device SN, Last Raw MQTT Hex); enable them in the entity registry if you need them. The voltage, current and setting entities stay `unknown` on units that answer with the shorter common frame, rather than reporting a fabricated value. See [docs/api/REGISTER_MAP.md](docs/api/REGISTER_MAP.md).
+Seven real-time sensors ship disabled by default (PV1/PV2 power and voltage, AC Input Voltage, MQTT Device SN, Last Raw MQTT Hex); enable them in the entity registry if you need them.
+See [register availability by frame length](docs/api/REGISTER_MAP.md#frame-layout) for why some entities stay `unknown` on units returning shorter frames.
 
 ### Statistics Sensors (28 entities)
 | Period | Metrics | Refresh |
