@@ -119,15 +119,16 @@ async def fetch_with_retry(api_client, endpoint, params, max_retries=3):
 
 ### Pattern 2: Graceful Degradation
 ```python
-async def get_data_with_fallback(api_client, device_id, date):
+async def get_data_with_fallback(api_client, device_id, year):
     try:
         # Try API first
         return await api_client.get_daily_stats(device_id, date)
     except ApiException:
-        # Fallback to cache
-        cache_data = cache_io.load_day(device_id, date)
-        if cache_data:
-            return cache_data
+        # Fallback to cache. load_year() is blocking, so it must run in an
+        # executor -- see docs/api/CACHE_AND_BACKFILL.md for the cache contract.
+        cache = await hass.async_add_executor_job(cache_io.load_year, device_id, year)
+        if cache.get("daily"):
+            return cache
         # Fallback to default/empty data
         return get_empty_data()
 ```

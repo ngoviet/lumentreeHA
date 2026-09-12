@@ -1,26 +1,37 @@
 # Cache and Backfill Strategy
 
+> **Phạm vi:** tài liệu này giữ *chiến lược* cache/backfill. Cấu trúc file, tên
+> hàm và luồng I/O thật thuộc về một owner duy nhất:
+> [`services/cache.py`](../../services/cache.py) (định dạng + I/O) và
+> [`services/aggregator.py`](../../services/aggregator.py) (điều phối backfill).
+> Đọc docstring đầu `services/cache.py` cho layout đầy đủ — **không** chép lại
+> ở đây.
+
 ## Cache Structure
 
-### File Organization
-- **Daily cache**: `{device_id}/daily/{YYYY-MM-DD}.json`
-- **Monthly cache**: `{device_id}/monthly/{YYYY-MM}.json`
-- **Yearly cache**: `{device_id}/yearly/{YYYY}.json`
+Cache nằm trong `.storage/lumentree_stats/`, **một file JSON cho mỗi device mỗi
+năm** — không phải cây thư mục theo ngày/tháng:
 
-### Cache Data Format
-```json
-{
-  "date": "2025-11-05",
-  "pv": {
-    "total": 12.5,
-    "series_5min_w": [850, 850, 850, ...],
-    "series_hour_kwh": [0.5, 0.3, 0.2, ...]
-  },
-  "grid": { ... },
-  "battery": { ... },
-  "source": "api" | "computed" | "backfill"
-}
 ```
+.storage/lumentree_stats/{device_id}/{YYYY}.json
+```
+
+Một file năm chứa cả `daily` (map ngày → tổng), `monthly` (12 phần tử/metric),
+`yearly_total`, và `meta` (coverage, empty_dates, last_backfill_date).
+
+Ghi cache là **atomic** (ghi temp rồi `os.replace`, có lock theo file). Đây là
+chi tiết bảo vệ tính toàn vẹn dữ liệu — xem `save_year()` trong
+[`services/cache.py`](../../services/cache.py).
+
+### I/O và event loop
+
+Mọi hàm trong `services/cache.py` là **đồng bộ (blocking)**. Chúng **không bao
+giờ** được gọi trực tiếp trong async context: caller phải bọc qua
+`hass.async_add_executor_job(...)`. `services/aggregator.py` làm đúng như vậy ở
+mọi call site.
+
+Đây là ràng buộc bắt buộc, không phải gợi ý — gọi trực tiếp sẽ chặn event loop
+của Home Assistant.
 
 ## Smart Backfill Strategy
 
@@ -32,172 +43,93 @@
 
 ### Backfill Algorithm
 
-#### Step 1: Detect Data Gaps
-```python
-async def detect_data_gaps(device_id, start_date, end_date):
-    """Detect missing dates in cache."""
-    gaps = []
-    current_date = start_date
-    
-    while current_date <= end_date:
-        cache_data = cache_io.load_day(device_id, current_date)
-        if not cache_data or not cache_data.get("pv"):
-            gaps.append(current_date)
-        current_date += timedelta(days=1)
-    
-    return gaps
-```
+Luồng backfill thật nằm trong `StatsAggregator`
+([`services/aggregator.py`](../../services/aggregator.py)); các entry point được
+phơi ra qua HA services trong `services.yaml`:
 
-#### Step 2: Backfill from Daily API
-```python
-async def backfill_days(api_client, device_id, dates):
-    """Backfill missing days from daily API."""
-    for date in dates:
-        try:
-            data = await api_client.get_daily_stats(device_id, date)
-            cache_io.save_day(device_id, date, data)
-            await asyncio.sleep(0.5)  # Rate limiting
-        except ApiException as e:
-            _LOGGER.warning(f"Failed to backfill {date}: {e}")
-            continue
-```
+| Service | Method | Việc nó làm |
+|---------|--------|-------------|
+| `backfill_now` | `backfill_last_n_days()` | Lấp N ngày gần nhất |
+| `backfill_all` | `backfill_all()` | Quét lùi toàn bộ lịch sử |
+| `backfill_gaps` | `backfill_gaps()` | Chỉ lấp ngày còn thiếu, giới hạn mỗi lần chạy |
+| `backfill_empty_dates` | `backfill_empty_dates()` | Fetch lại các ngày từng bị đánh dấu rỗng |
 
-#### Step 3: Compute Monthly/Yearly from Daily
-```python
-def compute_monthly_from_daily(device_id, year, month):
-    """Compute monthly totals from daily cache."""
-    start_date = date(year, month, 1)
-    end_date = date(year, month, calendar.monthrange(year, month)[1])
-    
-    daily_data = []
-    for day in range(1, end_date.day + 1):
-        cache_date = date(year, month, day)
-        daily = cache_io.load_day(device_id, cache_date)
-        if daily:
-            daily_data.append(daily)
-    
-    # Aggregate daily data into monthly
-    monthly = aggregate_daily_to_monthly(daily_data)
-    cache_io.save_month(device_id, year, month, monthly)
-```
+Mọi biến thể đi theo cùng một hình dạng:
 
-### Handling API Limitations
+1. **Batch theo năm** — nạp cache của cả năm một lần bằng
+   `cache_io.load_year()` (qua executor), giữ trong bộ nhớ, ghi lại một lần bằng
+   `cache_io.save_year()` khi kết thúc năm. Không đọc/ghi file mỗi ngày.
+2. **Bỏ qua ngày đã có** — `if date_str in cache["daily"]: continue`.
+3. **Gọi API** — `fetch_day(date_str)` gọi song song 3 endpoint daily
+   (`getPVDayData`, `getBatDayData`, `getOtherDayData`) rồi chuẩn hoá về kWh.
+4. **Cập nhật tăng dần** — `cache_io.update_daily(cache, date_str, vals)` cộng
+   delta vào bucket tháng và `yearly_total` trong O(1), không dựng lại mảng.
+5. **Rate limit** — sleep cơ bản giữa các lần gọi, nhân đôi (cap 5s) khi lỗi.
 
-#### Problem: Monthly/Yearly API Only Returns Current Period
-- **Symptom**: `getYearData(year=2024)` returns 2025 data
-- **Solution**: Only use API for current year/month, compute historical from daily cache
+### Đánh dấu ngày rỗng
 
-```python
-async def get_year_data(api_client, device_id, year):
-    """Get year data with fallback to daily cache."""
-    today = date.today()
-    current_year = today.year
-    
-    if year == current_year:
-        # Use API for current year
-        return await api_client.get_year_data(device_id, year)
-    else:
-        # Compute from daily cache for historical years
-        return compute_yearly_from_daily(device_id, year)
-```
+Server luôn trả về cùng một cấu trúc (toàn số 0 khi không có dữ liệu), nên
+không thể phân biệt "ngày rỗng" với "lỗi" chỉ bằng response. Hai cơ chế:
+
+- `meta.empty_dates` — danh sách ngày được xác nhận rỗng, ghi qua
+  `cache_io.mark_empty()`. `daily_coordinator` ghi vào đây khi một ngày trôi qua
+  không có dữ liệu; service `mark_empty_dates` ghi thủ công; service
+  `backfill_empty_dates` fetch lại toàn bộ danh sách khi logic parse được cải
+  thiện.
+- `meta.coverage` — khoảng `earliest`/`latest` đã có dữ liệu.
+
+### Xử lý giới hạn của API
+
+`getYearData`/`getMonthData` **chỉ trả về năm/tháng hiện tại** — không lấy được
+dữ liệu lịch sử. Vì vậy backfill lịch sử phải đi qua daily API rồi tự tính
+aggregate từ cache ngày. Xem
+[`API_PROTOCOL.md`](API_PROTOCOL.md#important-notes) cho chi tiết giới hạn này.
 
 ## Cache Management
 
-### Cache Validation
-```python
-def is_cache_valid(cache_data, max_age_hours=24):
-    """Check if cache is still valid."""
-    if not cache_data:
-        return False
-    
-    cache_time = cache_data.get("cache_time")
-    if not cache_time:
-        return False
-    
-    age = (datetime.now() - cache_time).total_seconds() / 3600
-    return age < max_age_hours
-```
+### Recompute aggregates
 
-### Cache Purge
-```python
-def purge_old_cache(device_id, keep_days=90):
-    """Remove cache files older than keep_days."""
-    cache_dir = get_cache_dir(device_id, "daily")
-    cutoff_date = date.today() - timedelta(days=keep_days)
-    
-    for cache_file in cache_dir.glob("*.json"):
-        file_date = parse_date_from_filename(cache_file)
-        if file_date < cutoff_date:
-            cache_file.unlink()
-```
+Nếu mảng `monthly` trông sai (mọi tháng cùng một giá trị), `load_year()` tự
+phát hiện qua `_needs_recompute()` và dựng lại từ `daily` bằng
+`recompute_aggregates()`. Caller cũng có thể ép recompute qua service
+`recompute_month_year`.
 
-### Cache Optimization
-1. **Compress data**: Store only essential fields
-2. **Batch writes**: Write multiple days at once
-3. **Index files**: Create index for fast lookups
-4. **Lazy loading**: Load cache only when needed
+### Purge
+
+- `cache_io.purge_year(device_id, year)` — xoá một file năm.
+- `cache_io.purge_device(device_id)` — xoá mọi file của một device.
+
+Cả hai chỉ xoá file cache; chúng không phải là API của vendor.
 
 ## Data Processing
 
-### Converting 5-minute Series to Hourly
-```python
-def series_5min_to_hourly(series_5min_kwh):
-    """Convert 5-minute kWh series to hourly totals."""
-    hourly = []
-    for hour in range(24):
-        start_idx = hour * 12
-        end_idx = start_idx + 12
-        hour_total = sum(series_5min_kwh[start_idx:end_idx])
-        hourly.append(hour_total)
-    return hourly
-```
-
-### Converting to Watt
-```python
-def kwh_to_watt(kwh_value, interval_minutes=5):
-    """Convert kWh to Watt for given interval."""
-    # kWh → W = (kWh * 1000) / (hours)
-    # For 5-minute interval: (kWh * 1000) / (5/60) = kWh * 12000
-    # For hourly: (kWh * 1000) / 1 = kWh * 1000
-    hours = interval_minutes / 60.0
-    return (kwh_value * 1000.0) / hours
-```
-
-### Battery Data Processing
-```python
-def process_battery_data(battery_series_5min_w):
-    """Split battery series into charge and discharge."""
-    charge = [w if w > 0 else 0.0 for w in battery_series_5min_w]
-    discharge = [(-w) if w < 0 else 0.0 for w in battery_series_5min_w]
-    return charge, discharge
-```
+Việc chuyển đổi series 5 phút sang giờ/Watt và tách charge/discharge được thực
+hiện trong `core/api_client.py` và `core/realtime_parser.py` — xem
+[`REGISTER_MAP.md`](REGISTER_MAP.md) cho quy ước dấu của pin.
 
 ## Best Practices
 
-1. **Always cache API responses**: Reduce API calls
-2. **Validate cache before use**: Check data structure and age
-3. **Use daily API for historical**: More reliable than monthly/yearly
-4. **Compute aggregates from daily**: Don't trust monthly/yearly APIs for historical
-5. **Implement rate limiting**: Don't overload API
-6. **Handle missing data gracefully**: Use defaults or skip
-7. **Monitor cache size**: Purge old data periodically
-8. **Backfill incrementally**: Start from oldest gaps
+1. **Luôn cache response API**: giảm số lần gọi vendor.
+2. **Batch I/O theo năm**: một lần load/save cho mỗi năm, không phải mỗi ngày.
+3. **Không blocking I/O trên event loop**: bọc mọi hàm `services/cache.py` qua
+   `async_add_executor_job`.
+4. **Dùng daily API cho dữ liệu lịch sử**: monthly/yearly chỉ có kỳ hiện tại.
+5. **Tính aggregate từ daily**: đừng tin monthly/yearly API cho lịch sử.
+6. **Rate limit**: sleep giữa các request, backoff khi lỗi.
 
 ## Troubleshooting
 
 ### Issue: Cache Not Updating
-- **Check**: Cache file permissions
-- **Check**: Cache directory exists
-- **Solution**: Clear cache and re-fetch
+- **Check**: quyền ghi thư mục `.storage/lumentree_stats/{device_id}/`
+- **Check**: log `Failed to save cache` — lỗi ghi sẽ được raise, không bị nuốt
+- **Solution**: xoá file cache của năm đó rồi backfill lại
 
 ### Issue: Backfill Too Slow
-- **Check**: API rate limiting
-- **Solution**: Increase delay between requests
-- **Solution**: Batch backfill in background
+- **Check**: delay đang tăng do lỗi lặp lại (backoff cap 5s)
+- **Solution**: giảm số ngày mỗi lần chạy, chạy nhiều lần
 
 ### Issue: Monthly/Yearly Data Incorrect
-- **Check**: API limitations (may only return current period)
-- **Solution**: Compute from daily cache instead
-- **Solution**: Verify aggregation logic
+- **Check**: giới hạn API (chỉ trả về kỳ hiện tại)
+- **Solution**: `recompute_month_year` để dựng lại từ daily cache
 
 
