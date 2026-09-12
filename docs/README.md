@@ -9,6 +9,8 @@ docs/
 ├── README.md                    # This file
 ├── api/                         # API documentation
 │   ├── API_PROTOCOL.md         # API endpoints and authentication
+│   ├── API_ENDPOINTS_DISCOVERED.md # Full endpoint survey and corrections to API_PROTOCOL.md
+│   ├── REGISTER_MAP.md         # Modbus register map for the real-time MQTT payload
 │   ├── API_TEST_GUIDE.md       # API testing guide
 │   ├── ERROR_HANDLING.md       # Error handling patterns
 │   └── CACHE_AND_BACKFILL.md   # Cache management
@@ -18,17 +20,18 @@ docs/
 │   ├── dashboard_pv_grid.yaml  # PV and Grid chart example
 │   ├── dashboard_total_load.yaml # Total load chart example
 │   ├── dashboard_battery_charge_discharge.yaml # Battery chart example
-│   ├── dashboard_daily_stats.yaml # Daily statistics dashboard
-│   ├── dashboard_monthly_stats.yaml # Monthly statistics dashboard
-│   └── dashboard_yearly_stats.yaml # Yearly statistics dashboard
-└── examples/                    # Code examples
-    └── backfill_2024.yaml      # Example automation for backfilling historical data
+│   └── dashboard_daily_stats.yaml # Daily statistics dashboard
+├── examples/                    # Code examples
+│   └── backfill_2024.yaml      # Example automation for backfilling historical data
+└── probe_results_tier1.json     # Read-only probe output backing API_ENDPOINTS_DISCOVERED.md
 ```
 
 ## 📚 Documentation
 
 ### API Documentation
 - **[API Protocol](api/API_PROTOCOL.md)**: Complete API reference including authentication, endpoints, and request/response formats
+- **[API Endpoints Discovered](api/API_ENDPOINTS_DISCOVERED.md)**: Endpoint survey, legacy-alias findings, and the corrections to API_PROTOCOL.md
+- **[Register Map](api/REGISTER_MAP.md)**: How each real-time Modbus register was recovered from the vendor app, with its scale and signedness
 - **[API Testing Guide](api/API_TEST_GUIDE.md)**: Step-by-step guide for testing API endpoints
 - **[Error Handling](api/ERROR_HANDLING.md)**: Error handling patterns and best practices
 - **[Cache and Backfill](api/CACHE_AND_BACKFILL.md)**: Cache management strategies and backfill algorithms
@@ -41,9 +44,7 @@ docs/
 - **PV & Grid Chart**: Real-time power generation and grid import/export visualization
 - **Total Load Chart**: Consumption monitoring with 5-minute interval data
 - **Battery Charge/Discharge**: Battery energy flow visualization
-- **Daily Statistics**: Comprehensive daily energy statistics dashboard
-- **Monthly Statistics**: Monthly energy statistics with savings calculation
-- **Yearly Statistics**: Yearly energy statistics with savings calculation
+- **Daily Statistics**: Daily energy statistics dashboard
 
 ## 🔧 Usage
 
