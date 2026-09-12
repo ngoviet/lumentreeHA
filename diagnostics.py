@@ -63,12 +63,19 @@ async def async_get_config_entry_diagnostics(
 
     # Coordinator status
     coordinators_status = {}
-    for coord_key in ["daily_coordinator", "monthly_coordinator", "yearly_coordinator", "total_coordinator"]:
+    for coord_key in [
+        "daily_coordinator",
+        "monthly_coordinator",
+        "yearly_coordinator",
+        "total_coordinator",
+    ]:
         coord = entry_data.get(coord_key)
         if coord:
             coord_status = {
                 "last_update_success": getattr(coord, "last_update_success", None),
-                "last_update_time": str(getattr(coord, "last_update_time", None)) if hasattr(coord, "last_update_time") else None,
+                "last_update_time": str(getattr(coord, "last_update_time", None))
+                if hasattr(coord, "last_update_time")
+                else None,
             }
             if hasattr(coord, "update_interval"):
                 coord_status["update_interval"] = str(coord.update_interval)
@@ -89,4 +96,3 @@ async def async_get_config_entry_diagnostics(
         diagnostics_data["aggregator"] = {"status": "not_available"}
 
     return diagnostics_data
-

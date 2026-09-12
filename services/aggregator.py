@@ -53,7 +53,9 @@ class StatsAggregator:
                 "pv": year_data.get("pv", [0.0] * 12),
                 "grid": year_data.get("grid", [0.0] * 12),
                 "load": year_data.get("homeload", [0.0] * 12),  # Map homeload -> load
-                "essential": year_data.get("essentialLoad", [0.0] * 12),  # Map essentialLoad -> essential
+                "essential": year_data.get(
+                    "essentialLoad", [0.0] * 12
+                ),  # Map essentialLoad -> essential
                 "charge": year_data.get("bat", [0.0] * 12),  # bat = charge
                 "discharge": year_data.get("batF", [0.0] * 12),  # batF = discharge
             }
@@ -67,7 +69,9 @@ class StatsAggregator:
                     break
 
             if not has_valid_data:
-                _LOGGER.warning(f"API returned year data for {year} but all values are zero (likely invalid)")
+                _LOGGER.warning(
+                    f"API returned year data for {year} but all values are zero (likely invalid)"
+                )
                 return None
 
             return result
@@ -75,7 +79,9 @@ class StatsAggregator:
             _LOGGER.error(f"Error getting year data from API for {year}: {err}")
             return None
 
-    async def smart_backfill(self, max_years: int = 10, optimize_cache: bool = True) -> dict[str, Any]:
+    async def smart_backfill(
+        self, max_years: int = 10, optimize_cache: bool = True
+    ) -> dict[str, Any]:
         """Smart backfill using getYearData/getMonthData APIs for optimal performance.
 
         This is much faster than traditional daily backfill because:
@@ -92,6 +98,7 @@ class StatsAggregator:
             Dictionary with backfill statistics
         """
         from .smart_backfill import smart_backfill
+
         return await smart_backfill(self._hass, self, max_years, optimize_cache)
 
     async def get_earliest_data_date(self) -> dict[str, Any] | None:
@@ -110,11 +117,7 @@ class StatsAggregator:
         from .data_detection import find_earliest_data_date
 
         try:
-            result = await find_earliest_data_date(
-                self._hass,
-                self,
-                prefer_api=True
-            )
+            result = await find_earliest_data_date(self._hass, self, prefer_api=True)
             return result
         except Exception as err:
             _LOGGER.error(f"Error finding earliest data date: {err}")
@@ -132,7 +135,7 @@ class StatsAggregator:
             self._api._fetch_pv_data(params),
             self._api._fetch_battery_data(params),
             self._api._fetch_other_data(params),
-            return_exceptions=True
+            return_exceptions=True,
         )
 
         # Track API failures for logging
@@ -224,7 +227,9 @@ class StatsAggregator:
         delay = base_delay
         for year, days in days_by_year.items():
             # Load cache once per year
-            cache = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+            cache = await self._hass.async_add_executor_job(
+                cache_io.load_year, self._device_id, year
+            )
             cache_dirty = False
 
             for day in days:
@@ -248,7 +253,9 @@ class StatsAggregator:
 
             # Save cache once per year if modified
             if cache_dirty:
-                await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, year, cache)
+                await self._hass.async_add_executor_job(
+                    cache_io.save_year, self._device_id, year, cache
+                )
 
     async def backfill_last_n_days(self, days: int) -> None:
         today = dt.date.today()
@@ -323,13 +330,17 @@ class StatsAggregator:
             if year != current_year:
                 if cache is not None and current_year is not None:
                     # Save previous year's cache
-                    await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, current_year, cache)
+                    await self._hass.async_add_executor_job(
+                        cache_io.save_year, self._device_id, current_year, cache
+                    )
                     _LOGGER.info(
                         f"Year {current_year} completed: fetched {days_in_current_year} days. "
                         f"Total progress: {total_fetched} fetched, {total_empty} empty, {total_skipped} skipped"
                     )
 
-                cache = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+                cache = await self._hass.async_add_executor_job(
+                    cache_io.load_year, self._device_id, year
+                )
                 current_year = year
                 days_in_current_year = 0
                 _LOGGER.info(f"Processing year {year}...")
@@ -364,7 +375,10 @@ class StatsAggregator:
                 days_in_current_year += 1
 
                 # Check if day has meaningful data (for statistics only)
-                has_data = any(abs(vals.get(k, 0.0)) > 0.001 for k in ("pv", "grid", "load", "essential", "charge", "discharge"))
+                has_data = any(
+                    abs(vals.get(k, 0.0)) > 0.001
+                    for k in ("pv", "grid", "load", "essential", "charge", "discharge")
+                )
                 if not has_data:
                     total_empty += 1
 
@@ -374,7 +388,9 @@ class StatsAggregator:
                         empty += 1
                         # Log empty streak progress
                         if empty % 5 == 0:
-                            _LOGGER.info(f"Empty streak: {empty}/{empty_streak} consecutive empty days at {date_str}")
+                            _LOGGER.info(
+                                f"Empty streak: {empty}/{empty_streak} consecutive empty days at {date_str}"
+                            )
 
                         if empty >= empty_streak:
                             stop_reason = f"empty_streak ({empty} consecutive empty days)"
@@ -384,7 +400,9 @@ class StatsAggregator:
                                 f"Total fetched: {total_fetched} days, empty: {total_empty} days"
                             )
                             # Save before breaking
-                            await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, year, cache)
+                            await self._hass.async_add_executor_job(
+                                cache_io.save_year, self._device_id, year, cache
+                            )
                             break
                     else:
                         empty = 0
@@ -421,7 +439,9 @@ class StatsAggregator:
                     f"Year {current_year} completed: fetched {days_in_current_year} days. "
                     f"Total progress: {total_fetched} fetched, {total_empty} empty, {total_skipped} skipped"
                 )
-            await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, current_year, cache)
+            await self._hass.async_add_executor_job(
+                cache_io.save_year, self._device_id, current_year, cache
+            )
 
         # Final summary
         elapsed_time = time.time() - start_time
@@ -429,7 +449,7 @@ class StatsAggregator:
             f"Backfill completed: device_id={self._device_id}, reason={stop_reason}, "
             f"fetched={total_fetched} days, empty={total_empty} days, "
             f"skipped={total_skipped} days, errors={total_errors}, "
-            f"elapsed={elapsed_time:.1f}s ({elapsed_time/60:.1f} minutes)"
+            f"elapsed={elapsed_time:.1f}s ({elapsed_time / 60:.1f} minutes)"
         )
 
     async def backfill_gaps(self, max_years: int = 3, max_days_per_run: int = 60) -> int:
@@ -458,7 +478,9 @@ class StatsAggregator:
                 end_date = today
 
             # Load cache once per year
-            cache_year = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+            cache_year = await self._hass.async_add_executor_job(
+                cache_io.load_year, self._device_id, year
+            )
             cache_dirty = False
 
             day = start_date
@@ -466,7 +488,9 @@ class StatsAggregator:
                 if filled >= max_days_per_run:
                     # Save before breaking
                     if cache_dirty:
-                        await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, year, cache_year)
+                        await self._hass.async_add_executor_job(
+                            cache_io.save_year, self._device_id, year, cache_year
+                        )
                     return filled
 
                 date_str = day.strftime("%Y-%m-%d")
@@ -493,11 +517,15 @@ class StatsAggregator:
 
             # Save cache once per year if modified
             if cache_dirty:
-                await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, year, cache_year)
+                await self._hass.async_add_executor_job(
+                    cache_io.save_year, self._device_id, year, cache_year
+                )
 
         return filled
 
-    async def backfill_empty_dates(self, max_years: int = 5, max_days_per_run: int = 100) -> dict[str, int]:
+    async def backfill_empty_dates(
+        self, max_years: int = 5, max_days_per_run: int = 100
+    ) -> dict[str, int]:
         """Backfill lại các ngày đã bị đánh dấu empty để kiểm tra lại với logic mới.
 
         Hữu ích sau khi cải thiện logic fetch/parse để phát hiện các ngày bị đánh dấu
@@ -528,7 +556,9 @@ class StatsAggregator:
         empty_dates_by_year: dict[int, list[str]] = {}
         for year_offset in range(max_years):
             year = today.year - year_offset
-            cache = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+            cache = await self._hass.async_add_executor_job(
+                cache_io.load_year, self._device_id, year
+            )
             empty_dates = cache.get("meta", {}).get("empty_dates", [])
             if empty_dates:
                 empty_dates_by_year[year] = sorted(empty_dates)
@@ -547,7 +577,9 @@ class StatsAggregator:
                 _LOGGER.info(f"Reached max_days_per_run limit ({max_days_per_run}), stopping")
                 break
 
-            cache = await self._hass.async_add_executor_job(cache_io.load_year, self._device_id, year)
+            cache = await self._hass.async_add_executor_job(
+                cache_io.load_year, self._device_id, year
+            )
             cache_dirty = False
 
             for date_str in empty_dates:
@@ -559,7 +591,10 @@ class StatsAggregator:
                     vals = await self.fetch_day(date_str)
 
                     # Check with improved logic
-                    has_data = any(abs(vals.get(k, 0.0)) > 0.001 for k in ("pv", "grid", "load", "essential", "charge", "discharge"))
+                    has_data = any(
+                        abs(vals.get(k, 0.0)) > 0.001
+                        for k in ("pv", "grid", "load", "essential", "charge", "discharge")
+                    )
 
                     if has_data:
                         # Has data - recover it!
@@ -573,7 +608,9 @@ class StatsAggregator:
                         # Verify it was removed from empty_dates
                         still_empty = date_str in cache.get("meta", {}).get("empty_dates", [])
                         if was_empty and still_empty:
-                            _LOGGER.warning(f"WARNING: {date_str} still in empty_dates after recovery!")
+                            _LOGGER.warning(
+                                f"WARNING: {date_str} still in empty_dates after recovery!"
+                            )
                         elif was_empty:
                             _LOGGER.info(f"Successfully removed {date_str} from empty_dates")
 
@@ -612,7 +649,9 @@ class StatsAggregator:
 
             # Save cache if modified
             if cache_dirty:
-                await self._hass.async_add_executor_job(cache_io.save_year, self._device_id, year, cache)
+                await self._hass.async_add_executor_job(
+                    cache_io.save_year, self._device_id, year, cache
+                )
                 remaining_empty = len(cache.get("meta", {}).get("empty_dates", []))
                 _LOGGER.info(
                     f"Saved cache for year {year}: recovered {recovered} days so far. "
@@ -624,13 +663,11 @@ class StatsAggregator:
         result = {
             "recovered": recovered,
             "confirmed_empty": confirmed_empty,
-            "errors": total_errors
+            "errors": total_errors,
         }
         _LOGGER.info(
             f"backfill_empty_dates completed: device_id={self._device_id}, "
             f"recovered={recovered} days, confirmed_empty={confirmed_empty} days, "
-            f"errors={total_errors}, elapsed={elapsed_time:.1f}s ({elapsed_time/60:.1f} minutes)"
+            f"errors={total_errors}, elapsed={elapsed_time:.1f}s ({elapsed_time / 60:.1f} minutes)"
         )
         return result
-
-

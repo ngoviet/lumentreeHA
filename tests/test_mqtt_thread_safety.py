@@ -143,11 +143,12 @@ def dispatched_from(mqtt_client_module, monkeypatch):
 def timer_scheduled_from(mqtt_client_module, monkeypatch):
     """Patch ``async_call_later`` and record the thread that reached it."""
     calls: list[str] = []
-    monkeypatch.setattr(
-        mqtt_client_module,
-        "async_call_later",
-        lambda *a, **k: calls.append(threading.current_thread().name) or (lambda: None),
-    )
+
+    def _record(*args, **kwargs):
+        calls.append(threading.current_thread().name)
+        return lambda: None
+
+    monkeypatch.setattr(mqtt_client_module, "async_call_later", _record)
     return calls
 
 
@@ -176,9 +177,7 @@ def test_start_offline_timer_from_foreign_thread_defers_to_loop(
         release.set()
 
     _drain(loop)
-    assert timer_scheduled_from == ["ha-event-loop"], (
-        f"scheduled on {timer_scheduled_from!r}"
-    )
+    assert timer_scheduled_from == ["ha-event-loop"], f"scheduled on {timer_scheduled_from!r}"
 
 
 def test_cancel_offline_timer_from_foreign_thread_defers_to_loop(
@@ -188,9 +187,7 @@ def test_cancel_offline_timer_from_foreign_thread_defers_to_loop(
     client, loop = client_and_loop
 
     cancelled: list[str] = []
-    client._offline_timer_unsub = lambda: cancelled.append(
-        threading.current_thread().name
-    )
+    client._offline_timer_unsub = lambda: cancelled.append(threading.current_thread().name)
 
     release = _hold_loop(loop)
     try:
@@ -202,9 +199,7 @@ def test_cancel_offline_timer_from_foreign_thread_defers_to_loop(
         assert cancelled == [], (
             "the TimerHandle unsubscribe ran on the calling thread; it must be deferred"
         )
-        assert client._offline_timer_unsub is not None, (
-            "the handle must not be cleared off-loop"
-        )
+        assert client._offline_timer_unsub is not None, "the handle must not be cleared off-loop"
     finally:
         release.set()
 
@@ -213,9 +208,7 @@ def test_cancel_offline_timer_from_foreign_thread_defers_to_loop(
     assert client._offline_timer_unsub is None
 
 
-def test_set_offline_from_foreign_thread_defers_dispatch(
-    client_and_loop, dispatched_from
-) -> None:
+def test_set_offline_from_foreign_thread_defers_dispatch(client_and_loop, dispatched_from) -> None:
     """The dispatcher must not be reached on the calling thread.
 
     Before the fix this failed: ``_set_offline`` ran inline on the worker
@@ -246,9 +239,7 @@ def test_set_offline_from_foreign_thread_defers_dispatch(
     assert dispatched_from == ["ha-event-loop"], f"dispatched from {dispatched_from!r}"
 
 
-def test_set_offline_from_loop_thread_dispatches_inline(
-    client_and_loop, dispatched_from
-) -> None:
+def test_set_offline_from_loop_thread_dispatches_inline(client_and_loop, dispatched_from) -> None:
     """On the loop there is nothing to marshal -- the dispatch is immediate."""
     client, loop = client_and_loop
 
@@ -258,9 +249,7 @@ def test_set_offline_from_loop_thread_dispatches_inline(
     assert dispatched_from == ["ha-event-loop"], f"dispatched from {dispatched_from!r}"
 
 
-def test_set_offline_is_idempotent_when_already_offline(
-    client_and_loop, dispatched_from
-) -> None:
+def test_set_offline_is_idempotent_when_already_offline(client_and_loop, dispatched_from) -> None:
     """A second offline transition must not re-dispatch."""
     client, loop = client_and_loop
 
@@ -297,9 +286,7 @@ def test_call_soon_executes_on_loop_from_any_thread(client_and_loop) -> None:
 
     seen: list[str] = []
     worker = threading.Thread(
-        target=lambda: client._call_soon(
-            lambda: seen.append(threading.current_thread().name)
-        ),
+        target=lambda: client._call_soon(lambda: seen.append(threading.current_thread().name)),
         name="paho-sim",
     )
     worker.start()

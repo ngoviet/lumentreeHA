@@ -263,9 +263,7 @@ def _read_string(db: bytes, sa: int, nr: int) -> str | None:
 
     try:
         raw_bytes = db[offset : offset + num_bytes]
-        decoded_string = (
-            raw_bytes.decode("ascii", "ignore").replace("\x00", "").strip()
-        )
+        decoded_string = raw_bytes.decode("ascii", "ignore").replace("\x00", "").strip()
         return decoded_string if decoded_string else None
     except Exception:
         return None
@@ -406,7 +404,12 @@ def _parse_extended_registers(rr, db: bytes, parsed_data: dict[str, Any]) -> Non
     for key, reg, mapping, label in (
         (KEY_AI_MODE, "AI_MODE", MAP_AI_MODE, "AI mode"),
         (KEY_GRID_TYPE, "GRID_TYPE", MAP_GRID_TYPE, "grid type"),
-        (KEY_AC_OUT_FREQ_SET, "AC_OUT_FREQ_SET", MAP_AC_OUT_FREQ_SET, "AC output frequency setting"),
+        (
+            KEY_AC_OUT_FREQ_SET,
+            "AC_OUT_FREQ_SET",
+            MAP_AC_OUT_FREQ_SET,
+            "AC output frequency setting",
+        ),
         (KEY_CHARGE_FROM_AC, "CHARGE_FROM_AC", MAP_ON_OFF, "charge from AC"),
         (KEY_AC_COUPLING, "AC_COUPLING", MAP_ON_OFF, "AC coupling"),
     ):
@@ -484,7 +487,9 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
         if bc != bc_actual:
             _LOGGER.warning(
                 "Byte count mismatch: response is %s bytes (declares %s, low byte %s)",
-                len(db), bc, bc_actual,
+                len(db),
+                bc,
+                bc_actual,
             )
 
         if len(db) == 0 and bc > 0:
@@ -532,7 +537,7 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
             # Very short responses - likely error or control messages
             _LOGGER.debug(
                 f"Short response ({len(db)} bytes) - likely error/control: "
-                f"{resp_hex[:min(50, len(resp_hex))]}..."
+                f"{resp_hex[: min(50, len(resp_hex))]}..."
             )
             return None
         else:
@@ -540,8 +545,12 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
             _LOGGER.warning(
                 "Unrecognized length (%s bytes, declares %s). Expected: %s or %s for main, "
                 "%s for cells. Payload preview: %s...",
-                main_len, bc, expected_main_bytes, expected_main_bytes_legacy,
-                expected_cell_bytes, resp_hex[:min(60, len(resp_hex))],
+                main_len,
+                bc,
+                expected_main_bytes,
+                expected_main_bytes_legacy,
+                expected_cell_bytes,
+                resp_hex[: min(60, len(resp_hex))],
             )
             # If length is close to any expected main format, try parsing
             for expected_len in (expected_main_bytes, expected_main_bytes_legacy):
@@ -551,7 +560,7 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
                     if main_len > expected_len:
                         db = db[:expected_len]
                     else:
-                        db = db + b'\x00' * (expected_len - main_len)
+                        db = db + b"\x00" * (expected_len - main_len)
                     break
             else:
                 return None
@@ -680,9 +689,7 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
             if pv2 is not None:
                 parsed_data[KEY_PV2_POWER] = pv2
 
-            pv_power = (
-                (pv1 or 0) + (pv2 or 0) if (pv1 is not None or pv2 is not None) else None
-            )
+            pv_power = (pv1 or 0) + (pv2 or 0) if (pv1 is not None or pv2 is not None) else None
             if pv_power is not None:
                 parsed_data[KEY_PV_POWER] = pv_power
 
@@ -732,7 +739,9 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
             # Work mode (register 150 — may be beyond read range)
             work_mode = rr("WORK_MODE", False)
             if work_mode is not None:
-                parsed_data[KEY_WORK_MODE] = MAP_WORK_MODE.get(int(work_mode), f"Unknown ({int(work_mode)})")
+                parsed_data[KEY_WORK_MODE] = MAP_WORK_MODE.get(
+                    int(work_mode), f"Unknown ({int(work_mode)})"
+                )
 
             # --- Extended registers ---------------------------------------
             # Named and scaled from the vendor app's DeviceAddrConfig and its
@@ -754,7 +763,9 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
                         direct_consumption = 0
                 else:  # Importing from grid or balanced
                     direct_consumption = pv_total
-                parsed_data[KEY_SELF_CONSUMPTION_RATIO] = round(direct_consumption / pv_total * 100, 1)
+                parsed_data[KEY_SELF_CONSUMPTION_RATIO] = round(
+                    direct_consumption / pv_total * 100, 1
+                )
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Parsed main data: %s", parsed_data)
@@ -770,4 +781,3 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
     else:
         _LOGGER.warning(f"No data parsed from: {resp_hex[:60] if resp_hex else 'N/A'}...")
         return None
-

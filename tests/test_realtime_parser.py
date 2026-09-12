@@ -91,14 +91,14 @@ class TestMainFrame:
     def test_decodes_core_measurements(self, lumentree_parser) -> None:
         frame = build_frame(
             {
-                REG["BATTERY_VOLTAGE"]: 5150,   # 51.50 V
-                REG["BATTERY_CURRENT"]: 40,     # 0.40 A
-                REG["AC_OUT_VOLTAGE"]: 2320,    # 232.0 V
-                REG["GRID_VOLTAGE"]: 2310,      # 231.0 V
-                REG["AC_OUT_FREQ"]: 4970,       # 49.70 Hz
-                REG["AC_IN_FREQ"]: 4960,        # 49.60 Hz
-                REG["PV1_VOLTAGE"]: 281,        # raw volts
-                REG["DEVICE_TEMP"]: 1374,       # (1374-1000)/10 = 37.4 C
+                REG["BATTERY_VOLTAGE"]: 5150,  # 51.50 V
+                REG["BATTERY_CURRENT"]: 40,  # 0.40 A
+                REG["AC_OUT_VOLTAGE"]: 2320,  # 232.0 V
+                REG["GRID_VOLTAGE"]: 2310,  # 231.0 V
+                REG["AC_OUT_FREQ"]: 4970,  # 49.70 Hz
+                REG["AC_IN_FREQ"]: 4960,  # 49.60 Hz
+                REG["PV1_VOLTAGE"]: 281,  # raw volts
+                REG["DEVICE_TEMP"]: 1374,  # (1374-1000)/10 = 37.4 C
                 REG["BATTERY_SOC"]: 48,
             }
         )
@@ -146,11 +146,11 @@ class TestExtendedRegisters:
     def test_decodes_charge_settings(self, lumentree_parser) -> None:
         frame = build_frame(
             {
-                REG["TODAY_PV_INPUT"]: 34,          # 3.4 kWh
-                REG["AC_IN_CURRENT"]: 90,           # 0.90 A
-                REG["AC_OUT_CURRENT"]: 120,         # 1.20 A
+                REG["TODAY_PV_INPUT"]: 34,  # 3.4 kWh
+                REG["AC_IN_CURRENT"]: 90,  # 0.90 A
+                REG["AC_OUT_CURRENT"]: 120,  # 1.20 A
                 REG["BATTERY_MAX_CHARGE_CURRENT"]: 80,
-                REG["BATTERY_CAPACITY"]: 300,       # 300 Ah
+                REG["BATTERY_CAPACITY"]: 300,  # 300 Ah
             }
         )
         data = lumentree_parser.parse_mqtt_payload(frame)

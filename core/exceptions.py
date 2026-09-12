@@ -29,4 +29,3 @@ class ParseException(LumentreeException):
     """Exception for data parsing errors."""
 
     pass
-

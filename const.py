@@ -17,6 +17,7 @@ def get_timezone(hass: HomeAssistant):
     """Get the configured Home Assistant timezone (cached per-call but cheap)."""
     return dt_util.get_time_zone(hass.config.time_zone) or dt_util.get_default_time_zone()
 
+
 # --- HTTP API Constants ---
 BASE_URL: Final = "http://lesvr.suntcn.com"
 URL_GET_SERVER_TIME: Final = "/lesvr/getServerTime"
@@ -34,7 +35,7 @@ DEFAULT_HEADERS: Final = {
     "wifiStatus": "1",
     "User-Agent": "Mozilla/5.0 (Linux; Android 10; SM-G970F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36",
     "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "en-US,en;q=0.9"
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 # --- MQTT Constants ---
@@ -57,12 +58,14 @@ CONF_HTTP_TOKEN: Final = "http_token"
 DEFAULT_POLLING_INTERVAL = 5
 
 # New intervals for statistics coordinators
-DEFAULT_DAILY_INTERVAL: Final = 300        # 5 minutes (server updates every 5 minutes)
-DEFAULT_MONTHLY_INTERVAL: Final = 300      # 5 minutes (to match daily update frequency)
-DEFAULT_YEARLY_INTERVAL: Final = 300       # 5 minutes (to match daily update frequency)
+DEFAULT_DAILY_INTERVAL: Final = 300  # 5 minutes (server updates every 5 minutes)
+DEFAULT_MONTHLY_INTERVAL: Final = 300  # 5 minutes (to match daily update frequency)
+DEFAULT_YEARLY_INTERVAL: Final = 300  # 5 minutes (to match daily update frequency)
 
 # --- Savings / Tariffs ---
-DEFAULT_TARIFF_VND_PER_KWH: Final = 2900   # Fixed tariff for savings calculation (2.9k/kWh - average for ~400 kWh/month)
+DEFAULT_TARIFF_VND_PER_KWH: Final = (
+    2900  # Fixed tariff for savings calculation (2.9k/kWh - average for ~400 kWh/month)
+)
 
 # --- Dispatcher Signal ---
 SIGNAL_UPDATE_FORMAT: Final = f"{DOMAIN}_mqtt_update_{{device_sn}}"
@@ -110,32 +113,32 @@ REG_ADDR = {
     #
     # Scale and signedness come from the app's formatter layer and were
     # cross-checked against captured frames -- see docs/api/REGISTER_MAP.md.
-    "FW_VERSION_CONTROLLER_ADDR": 9,   # app addr 18; app renders this as a string
-    "FW_VERSION_LCD": 10,              # app addr 20; app renders this as a string
-    "SOLAR_SELL_GRAPH": 19,            # app addr 38; flag values only, not a measurement
-    "TODAY_PV_INPUT": 33,              # app addr 66; raw/10, signed -> kWh
-    "AC_IN_CURRENT": 54,               # app addr 108; raw/100, signed -> A
-    "AC_OUT_CURRENT": 62,              # app addr 124; raw/100, signed -> A
-    "GEN_INV_POWER": 82,               # app addr 164; raw watts, signed
-    "DEVICE_IMAGE_FLAG": 94,           # app addr 188; selects the product image
-    "AI_MODE": 96,                     # app addr 192; 0/1/2
+    "FW_VERSION_CONTROLLER_ADDR": 9,  # app addr 18; app renders this as a string
+    "FW_VERSION_LCD": 10,  # app addr 20; app renders this as a string
+    "SOLAR_SELL_GRAPH": 19,  # app addr 38; flag values only, not a measurement
+    "TODAY_PV_INPUT": 33,  # app addr 66; raw/10, signed -> kWh
+    "AC_IN_CURRENT": 54,  # app addr 108; raw/100, signed -> A
+    "AC_OUT_CURRENT": 62,  # app addr 124; raw/100, signed -> A
+    "GEN_INV_POWER": 82,  # app addr 164; raw watts, signed
+    "DEVICE_IMAGE_FLAG": 94,  # app addr 188; selects the product image
+    "AI_MODE": 96,  # app addr 192; 0/1/2
     "EQUALIZING_CHARGE_VOLTAGE": 101,  # app addr 202; raw/100 -> V
-    "BOOST_CHARGE_VOLTAGE": 102,       # app addr 204; raw/100 -> V
-    "FLOAT_CHARGE_VOLTAGE": 103,       # app addr 206; raw/100 -> V
-    "BATTERY_CAPACITY": 104,           # app addr 208; raw -> Ah
-    "BATTERY_MAX_CHARGE_CURRENT": 106, # app addr 212; raw -> A
-    "MAX_DISCHARGE_CURRENT": 107,      # app addr 214; raw -> A
-    "LOW_CAPACITY_CUTOFF": 111,        # app addr 222; raw -> %
+    "BOOST_CHARGE_VOLTAGE": 102,  # app addr 204; raw/100 -> V
+    "FLOAT_CHARGE_VOLTAGE": 103,  # app addr 206; raw/100 -> V
+    "BATTERY_CAPACITY": 104,  # app addr 208; raw -> Ah
+    "BATTERY_MAX_CHARGE_CURRENT": 106,  # app addr 212; raw -> A
+    "MAX_DISCHARGE_CURRENT": 107,  # app addr 214; raw -> A
+    "LOW_CAPACITY_CUTOFF": 111,  # app addr 222; raw -> %
     "PROTECTING_RECOVERY_POINT": 112,  # app addr 224; raw -> %
     "BATTERY_LOW_VOLTAGE_PROTECTION": 114,  # app addr 228; raw/100 -> V
-    "BATTERY_RECOVERY_VOLTAGE": 115,   # app addr 230; raw/100 -> V
-    "CHARGE_FROM_AC": 120,             # app addr 240; 0/1
-    "AC_OUT_FREQ_SET": 123,            # app addr 246; two options, values 0 and 2
-    "AC_COUPLING": 124,                # app addr 248; 0/1
-    "GRID_TYPE": 125,                  # app addr 250; 0/2/4
-    "CT_TRICKLE_FEED": 147,            # app addr 294; raw watts
-    "EQUALIZING_CHARGE_INTERVAL": 148, # app addr 296; raw days
-    "EQUALIZING_CHARGE_TIME": 149,     # app addr 298; raw minutes
+    "BATTERY_RECOVERY_VOLTAGE": 115,  # app addr 230; raw/100 -> V
+    "CHARGE_FROM_AC": 120,  # app addr 240; 0/1
+    "AC_OUT_FREQ_SET": 123,  # app addr 246; two options, values 0 and 2
+    "AC_COUPLING": 124,  # app addr 248; 0/1
+    "GRID_TYPE": 125,  # app addr 250; 0/2/4
+    "CT_TRICKLE_FEED": 147,  # app addr 294; raw watts
+    "EQUALIZING_CHARGE_INTERVAL": 148,  # app addr 296; raw days
+    "EQUALIZING_CHARGE_TIME": 149,  # app addr 298; raw minutes
 }
 REG_ADDR_CELL_START: Final = 250
 REG_ADDR_CELL_COUNT: Final = 50
@@ -243,7 +246,7 @@ KEY_CTRL_VERSION: Final = "ctrl_version"
 # The firmware cells at indices 9 and 10 are deliberately not published: the
 # vendor app renders them as strings, so a numeric entity would report a wrong
 # value.  See docs/api/REGISTER_MAP.md.
-KEY_TODAY_PV_KWH: Final = "pv_today_kwh"           # distinct from the HTTP KEY_DAILY_PV_KWH
+KEY_TODAY_PV_KWH: Final = "pv_today_kwh"  # distinct from the HTTP KEY_DAILY_PV_KWH
 KEY_AC_IN_CURRENT: Final = "ac_input_current"
 KEY_AC_OUT_CURRENT: Final = "ac_output_current"
 KEY_GEN_INV_POWER: Final = "generator_power"
@@ -315,4 +318,3 @@ MAP_ON_OFF: Final = {
     0: "Off",
     1: "On",
 }
-

@@ -33,7 +33,13 @@ _LOGGER = logging.getLogger(__name__)
 class TotalStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     __slots__ = ("aggregator", "device_sn", "_entry_id")
 
-    def __init__(self, hass: HomeAssistant, aggregator: StatsAggregator, device_sn: str, entry_id: str | None = None) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        aggregator: StatsAggregator,
+        device_sn: str,
+        entry_id: str | None = None,
+    ) -> None:
         self.aggregator = aggregator
         self.device_sn = device_sn
         self._entry_id = entry_id
@@ -111,13 +117,21 @@ class TotalStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         total_grid += float(day_data.get("grid", 0.0))
                         total_load += float(day_data.get("load", 0.0))
                         total_essential += float(day_data.get("essential", 0.0))
-                        total_total_load += float(day_data.get("total_load", float(day_data.get("load", 0.0)) + float(day_data.get("essential", 0.0))))
+                        total_total_load += float(
+                            day_data.get(
+                                "total_load",
+                                float(day_data.get("load", 0.0))
+                                + float(day_data.get("essential", 0.0)),
+                            )
+                        )
                         total_charge += float(day_data.get("charge", 0.0))
                         total_discharge += float(day_data.get("discharge", 0.0))
                         total_saved_kwh += float(day_data.get("saved_kwh", 0.0))
                         total_savings_vnd += float(day_data.get("savings_vnd", 0.0))
 
-                _LOGGER.debug(f"Total coordinator: Year {year} - PV: {yearly_totals.get('pv', 0.0):.1f} kWh")
+                _LOGGER.debug(
+                    f"Total coordinator: Year {year} - PV: {yearly_totals.get('pv', 0.0):.1f} kWh"
+                )
 
             # Add current year's data if we haven't included it yet (cộng dồn năm hiện tại)
             # Only add if current year is not already processed in the loop above
@@ -129,15 +143,25 @@ class TotalStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     total_grid += float(current_year_data.get("grid", 0.0))
                     total_load += float(current_year_data.get("load", 0.0))
                     total_essential += float(current_year_data.get("essential", 0.0))
-                    total_total_load += float(current_year_data.get("total_load", float(current_year_data.get("load", 0.0)) + float(current_year_data.get("essential", 0.0))))
+                    total_total_load += float(
+                        current_year_data.get(
+                            "total_load",
+                            float(current_year_data.get("load", 0.0))
+                            + float(current_year_data.get("essential", 0.0)),
+                        )
+                    )
                     total_charge += float(current_year_data.get("charge", 0.0))
                     total_discharge += float(current_year_data.get("discharge", 0.0))
                     total_saved_kwh += float(current_year_data.get("saved_kwh", 0.0))
                     total_savings_vnd += float(current_year_data.get("savings_vnd", 0.0))
                     latest_year = current_year
 
-            _LOGGER.info(f"Total coordinator: Processed {years_processed} years ({earliest_year}-{latest_year})")
-            _LOGGER.info(f"Total coordinator: Lifetime totals - PV: {total_pv:.1f} kWh, Charge: {total_charge:.1f} kWh")
+            _LOGGER.info(
+                f"Total coordinator: Processed {years_processed} years ({earliest_year}-{latest_year})"
+            )
+            _LOGGER.info(
+                f"Total coordinator: Lifetime totals - PV: {total_pv:.1f} kWh, Charge: {total_charge:.1f} kWh"
+            )
 
             return {
                 # Lifetime totals (including current year if applicable) - keep full precision
@@ -185,6 +209,7 @@ class TotalStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     KEY_YEARLY_SAVED_KWH,
                     KEY_YEARLY_SAVINGS_VND,
                 )
+
                 return {
                     "pv": float(yearly_coord.data.get(KEY_YEARLY_PV_KWH) or 0.0),
                     "grid": float(yearly_coord.data.get(KEY_YEARLY_GRID_IN_KWH) or 0.0),
@@ -198,4 +223,3 @@ class TotalStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         except Exception:
             return None
-

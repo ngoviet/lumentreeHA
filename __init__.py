@@ -36,11 +36,13 @@ from .services.aggregator import StatsAggregator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR]
 
+
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Lumentree integration."""
     # Config flow is handled automatically by Home Assistant
     # when config_flow: true is set in manifest.json
     return True
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Lumentree from a config entry."""
@@ -74,7 +76,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if "_error" in device_api_info:
                 _LOGGER.error(f"API error getting device info: {device_api_info['_error']}")
                 raise ConfigEntryNotReady(f"API error: {device_api_info['_error']}")
-            hass.data[DOMAIN][entry.entry_id]['device_api_info'] = device_api_info
+            hass.data[DOMAIN][entry.entry_id]["device_api_info"] = device_api_info
             _LOGGER.info(
                 f"Stored API info: Model={device_api_info.get('deviceType')}, "
                 f"ID={device_api_info.get('deviceId')}"
@@ -95,12 +97,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         monthly_coord = MonthlyStatsCoordinator(hass, aggregator, device_sn, entry.entry_id)
         yearly_coord = YearlyStatsCoordinator(hass, aggregator, device_sn, entry.entry_id)
         total_coord = TotalStatsCoordinator(hass, aggregator, device_sn, entry.entry_id)
-        hass.data[DOMAIN][entry.entry_id].update({
-            "daily_coordinator": daily_coord,
-            "monthly_coordinator": monthly_coord,
-            "yearly_coordinator": yearly_coord,
-            "total_coordinator": total_coord,
-        })
+        hass.data[DOMAIN][entry.entry_id].update(
+            {
+                "daily_coordinator": daily_coord,
+                "monthly_coordinator": monthly_coord,
+                "yearly_coordinator": yearly_coord,
+                "total_coordinator": total_coord,
+            }
+        )
         _LOGGER.info(f"Created total coordinator for {device_sn}")
 
         # Prime daily coordinator first (non-blocking), then stats coordinators after delay
@@ -205,7 +209,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await client_to_stop.disconnect()
 
         entry.async_on_unload(_cancel_timer_on_unload)
-        entry.async_on_unload(hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop_mqtt))
+        entry.async_on_unload(
+            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_stop_mqtt)
+        )
 
         # Services: backfill_now, recompute_month_year, purge_cache, backfill_all, backfill_gaps,
         #            mark_empty_dates, mark_coverage_range
@@ -218,9 +224,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             """
             raw = call.data.get("year")
             if raw is None:
-                raise HomeAssistantError(
-                    "The 'year' field is required for this service."
-                )
+                raise HomeAssistantError("The 'year' field is required for this service.")
             try:
                 return int(raw)
             except (TypeError, ValueError) as err:
@@ -294,19 +298,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             max_years = int(max_years_val) if max_years_val is not None else 5
             optimize_cache = call.data.get("optimize_cache", True)
 
-            _LOGGER.warning(f"Purging ALL cache for device {device_id} and starting fresh smart backfill...")
+            _LOGGER.warning(
+                f"Purging ALL cache for device {device_id} and starting fresh smart backfill..."
+            )
             result = await hass.async_add_executor_job(cache_io.purge_device, device_id)
             _LOGGER.info(f"Purge result: {result}")
 
             _LOGGER.info(f"Starting smart backfill for {max_years} years...")
-            stats = await aggregator.smart_backfill(max_years=max_years, optimize_cache=optimize_cache)
+            stats = await aggregator.smart_backfill(
+                max_years=max_years, optimize_cache=optimize_cache
+            )
             _LOGGER.info(f"Purge and smart backfill completed: {stats}")
 
         async def _svc_smart_backfill(call):
             """Smart backfill using getYearData/getMonthData APIs."""
             max_years = int(call.data.get("max_years", 10))
             optimize_cache = call.data.get("optimize_cache", True)
-            stats = await aggregator.smart_backfill(max_years=max_years, optimize_cache=optimize_cache)
+            stats = await aggregator.smart_backfill(
+                max_years=max_years, optimize_cache=optimize_cache
+            )
             _LOGGER.info(f"Smart backfill completed: {stats}")
 
         async def _svc_backfill_all(call):
@@ -323,7 +333,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def _svc_backfill_empty_dates(call):
             max_years = int(call.data.get("max_years", 5))
             max_days_per_run = int(call.data.get("max_days_per_run", 100))
-            result = await aggregator.backfill_empty_dates(max_years=max_years, max_days_per_run=max_days_per_run)
+            result = await aggregator.backfill_empty_dates(
+                max_years=max_years, max_days_per_run=max_days_per_run
+            )
             _LOGGER.info(
                 f"backfill_empty_dates service completed: "
                 f"recovered={result.get('recovered', 0)}, "
@@ -336,7 +348,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             new_options = entry.options.copy()
             new_options["purge_and_backfill_on_startup"] = True
             hass.config_entries.async_update_entry(entry, options=new_options)
-            _LOGGER.warning("purge_and_backfill_on_startup has been enabled. It will run on next restart and auto-disable after completion.")
+            _LOGGER.warning(
+                "purge_and_backfill_on_startup has been enabled. It will run on next restart and auto-disable after completion."
+            )
 
         async def _svc_disable_purge_on_startup(call):
             """Disable purge and backfill on startup."""
@@ -386,8 +400,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_register(DOMAIN, "backfill_empty_dates", _svc_backfill_empty_dates)
         hass.services.async_register(DOMAIN, "mark_empty_dates", _svc_mark_empty_dates)
         hass.services.async_register(DOMAIN, "mark_coverage_range", _svc_mark_coverage_range)
-        hass.services.async_register(DOMAIN, "enable_purge_on_startup", _svc_enable_purge_on_startup)
-        hass.services.async_register(DOMAIN, "disable_purge_on_startup", _svc_disable_purge_on_startup)
+        hass.services.async_register(
+            DOMAIN, "enable_purge_on_startup", _svc_enable_purge_on_startup
+        )
+        hass.services.async_register(
+            DOMAIN, "disable_purge_on_startup", _svc_disable_purge_on_startup
+        )
 
         # Auto backfill: first-run (background) and nightly delta
         # Check if we need to purge and backfill on startup (from entry options or default False)
@@ -396,7 +414,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async def _first_run_backfill() -> None:
             try:
                 if should_purge_on_startup:
-                    _LOGGER.warning("PURGE_AND_BACKFILL_ON_STARTUP is enabled - purging all cache...")
+                    _LOGGER.warning(
+                        "PURGE_AND_BACKFILL_ON_STARTUP is enabled - purging all cache..."
+                    )
                     result = await hass.async_add_executor_job(cache_io.purge_device, device_id)
                     _LOGGER.info(f"Purge result: {result}")
                     _LOGGER.warning("Starting smart backfill for 5 years...")
@@ -404,19 +424,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     stats = await aggregator.smart_backfill(max_years=5, optimize_cache=True)
                     _LOGGER.info(f"Smart backfill completed: {stats}")
                 else:
-                    _LOGGER.info("Auto backfill: starting smart backfill for last 5 years (background)")
+                    _LOGGER.info(
+                        "Auto backfill: starting smart backfill for last 5 years (background)"
+                    )
                     # Use smart backfill - much faster than daily backfill
                     stats = await aggregator.smart_backfill(max_years=5, optimize_cache=True)
                     _LOGGER.info(f"Auto backfill: completed 5-year history - {stats}")
 
                 # Auto-disable purge_and_backfill_on_startup after successful backfill
                 if should_purge_on_startup:
-                    _LOGGER.info("Backfill completed successfully. Auto-disabling PURGE_AND_BACKFILL_ON_STARTUP...")
+                    _LOGGER.info(
+                        "Backfill completed successfully. Auto-disabling PURGE_AND_BACKFILL_ON_STARTUP..."
+                    )
                     # Update entry options to disable the flag
                     new_options = entry.options.copy()
                     new_options["purge_and_backfill_on_startup"] = False
                     hass.config_entries.async_update_entry(entry, options=new_options)
-                    _LOGGER.info("PURGE_AND_BACKFILL_ON_STARTUP has been automatically set to False")
+                    _LOGGER.info(
+                        "PURGE_AND_BACKFILL_ON_STARTUP has been automatically set to False"
+                    )
             except Exception as err:
                 _LOGGER.error(f"Auto backfill initial failed: {err}")
 
@@ -439,7 +465,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.async_create_task(_first_run_backfill())
 
         # Schedule nightly job every 24h — store before risky step so we can clean up on failure
-        remove_nightly = async_track_time_interval(hass, _nightly_delta, datetime.timedelta(hours=24))
+        remove_nightly = async_track_time_interval(
+            hass, _nightly_delta, datetime.timedelta(hours=24)
+        )
         hass.data[DOMAIN][entry.entry_id]["remove_nightly"] = remove_nightly
 
         await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -475,6 +503,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.data[DOMAIN].pop(entry.entry_id, None)
         return False
 
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     device_sn = entry.data.get(CONF_DEVICE_SN, "unknown")
@@ -508,7 +537,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.warning(f"Error cancelling nightly timer {device_sn}: {timer_err}")
 
         # Cleanup coordinators (they should be cleaned up by platform unload, but ensure cleanup)
-        for coord_key in ["daily_coordinator", "monthly_coordinator", "yearly_coordinator", "total_coordinator"]:
+        for coord_key in [
+            "daily_coordinator",
+            "monthly_coordinator",
+            "yearly_coordinator",
+            "total_coordinator",
+        ]:
             coord = entry_data.get(coord_key)
             if coord and hasattr(coord, "async_shutdown"):
                 try:

@@ -828,6 +828,7 @@ TOTAL_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = (
     ),
 )
 
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
@@ -862,17 +863,13 @@ async def async_setup_entry(
                 LumentreeTotalLoadPowerSensor(hass, entry, device_info, description, {})
             )
         else:
-            entities_to_add.append(
-                LumentreeMqttSensor(hass, entry, device_info, description, {})
-            )
+            entities_to_add.append(LumentreeMqttSensor(hass, entry, device_info, description, {}))
 
     _LOGGER.info(f"Adding {len(REALTIME_SENSOR_DESCRIPTIONS)} real-time sensors for {device_sn}")
 
     if daily_coord:
         for description in STATS_SENSOR_DESCRIPTIONS:
-            entities_to_add.append(
-                LumentreeDailyStatsSensor(daily_coord, device_info, description)
-            )
+            entities_to_add.append(LumentreeDailyStatsSensor(daily_coord, device_info, description))
         _LOGGER.info(f"Adding {len(STATS_SENSOR_DESCRIPTIONS)} daily stats sensors for {device_sn}")
     else:
         _LOGGER.warning(f"Daily coordinator not available for {device_sn}")
@@ -882,7 +879,9 @@ async def async_setup_entry(
             entities_to_add.append(
                 LumentreeMonthlyStatsSensor(monthly_coord, device_info, description)
             )
-        _LOGGER.info(f"Adding {len(MONTH_SENSOR_DESCRIPTIONS)} monthly stats sensors for {device_sn}")
+        _LOGGER.info(
+            f"Adding {len(MONTH_SENSOR_DESCRIPTIONS)} monthly stats sensors for {device_sn}"
+        )
     else:
         _LOGGER.warning(f"Monthly coordinator not available for {device_sn}")
 
@@ -899,9 +898,7 @@ async def async_setup_entry(
     _LOGGER.info(f"Total coordinator available: {total_coord is not None}")
     if total_coord:
         for description in TOTAL_SENSOR_DESCRIPTIONS:
-            entities_to_add.append(
-                LumentreeTotalStatsSensor(total_coord, device_info, description)
-            )
+            entities_to_add.append(LumentreeTotalStatsSensor(total_coord, device_info, description))
         _LOGGER.info(f"Adding {len(TOTAL_SENSOR_DESCRIPTIONS)} total stats sensors for {device_sn}")
     else:
         _LOGGER.warning(f"Total coordinator not available for {device_sn}")
@@ -976,7 +973,9 @@ class LumentreeMqttSensor(SensorEntity, RestoreEntity):
                     processed_value = float(value)
                 except (ValueError, TypeError):
                     pass
-            elif desc.native_unit_of_measurement == PERCENTAGE or desc.key == KEY_MASTER_SLAVE_STATUS:
+            elif (
+                desc.native_unit_of_measurement == PERCENTAGE or desc.key == KEY_MASTER_SLAVE_STATUS
+            ):
                 try:
                     processed_value = int(value)
                 except (ValueError, TypeError):
@@ -1095,9 +1094,7 @@ class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
                     self.async_write_ha_state()
                     _LOGGER.info(f"Update Cell sensor {self.entity_id}: State={new_state}")
             else:
-                _LOGGER.warning(
-                    f"Invalid cell info type {self.unique_id}: {type(cell_info_dict)}"
-                )
+                _LOGGER.warning(f"Invalid cell info type {self.unique_id}: {type(cell_info_dict)}")
 
     async def async_added_to_hass(self) -> None:
         """Register dispatcher connection and restore state."""
@@ -1152,16 +1149,24 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
         self._attr_unique_id = f"{self._device_sn}_{description.key}"
         object_id = f"device_{self._device_sn}_{slugify(description.key)}"
         self._attr_object_id = object_id
-        self.entity_id = generate_entity_id("sensor.{}", self._attr_object_id, hass=coordinator.hass)
+        self.entity_id = generate_entity_id(
+            "sensor.{}", self._attr_object_id, hass=coordinator.hass
+        )
         self._attr_device_info = device_info
         self._attr_attribution = "Data fetched via Lumentree HTTP API"
         self._attr_native_value = None
-        self._timezone = dt_util.get_time_zone(coordinator.hass.config.time_zone) or dt_util.get_default_time_zone()
+        self._timezone = (
+            dt_util.get_time_zone(coordinator.hass.config.time_zone)
+            or dt_util.get_default_time_zone()
+        )
         self._update_state_from_coordinator()
 
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug(
-                "Init Stats sensor: uid=%s, eid=%s, name=%s", self.unique_id, self.entity_id, self.name
+                "Init Stats sensor: uid=%s, eid=%s, name=%s",
+                self.unique_id,
+                self.entity_id,
+                self.name,
             )
 
     @callback
@@ -1255,8 +1260,7 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
                     # Convert to kWh
                     if attrs.get("series_5min_w"):
                         attrs["series_5min_kwh"] = [
-                            round(w * (5.0 / 60.0) / 1000.0, 6)
-                            for w in attrs["series_5min_w"]
+                            round(w * (5.0 / 60.0) / 1000.0, 6) for w in attrs["series_5min_w"]
                         ]
 
         # Add source date if available (from coordinator update time or query_date)
@@ -1408,13 +1412,18 @@ class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
 
 class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
     __slots__ = (
-        "entity_description", "_device_sn", "_attr_unique_id",
-        "_attr_device_info", "_attr_native_value",
+        "entity_description",
+        "_device_sn",
+        "_attr_unique_id",
+        "_attr_device_info",
+        "_attr_native_value",
     )
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, coordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+    def __init__(
+        self, coordinator, device_info: DeviceInfo, description: SensorEntityDescription
+    ) -> None:
         super().__init__(coordinator)
         self.entity_description = description
         self._device_sn = getattr(coordinator, "device_sn", "unknown")
@@ -1437,7 +1446,12 @@ class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
 
 
 class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
-    def __init__(self, coordinator: MonthlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+    def __init__(
+        self,
+        coordinator: MonthlyStatsCoordinator,
+        device_info: DeviceInfo,
+        description: SensorEntityDescription,
+    ) -> None:
         super().__init__(coordinator, device_info, description)
 
     @property
@@ -1463,7 +1477,12 @@ class LumentreeMonthlyStatsSensor(_BaseCoordinatorSensor):
 
 
 class LumentreeYearlyStatsSensor(_BaseCoordinatorSensor):
-    def __init__(self, coordinator: YearlyStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+    def __init__(
+        self,
+        coordinator: YearlyStatsCoordinator,
+        device_info: DeviceInfo,
+        description: SensorEntityDescription,
+    ) -> None:
         super().__init__(coordinator, device_info, description)
 
     @property
@@ -1487,7 +1506,12 @@ class LumentreeYearlyStatsSensor(_BaseCoordinatorSensor):
 
 
 class LumentreeTotalStatsSensor(_BaseCoordinatorSensor):
-    def __init__(self, coordinator: TotalStatsCoordinator, device_info: DeviceInfo, description: SensorEntityDescription) -> None:
+    def __init__(
+        self,
+        coordinator: TotalStatsCoordinator,
+        device_info: DeviceInfo,
+        description: SensorEntityDescription,
+    ) -> None:
         super().__init__(coordinator, device_info, description)
 
     @property

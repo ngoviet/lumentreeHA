@@ -61,13 +61,13 @@ for _name in _HA_STUBS:
     sys.modules.setdefault(_name, MagicMock())
 
 # const.py calls these two at import time to build its timezone helper.
-sys.modules["homeassistant.util.dt"].get_time_zone = MagicMock(return_value=None)
-sys.modules["homeassistant.util.dt"].get_default_time_zone = MagicMock(return_value=None)
+sys.modules["homeassistant.util.dt"].get_time_zone = MagicMock(return_value=None)  # type: ignore[attr-defined]
+sys.modules["homeassistant.util.dt"].get_default_time_zone = MagicMock(return_value=None)  # type: ignore[attr-defined]
 
 
 def _package(dotted: str, path: Path) -> types.ModuleType:
     module = types.ModuleType(dotted)
-    module.__path__ = [str(path)]  # type: ignore[attr-defined]
+    module.__path__ = [str(path)]
     module.__package__ = dotted
     sys.modules[dotted] = module
     return module
@@ -96,6 +96,7 @@ parser = _module(
 )
 cache = _module("custom_components.lumentree.services.cache", ROOT / "services" / "cache.py")
 
+
 # pytest collects the root-level ``__init__.py`` as a ``Package`` and imports it
 # during setup, under the name its own path resolution derives for the checkout
 # directory.  For an ordinary clone that is the directory name (here
@@ -107,7 +108,7 @@ cache = _module("custom_components.lumentree.services.cache", ROOT / "services" 
 # real ``__path__``, so the import is a no-op either way.
 def _root_stub(dotted: str) -> types.ModuleType:
     stub = types.ModuleType(dotted)
-    stub.__path__ = [str(ROOT)]  # type: ignore[attr-defined]
+    stub.__path__ = [str(ROOT)]
     stub.__package__ = dotted
     stub.__file__ = str(ROOT / "__init__.py")
     sys.modules[dotted] = stub
@@ -148,10 +149,10 @@ def _socketpair_bypassing_the_guard(*args, **kwargs):
     """``socket.socketpair()``, with pytest-socket's ``socket.socket`` lifted."""
     guard = socket.socket
     try:
-        socket.socket = _true_socket
+        socket.socket = _true_socket  # type: ignore[misc]
         return _true_socketpair(*args, **kwargs)
     finally:
-        socket.socket = guard
+        socket.socket = guard  # type: ignore[misc]
 
 
 if sys.platform == "win32":

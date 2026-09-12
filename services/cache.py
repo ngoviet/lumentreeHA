@@ -40,9 +40,20 @@ def _get_file_lock(device_id: str, year: int) -> threading.Lock:
             _file_locks[key] = threading.Lock()
         return _file_locks[key]
 
+
 CACHE_BASE_DIR = os.path.join(".storage", "lumentree_stats")
 
-_MONTHLY_KEYS = ("pv", "grid", "load", "essential", "total_load", "charge", "discharge", "saved_kwh", "savings_vnd")
+_MONTHLY_KEYS = (
+    "pv",
+    "grid",
+    "load",
+    "essential",
+    "total_load",
+    "charge",
+    "discharge",
+    "saved_kwh",
+    "savings_vnd",
+)
 
 
 def _ensure_dir(path: str) -> None:
@@ -72,7 +83,17 @@ def _empty_cache() -> dict[str, Any]:
             "saved_kwh": _empty_month(),
             "savings_vnd": _empty_month(),
         },
-        "yearly_total": {"pv": 0.0, "grid": 0.0, "load": 0.0, "essential": 0.0, "total_load": 0.0, "charge": 0.0, "discharge": 0.0, "saved_kwh": 0.0, "savings_vnd": 0.0},
+        "yearly_total": {
+            "pv": 0.0,
+            "grid": 0.0,
+            "load": 0.0,
+            "essential": 0.0,
+            "total_load": 0.0,
+            "charge": 0.0,
+            "discharge": 0.0,
+            "saved_kwh": 0.0,
+            "savings_vnd": 0.0,
+        },
         "meta": {
             "version": 1,
             "last_backfill_date": None,
@@ -182,9 +203,7 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> dict[st
         except Exception as err:
             # The recomputed data is returned either way; only the write-back is
             # best-effort, so a read-only or full disk is not fatal here.
-            _LOGGER.debug(
-                "Could not persist recomputed cache %s/%s: %s", device_id, year, err
-            )
+            _LOGGER.debug("Could not persist recomputed cache %s/%s: %s", device_id, year, err)
 
     return data
 
@@ -210,6 +229,7 @@ def save_year(device_id: str, year: int, data: dict[str, Any]) -> None:
             except OSError:
                 # Fallback for Windows/filesystems where os.replace isn't fully atomic
                 import shutil
+
                 shutil.move(tmp_path, path)
         except Exception:
             try:
@@ -385,13 +405,17 @@ def recompute_aggregates(cache: dict[str, Any]) -> dict[str, Any]:
                     monthly[key][month] += round(load_val + essential_val, 1)
             elif key == "saved_kwh":
                 # Calculate saved_kwh from total_load - grid if not already stored
-                total_load_val = float(v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0))))
+                total_load_val = float(
+                    v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0)))
+                )
                 grid_val = float(v.get("grid", 0.0))
                 saved_kwh_val = max(0.0, total_load_val - grid_val)
                 monthly[key][month] += saved_kwh_val
             elif key == "savings_vnd":
                 # Calculate savings_vnd from saved_kwh if not already stored
-                total_load_val = float(v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0))))
+                total_load_val = float(
+                    v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0)))
+                )
                 grid_val = float(v.get("grid", 0.0))
                 saved_kwh_val = max(0.0, total_load_val - grid_val)
                 monthly[key][month] += saved_kwh_val * DEFAULT_TARIFF_VND_PER_KWH
@@ -449,5 +473,3 @@ def purge_device(device_id: str) -> bool:
     except Exception as e:
         _LOGGER.error("Failed to purge device cache: %s", e)
     return False
-
-
