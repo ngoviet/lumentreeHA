@@ -287,7 +287,7 @@ class FakeTransport:
 
 
 def _deliver(client, payload_hex: str, topic: str | None = None) -> None:
-    """Invoke the client's paho message handler with a captured frame.
+    """Invoke the client's paho message handler with a constructed frame.
 
     The first two arguments are paho's client and userdata, which
     ``_on_message`` never reads; only ``msg.topic`` and ``msg.payload`` matter.
@@ -316,8 +316,8 @@ def _state(hass: HomeAssistant, entity_id: str):
     return state
 
 
-async def test_captured_frame_reaches_entity_state(hass: HomeAssistant, entry, vendor_http, monkeypatch):
-    """A captured frame ends up as decoded numbers on the entity states."""
+async def test_constructed_frame_reaches_entity_state(hass: HomeAssistant, entry, vendor_http, monkeypatch):
+    """A constructed frame ends up as decoded numbers on the entity states."""
     ctx = await _setup(hass, entry, FakeTransport(), monkeypatch)
 
     _deliver(ctx["client"], FRAME_FULL)
@@ -326,7 +326,7 @@ async def test_captured_frame_reaches_entity_state(hass: HomeAssistant, entry, v
     from custom_components.lumentree.core.realtime_parser import parse_mqtt_payload
 
     expected = parse_mqtt_payload(FRAME_FULL)
-    assert expected, "the captured frame did not parse; fixture is stale"
+    assert expected, "the constructed frame did not parse; the builder or the parser changed"
 
     soc = _state(hass, ctx["entities"]["battery_soc"])
     assert soc.state not in ("unknown", "unavailable"), (
