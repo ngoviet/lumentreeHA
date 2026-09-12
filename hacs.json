@@ -1,8 +1,6 @@
 {
   "name": "Lumentree Inverter",
   "content_in_root": true,
-  "domains": ["lumentree"],
-  "iot_class": "Cloud Polling",
   "homeassistant": "2023.1.0",
   "render_readme": true
 }
