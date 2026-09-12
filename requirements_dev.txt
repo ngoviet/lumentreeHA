@@ -2,6 +2,12 @@
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-homeassistant-custom-component>=0.13.0
+# Runtime requirements of the integration (see manifest.json).  The suite
+# imports core/realtime_parser.py and core/mqtt_client.py directly, and both
+# import these at module scope, so `pytest tests/` needs them installed even
+# though nothing in the tests talks to a broker.  Floors match manifest.json.
+paho-mqtt>=1.6.0
+crcmod>=1.7
 # >=0.2.0: pyproject.toml uses the [tool.ruff.lint] namespace, which earlier
 # ruff versions ignore (they only read top-level select/ignore).
 ruff>=0.2.0
