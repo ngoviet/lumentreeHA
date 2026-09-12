@@ -602,10 +602,14 @@ class LumentreeHttpApiClient:
         one round of server-side work instead of three. Falls back to the three
         per-metric legacy endpoints when that comes back empty -- a transport
         error, or a response whose every metric was unusable -- they were the
-        only path for a long time and still answer identically, so a failure
-        of the combined endpoint degrades speed rather than function. An empty
-        result means exactly that for both sources, so this test is the
-        endpoint's own "no data" answer either way.
+        only path for a long time and still answer identically for PV, grid,
+        load and essential load, which the recorded comparison measured equal.
+        The battery discharge representation differs (an explicit zero there,
+        an absent `batF` here) and the client normalises it, though the battery
+        mapping itself is unverified because the captured device has no
+        battery. A failure of the combined endpoint therefore degrades speed
+        rather than function. An empty result means exactly that for both
+        sources, so this test is the endpoint's own "no data" answer either way.
 
         Args:
             device_identifier: Device ID or serial number
