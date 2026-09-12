@@ -1,0 +1,621 @@
+{
+  "tool_version": "probe_tier1_corrected/1.0",
+  "timestamp": "2026-09-12T03:14:11.131243+00:00",
+  "purpose": "re-probe with the parameter names core/api_client.py actually uses",
+  "safety": "GET-only, 1 req/endpoint, no retry, cap 8",
+  "probes": [
+    {
+      "label": "month_control",
+      "method": "GET",
+      "endpoint": "/lesvr/getMonthData",
+      "params": {
+        "deviceId": "H240909079",
+        "year": "2026",
+        "month": "9"
+      },
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['bat', 'homeload', 'pv', 'grid', 'essentialLoad', 'batF']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "bat": {
+            "tableKey": "bat",
+            "tableName": "电池充电电量",
+            "tableValueInfo": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "homeload": {
+            "tableKey": "homeload",
+            "tableName": "家庭负载耗电量",
+            "tableValueInfo": [
+              83,
+              153,
+              244,
+              223,
+              176,
+              260,
+              193,
+              205,
+              205,
+              203,
+              170,
+              45,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "pv": {
+            "tableKey": "pv",
+            "tableName": "PV发电量",
+            "tableValueInfo": [
+              28,
+              70,
+              77,
+              59,
+              38,
+              53,
+              50,
+              55,
+              61,
+              45,
+              60,
+              12,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "grid": {
+            "tableKey": "grid",
+            "tableName": "电网输入电量",
+            "tableValueInfo": [
+              59,
+              89,
+              174,
+              170,
+              142,
+              213,
+              148,
+              156,
+              150,
+              164,
+              116,
+              35,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "essentialLoad": {
+            "tableKey": "essentialLoad",
+            "tableName": "不断电负载耗电量",
+            "tableValueInfo": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "batF": {
+            "tableKey": "batF",
+            "tableName": "电池放电电量",
+            "tableValueInfo": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "year_control",
+      "method": "GET",
+      "endpoint": "/lesvr/getYearData",
+      "params": {
+        "deviceId": "H240909079",
+        "year": "2026"
+      },
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['bat', 'homeload', 'pv', 'grid', 'essentialLoad', 'batF']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "bat": {
+            "tableKey": "bat",
+            "tableName": "电池充电电量",
+            "tableValueInfo": [
+              1242,
+              790,
+              1234,
+              1219,
+              1690,
+              1573,
+              1698,
+              1851,
+              1820,
+              1485,
+              1133,
+              1118
+            ]
+          },
+          "homeload": {
+            "tableKey": "homeload",
+            "tableName": "家庭负载耗电量",
+            "tableValueInfo": [
+              2787,
+              2572,
+              3311,
+              3184,
+              3699,
+              2940,
+              2339,
+              2066,
+              1598,
+              1588,
+              1618,
+              1618
+            ]
+          },
+          "pv": {
+            "tableKey": "pv",
+            "tableName": "PV发电量",
+            "tableValueInfo": [
+              2217,
+              1423,
+              2376,
+              2357,
+              3117,
+              3156,
+              3495,
+              3503,
+              3602,
+              3088,
+              2851,
+              2770
+            ]
+          },
+          "grid": {
+            "tableKey": "grid",
+            "tableName": "电网输入电量",
+            "tableValueInfo": [
+              1228,
+              1609,
+              1516,
+              1372,
+              1212,
+              1648,
+              1314,
+              716,
+              802,
+              1418,
+              2046,
+              1728
+            ]
+          },
+          "essentialLoad": {
+            "tableKey": "essentialLoad",
+            "tableName": "不断电负载耗电量",
+            "tableValueInfo": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              1078,
+              1637,
+              1303,
+              1967,
+              2112,
+              2540,
+              2148
+            ]
+          },
+          "batF": {
+            "tableKey": "batF",
+            "tableName": "电池放电电量",
+            "tableValueInfo": [
+              1077,
+              669,
+              1102,
+              1098,
+              1499,
+              1422,
+              1535,
+              1685,
+              1705,
+              1376,
+              1067,
+              1047
+            ]
+          }
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "history_year",
+      "method": "GET",
+      "endpoint": "/lesvr/getHistoryYearData",
+      "params": {
+        "deviceId": "H240909079",
+        "year": "2026"
+      },
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['firstYear', 'bat', 'homeload', 'pv', 'grid', 'essentialLoad', 'batF']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "firstYear": "2024",
+          "bat": {
+            "tableKey": "bat",
+            "tableName": "电池充电电量",
+            "tableValueInfo": [
+              12,
+              16853,
+              5738
+            ]
+          },
+          "homeload": {
+            "tableKey": "homeload",
+            "tableName": "家庭负载耗电量",
+            "tableValueInfo": [
+              3787,
+              29320,
+              18995
+            ]
+          },
+          "pv": {
+            "tableKey": "pv",
+            "tableName": "PV发电量",
+            "tableValueInfo": [
+              997,
+              33955,
+              18653
+            ]
+          },
+          "grid": {
+            "tableKey": "grid",
+            "tableName": "电网输入电量",
+            "tableValueInfo": [
+              3062,
+              16609,
+              22880
+            ]
+          },
+          "essentialLoad": {
+            "tableKey": "essentialLoad",
+            "tableName": "不断电负载耗电量",
+            "tableValueInfo": [
+              0,
+              12785,
+              18378
+            ]
+          },
+          "batF": {
+            "tableKey": "batF",
+            "tableName": "电池放电电量",
+            "tableValueInfo": [
+              56,
+              15282,
+              5284
+            ]
+          }
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "history_year_q",
+      "method": "GET",
+      "endpoint": "/lesvr/getHistoryYearData",
+      "params": {
+        "deviceId": "H240909079",
+        "queryYear": "2026"
+      },
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['firstYear', 'bat', 'homeload', 'pv', 'grid', 'essentialLoad', 'batF']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "firstYear": "2024",
+          "bat": {
+            "tableKey": "bat",
+            "tableName": "电池充电电量",
+            "tableValueInfo": [
+              12,
+              16853,
+              5738
+            ]
+          },
+          "homeload": {
+            "tableKey": "homeload",
+            "tableName": "家庭负载耗电量",
+            "tableValueInfo": [
+              3787,
+              29320,
+              18995
+            ]
+          },
+          "pv": {
+            "tableKey": "pv",
+            "tableName": "PV发电量",
+            "tableValueInfo": [
+              997,
+              33955,
+              18653
+            ]
+          },
+          "grid": {
+            "tableKey": "grid",
+            "tableName": "电网输入电量",
+            "tableValueInfo": [
+              3062,
+              16609,
+              22880
+            ]
+          },
+          "essentialLoad": {
+            "tableKey": "essentialLoad",
+            "tableName": "不断电负载耗电量",
+            "tableValueInfo": [
+              0,
+              12785,
+              18378
+            ]
+          },
+          "batF": {
+            "tableKey": "batF",
+            "tableName": "电池放电电量",
+            "tableValueInfo": [
+              56,
+              15282,
+              5284
+            ]
+          }
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "device_info",
+      "method": "GET",
+      "endpoint": "/lesvr/deviceInfo",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['masterStatus']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "masterStatus": 0
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "online_status",
+      "method": "GET",
+      "endpoint": "/lesvr/getOnlineStatus",
+      "params": {
+        "deviceId": "H240909079"
+      },
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['onlineStatus']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "onlineStatus": 0
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "get_version",
+      "method": "GET",
+      "endpoint": "/lesvr/getVersion",
+      "params": {},
+      "http_status": 200,
+      "return_value": 1,
+      "shape": "dict keys=['controller', 'controller2', 'screen', 'liquidCrystal']",
+      "raw_response": {
+        "returnValue": 1,
+        "data": {
+          "controller": {
+            "firmwareType": "2",
+            "firmwareName": "控制固件列表",
+            "firmwareEnName": "Control Firmware Listt",
+            "versions": []
+          },
+          "controller2": {
+            "firmwareType": "0",
+            "firmwareName": "副控制板",
+            "firmwareEnName": "controller2",
+            "versions": []
+          },
+          "screen": {
+            "firmwareType": "3",
+            "firmwareName": "屏幕",
+            "firmwareEnName": "screen",
+            "versions": []
+          },
+          "liquidCrystal": {
+            "firmwareType": "1",
+            "firmwareName": "液晶屏固件列表",
+            "firmwareEnName": "LCD screen firmware list",
+            "versions": []
+          }
+        }
+      },
+      "success": true
+    },
+    {
+      "label": "check_update",
+      "method": "GET",
+      "endpoint": "/lesvr/checkUpdate",
+      "params": {},
+      "http_status": 200,
+      "return_value": 2,
+      "shape": "NoneType None",
+      "raw_response": {
+        "returnValue": 2,
+        "msg": "服务器繁忙，请稍后重试"
+      },
+      "success": false
+    }
+  ],
+  "auth": {
+    "returnValue": 1,
+    "data": {
+      "uid": "<redacted>",
+      "svrPermission": "",
+      "nickname": "<redacted>",
+      "userType": 1,
+      "expiredTime": "2027-11-28 16:26",
+      "token": "<redacted>"
+    }
+  }
+}
