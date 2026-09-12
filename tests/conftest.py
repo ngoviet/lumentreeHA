@@ -98,9 +98,7 @@ cache = _module("custom_components.lumentree.services.cache", ROOT / "services" 
 # api_client imports the exception hierarchy by relative import, so its package
 # sibling has to be in sys.modules before it is exec'd.
 _module("custom_components.lumentree.core.exceptions", ROOT / "core" / "exceptions.py")
-api_client = _module(
-    "custom_components.lumentree.core.api_client", ROOT / "core" / "api_client.py"
-)
+api_client = _module("custom_components.lumentree.core.api_client", ROOT / "core" / "api_client.py")
 
 
 # pytest collects the root-level ``__init__.py`` as a ``Package`` and imports it
