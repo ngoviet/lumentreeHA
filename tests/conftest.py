@@ -25,6 +25,7 @@ single test runs.
 from __future__ import annotations
 
 import importlib.util
+import socket
 import sys
 import types
 from pathlib import Path
@@ -95,14 +96,66 @@ parser = _module(
 )
 cache = _module("custom_components.lumentree.services.cache", ROOT / "services" / "cache.py")
 
-# pytest names the root-level Package after the checkout directory, so the name
-# varies per machine (here "lumentreeHA").  It is registered as an empty module
-# carrying the root's real __path__, so `import lumentreeHA` resolves to it and
-# Package.setup() imports nothing.
-_root_name = ROOT.name
-if _root_name.isidentifier():
-    _root_pkg = _package(_root_name, ROOT)
-    _root_pkg.__file__ = str(ROOT / "__init__.py")
+# pytest collects the root-level ``__init__.py`` as a ``Package`` and imports it
+# during setup, under the name its own path resolution derives for the checkout
+# directory.  For an ordinary clone that is the directory name (here
+# "lumentreeHA"); when the directory name is not a valid Python identifier -- a
+# git worktree, a CI checkout id -- pytest falls back to ``Path.stem``, and the
+# relative imports inside ``__init__.py`` then die with "attempted relative
+# import with no known parent package" before a single test runs.  Every name
+# that resolution can yield is registered as an empty module carrying the root's
+# real ``__path__``, so the import is a no-op either way.
+def _root_stub(dotted: str) -> types.ModuleType:
+    stub = types.ModuleType(dotted)
+    stub.__path__ = [str(ROOT)]  # type: ignore[attr-defined]
+    stub.__package__ = dotted
+    stub.__file__ = str(ROOT / "__init__.py")
+    sys.modules[dotted] = stub
+    return stub
+
+
+_root_stub(ROOT.name)
+if not ROOT.name.isidentifier():
+    # What pytest's fallback resolves to: the path stem of the root __init__.py.
+    _root_stub("__init__")
+
+
+# --- event-loop construction vs. pytest-socket's guard -----------------------
+# pytest-homeassistant-custom-component's autouse fixtures
+# (``enable_event_loop_debug``, ``verify_cleanup``) depend on pytest-asyncio's
+# ``event_loop`` fixture, while its ``pytest_runtest_setup`` calls
+# ``pytest_socket.disable_socket(allow_unix_socket=True)`` -- which replaces
+# ``socket.socket`` with a guard that raises ``SocketBlockedError``.
+#
+# On Windows every event loop policy builds its self-pipe through
+# ``socket.socketpair()``, and ``socket.py``'s ``_fallback_socketpair`` creates
+# the pair via the module-level ``socket.socket`` name.  The ban therefore
+# blocks *event loop construction* rather than test network access, and every
+# test errors during fixture setup.  ``allow_unix_socket=True`` cannot help:
+# Windows has no ``AF_UNIX``, so ``pytest_socket._is_unix_socket`` is always
+# False.  (CPython exposes no ``_socket.socketpair`` on Windows, so the fallback
+# is the only path.)
+#
+# Re-expose the real constructor for this one stdlib-internal call site.  The
+# guard stays in force everywhere else -- a test calling ``socket.socket()``
+# still raises and ``socket.socket.connect`` is still host-restricted -- so no
+# test gains network access it did not have.
+_true_socket = socket.socket
+_true_socketpair = socket.socketpair
+
+
+def _socketpair_bypassing_the_guard(*args, **kwargs):
+    """``socket.socketpair()``, with pytest-socket's ``socket.socket`` lifted."""
+    guard = socket.socket
+    try:
+        socket.socket = _true_socket
+        return _true_socketpair(*args, **kwargs)
+    finally:
+        socket.socket = guard
+
+
+if sys.platform == "win32":
+    socket.socketpair = _socketpair_bypassing_the_guard
 
 
 @pytest.fixture(scope="session")
