@@ -261,12 +261,14 @@ class LumentreeHttpApiClient:
         series = cls._slot_readings(metric)
         if series:
             series_kwh5 = cls._series_5min_kwh(series)
-            result.update({
-                "pv_series_5min_w": cls._values(series),
-                "pv_series_5min_kwh": cls._values(series_kwh5),
-                "pv_series_hour_kwh": cls._series_hour_kwh(series_kwh5),
-                "pv_sum_kwh": cls._sum(cls._values(series_kwh5)),
-            })
+            result.update(
+                {
+                    "pv_series_5min_w": cls._values(series),
+                    "pv_series_5min_kwh": cls._values(series_kwh5),
+                    "pv_series_hour_kwh": cls._series_hour_kwh(series_kwh5),
+                    "pv_sum_kwh": cls._sum(cls._values(series_kwh5)),
+                }
+            )
         return result
 
     @classmethod
@@ -275,11 +277,13 @@ class LumentreeHttpApiClient:
         series = cls._slot_readings(metric)
         if series:
             g5 = cls._series_5min_kwh(series)
-            result.update({
-                "grid_series_5min_w": cls._values(series),
-                "grid_series_5min_kwh": cls._values(g5),
-                "grid_series_hour_kwh": cls._series_hour_kwh(g5),
-            })
+            result.update(
+                {
+                    "grid_series_5min_w": cls._values(series),
+                    "grid_series_5min_kwh": cls._values(g5),
+                    "grid_series_hour_kwh": cls._series_hour_kwh(g5),
+                }
+            )
         return result
 
     @classmethod
@@ -306,18 +310,22 @@ class LumentreeHttpApiClient:
 
         if load_series:
             l5 = cls._series_5min_kwh(load_series)
-            result.update({
-                "load_series_5min_w": cls._values(load_series),
-                "load_series_5min_kwh": cls._values(l5),
-                "load_series_hour_kwh": cls._series_hour_kwh(l5),
-            })
+            result.update(
+                {
+                    "load_series_5min_w": cls._values(load_series),
+                    "load_series_5min_kwh": cls._values(l5),
+                    "load_series_hour_kwh": cls._series_hour_kwh(l5),
+                }
+            )
         if essential_series:
             e5 = cls._series_5min_kwh(essential_series)
-            result.update({
-                "essential_series_5min_w": cls._values(essential_series),
-                "essential_series_5min_kwh": cls._values(e5),
-                "essential_series_hour_kwh": cls._series_hour_kwh(e5),
-            })
+            result.update(
+                {
+                    "essential_series_5min_w": cls._values(essential_series),
+                    "essential_series_5min_kwh": cls._values(e5),
+                    "essential_series_hour_kwh": cls._series_hour_kwh(e5),
+                }
+            )
 
         if load_series and essential_series:
             # Slots, not array positions: a short series contributes nothing to
@@ -326,11 +334,13 @@ class LumentreeHttpApiClient:
             total_load = cls._slot_sum(load_series, essential_series)
             total_load_kwh5 = cls._series_5min_kwh(total_load)
 
-            result.update({
-                "total_load_series_5min_w": cls._values(total_load),
-                "total_load_series_5min_kwh": cls._values(total_load_kwh5),
-                "total_load_series_hour_kwh": cls._series_hour_kwh(total_load_kwh5),
-            })
+            result.update(
+                {
+                    "total_load_series_5min_w": cls._values(total_load),
+                    "total_load_series_5min_kwh": cls._values(total_load_kwh5),
+                    "total_load_series_hour_kwh": cls._series_hour_kwh(total_load_kwh5),
+                }
+            )
 
             if "total_load_today" not in result:
                 result["total_load_today"] = cls._sum(cls._values(total_load_kwh5))
@@ -367,17 +377,17 @@ class LumentreeHttpApiClient:
         # battery data at all" are different answers, and only the second one
         # is allowed to publish no series.
         factor = (5.0 / 60.0) / 1000.0
-        charge_kwh5 = [
-            (slot, value * factor if value > 0 else 0.0) for slot, value in series_slots
-        ]
+        charge_kwh5 = [(slot, value * factor if value > 0 else 0.0) for slot, value in series_slots]
         discharge_kwh5 = [
             (slot, abs(value) * factor if value < 0 else 0.0) for slot, value in series_slots
         ]
-        result.update({
-            "battery_series_5min_w": cls._values(series_slots),
-            "battery_charge_series_hour_kwh": cls._series_hour_kwh(charge_kwh5),
-            "battery_discharge_series_hour_kwh": cls._series_hour_kwh(discharge_kwh5),
-        })
+        result.update(
+            {
+                "battery_series_5min_w": cls._values(series_slots),
+                "battery_charge_series_hour_kwh": cls._series_hour_kwh(charge_kwh5),
+                "battery_discharge_series_hour_kwh": cls._series_hour_kwh(discharge_kwh5),
+            }
+        )
         return result
 
     def set_token(self, token: str | None) -> None:
@@ -778,7 +788,8 @@ class LumentreeHttpApiClient:
             _LOGGER.info(
                 "Combined day endpoint returned no data for %s @ %s; "
                 "falling back to the three per-metric endpoints",
-                device_identifier, query_date,
+                device_identifier,
+                query_date,
             )
 
         base_params = {"deviceId": device_identifier, "queryDate": query_date}
@@ -793,7 +804,6 @@ class LumentreeHttpApiClient:
 
         # Merge results
         return self._merge_stats_results(results)
-
 
     async def get_year_data(self, device_identifier: str, year: int) -> dict[str, Any]:
         """Get yearly statistics data (12 months aggregated).
@@ -913,7 +923,9 @@ class LumentreeHttpApiClient:
             PV data dictionary
         """
         try:
-            resp = await self._request("GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True)
+            resp = await self._request(
+                "GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True
+            )
             return self._build_pv_result((resp.get("data") or {}).get("pv"))
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed PV stats ({type(exc).__name__}): {exc}")
@@ -932,7 +944,9 @@ class LumentreeHttpApiClient:
             Battery data dictionary
         """
         try:
-            resp = await self._request("GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True)
+            resp = await self._request(
+                "GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True
+            )
             data = resp.get("data") or {}
             bats_data = data.get("bats", [])
 
@@ -947,9 +961,7 @@ class LumentreeHttpApiClient:
             # This endpoint's series is signed with positive meaning DISCHARGE
             # (which contradicts the old API_PROTOCOL.md; the device is the
             # authority). Negate so the shared builder sees positive = charge.
-            series_slots = [
-                (slot, -value) for slot, value in self._slot_readings(data)
-            ]
+            series_slots = [(slot, -value) for slot, value in self._slot_readings(data)]
             return self._build_battery_result(series_slots, charge_today, discharge_today)
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed battery stats ({type(exc).__name__}): {exc}")
@@ -968,7 +980,9 @@ class LumentreeHttpApiClient:
             Grid and load data dictionary
         """
         try:
-            resp = await self._request("GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True)
+            resp = await self._request(
+                "GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True
+            )
             data = resp.get("data") or {}
             result = self._build_grid_result(data.get("grid"))
             result.update(self._build_load_result(data.get("homeload"), data.get("essentialLoad")))
@@ -1131,7 +1145,6 @@ class LumentreeHttpApiClient:
         except Exception:
             _LOGGER.exception("Unexpected all-day stats error")
             return {}
-
 
     def _merge_stats_results(self, results: Iterable[Any]) -> dict[str, Any]:
         """Merge results from concurrent API calls.

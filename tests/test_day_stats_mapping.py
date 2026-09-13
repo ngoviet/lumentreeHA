@@ -65,9 +65,10 @@ ALL_DAY_NO_DISCHARGE = {
 
 class TestMetricHelpers:
     def test_total_is_converted_from_tenths_of_a_kwh(self, lumentree_api_client) -> None:
-        assert lumentree_api_client.LumentreeHttpApiClient._metric_total_kwh(
-            {"tableValue": 170}
-        ) == 17.0
+        assert (
+            lumentree_api_client.LumentreeHttpApiClient._metric_total_kwh({"tableValue": 170})
+            == 17.0
+        )
 
     @pytest.mark.parametrize("value", [None, "not-a-number", {}])
     def test_unusable_totals_come_back_as_none(self, lumentree_api_client, value) -> None:
@@ -79,9 +80,10 @@ class TestMetricHelpers:
         if value == {}:
             assert lumentree_api_client.LumentreeHttpApiClient._metric_total_kwh(value) is None
         else:
-            assert lumentree_api_client.LumentreeHttpApiClient._metric_total_kwh(
-                {"tableValue": value}
-            ) is None
+            assert (
+                lumentree_api_client.LumentreeHttpApiClient._metric_total_kwh({"tableValue": value})
+                is None
+            )
 
     def test_missing_metric_yields_no_series(self, lumentree_api_client) -> None:
         assert lumentree_api_client.LumentreeHttpApiClient._slot_readings(None) == []
@@ -101,12 +103,13 @@ class TestMetricHelpers:
         )
         assert frame == [(0, 100.0), (2, 300.0)]
 
-    def test_a_series_with_no_readable_entry_frames_as_empty(
-        self, lumentree_api_client
-    ) -> None:
-        assert lumentree_api_client.LumentreeHttpApiClient._slot_readings(
-            {"tableValueInfo": [None, "x", {}]}
-        ) == []
+    def test_a_series_with_no_readable_entry_frames_as_empty(self, lumentree_api_client) -> None:
+        assert (
+            lumentree_api_client.LumentreeHttpApiClient._slot_readings(
+                {"tableValueInfo": [None, "x", {}]}
+            )
+            == []
+        )
 
 
 class TestBatterySignConvention:
@@ -141,11 +144,11 @@ class TestBatterySignConvention:
         assert charge_5min[0] > 0
         assert discharge_5min[0] > 0
         # No step adds to both totals: the magnitudes are the two inputs, not doubled.
-        assert charge_5min[0] + discharge_5min[0] == pytest.approx(
-            (100 + 100) * (5 / 60) / 1000
-        )
+        assert charge_5min[0] + discharge_5min[0] == pytest.approx((100 + 100) * (5 / 60) / 1000)
 
-    def test_hourly_rollup_may_contain_both_charge_and_discharge(self, lumentree_api_client) -> None:
+    def test_hourly_rollup_may_contain_both_charge_and_discharge(
+        self, lumentree_api_client
+    ) -> None:
         """A single hour can legitimately show both, and the totalling must not hide it.
 
         12 five-minute steps fold into one hour. A battery that charges for part
@@ -158,9 +161,7 @@ class TestBatterySignConvention:
         assert built["battery_charge_series_hour_kwh"][0] > 0
         assert built["battery_discharge_series_hour_kwh"][0] > 0
 
-    def test_an_unreported_slot_keeps_its_position(
-        self, lumentree_api_client
-    ) -> None:
+    def test_an_unreported_slot_keeps_its_position(self, lumentree_api_client) -> None:
         """A slot nobody reported holds its place instead of collapsing.
 
         The consumers derive the clock time from the array index
@@ -176,9 +177,7 @@ class TestBatterySignConvention:
             [(0, 500.0), (2, -300.0)], None, None
         )
         assert built["battery_series_5min_w"] == [500.0, 0.0, -300.0]
-        assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(
-            300 * (5 / 60) / 1000
-        )
+        assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * (5 / 60) / 1000)
 
     def test_a_frame_with_no_reading_at_all_yields_no_series(self, lumentree_api_client) -> None:
         """An empty frame must not publish an empty series."""
@@ -227,9 +226,7 @@ class TestAllDayDataMapping:
         merged = self._merged(lumentree_api_client, ALL_DAY_NO_DISCHARGE)
         assert merged["battery_series_5min_w"] == [0.0, 0.0, 0.0, 0.0]
 
-    def test_the_hour_fold_keeps_each_sample_in_its_own_hour(
-        self, lumentree_api_client
-    ) -> None:
+    def test_the_hour_fold_keeps_each_sample_in_its_own_hour(self, lumentree_api_client) -> None:
         """The battery reproduction: a hole must not pull later readings back.
 
         `bat` reports a 500 W charge at slot 12 -- the first step of hour 1 --
@@ -238,9 +235,12 @@ class TestAllDayDataMapping:
         shortened the list.  The hour comes from the slot, so it lands in hour
         1 where it was actually reported.
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [0, None] + [0.0] * 10 + [500.0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [0, None] + [0.0] * 10 + [500.0]},
+            },
+        )
         rollup = merged["battery_charge_series_hour_kwh"]
         assert rollup[0] == 0.0
         assert rollup[1] == pytest.approx(500 * (5 / 60) / 1000)
@@ -250,23 +250,22 @@ class TestAllDayDataMapping:
         assert series[12] == 500.0
         assert len(series) == 13
 
-    def test_the_pv_hour_fold_keeps_each_sample_in_its_own_hour(
-        self, lumentree_api_client
-    ) -> None:
+    def test_the_pv_hour_fold_keeps_each_sample_in_its_own_hour(self, lumentree_api_client) -> None:
         """The same reproduction on the PV metric, which has no battery path.
 
         PV goes straight from the payload to the fold, so if only the battery
         builder were slot-aware this is the one that would still be wrong.
         """
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 60, "tableValueInfo": [0, None] + [0.0] * 10 + [500.0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 60, "tableValueInfo": [0, None] + [0.0] * 10 + [500.0]},
+            },
+        )
         assert merged["pv_series_hour_kwh"][0] == 0.0
         assert merged["pv_series_hour_kwh"][1] == pytest.approx(500 * (5 / 60) / 1000)
 
-    def test_a_hole_free_series_folds_exactly_as_before(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_hole_free_series_folds_exactly_as_before(self, lumentree_api_client) -> None:
         """Ordinary payloads must be untouched by the slot-aware fold.
 
         Every slot reported means slot == index for every sample, so the
@@ -281,7 +280,6 @@ class TestAllDayDataMapping:
         assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * step)
         assert merged["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * step)
 
-
     def test_a_charge_only_day_publishes_a_full_discharge_rollup(
         self, lumentree_api_client
     ) -> None:
@@ -291,15 +289,16 @@ class TestAllDayDataMapping:
         charge steps and `batF` is absent.  Both chart attributes have to carry
         24 entries, or the discharge chart renders blank instead of flat.
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [0.0, 0.0, 300.0, 0.0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [0.0, 0.0, 300.0, 0.0]},
+            },
+        )
         discharge = merged["battery_discharge_series_hour_kwh"]
         assert len(discharge) == 24
         assert sum(discharge) == 0.0
-        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(
-            300 * (5 / 60) / 1000
-        )
+        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(300 * (5 / 60) / 1000)
 
     def test_a_discharge_only_day_publishes_a_full_charge_rollup(
         self, lumentree_api_client
@@ -316,9 +315,7 @@ class TestAllDayDataMapping:
         charge = built["battery_charge_series_hour_kwh"]
         assert len(charge) == 24
         assert sum(charge) == 0.0
-        assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(
-            300 * (5 / 60) / 1000
-        )
+        assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * (5 / 60) / 1000)
 
     def test_a_frame_with_no_battery_at_all_still_publishes_no_rollup(
         self, lumentree_api_client
@@ -328,9 +325,12 @@ class TestAllDayDataMapping:
         "This side was idle" and "there was no battery data" are different
         answers, and only the first one gets a zero-filled series.
         """
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
+            },
+        )
         assert "battery_charge_series_hour_kwh" not in merged
         assert "battery_discharge_series_hour_kwh" not in merged
 
@@ -352,19 +352,25 @@ class TestAllDayDataMapping:
         gives [100, -50, 300, 0]: the hole is the only thing dropped, and the
         reported 0 at slot 3 is a reading, so it stays.
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [100, None, 300, 0]},
-            "batF": {"tableValue": 12, "tableValueInfo": [0, 50, 0, 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [100, None, 300, 0]},
+                "batF": {"tableValue": 12, "tableValueInfo": [0, 50, 0, 0]},
+            },
+        )
         assert merged["battery_series_5min_w"] == [100.0, -50.0, 300.0, 0.0]
 
     def test_a_hole_in_the_discharge_series_keeps_the_charge_series_aligned(
         self, lumentree_api_client
     ) -> None:
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [100, 300, 0, 200]},
-            "batF": {"tableValue": 12, "tableValueInfo": [0, None, 50, 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [100, 300, 0, 200]},
+                "batF": {"tableValue": 12, "tableValueInfo": [0, None, 50, 0]},
+            },
+        )
         assert merged["battery_series_5min_w"] == [100.0, 300.0, -50.0, 200.0]
 
     def test_a_short_series_publishes_only_the_slots_it_reported(
@@ -376,15 +382,16 @@ class TestAllDayDataMapping:
         battery that went quiet at slot 2 does not draw a flat line at 0 W
         across the remainder of the chart.
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [100, 300]},
-            "batF": {"tableValue": 12, "tableValueInfo": [0, 50, None, None]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [100, 300]},
+                "batF": {"tableValue": 12, "tableValueInfo": [0, 50, None, None]},
+            },
+        )
         assert merged["battery_series_5min_w"] == [100.0, 250.0]
 
-    def test_a_discharge_only_payload_reports_zero_charge(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_discharge_only_payload_reports_zero_charge(self, lumentree_api_client) -> None:
         """A day that only discharged reports no charge -- 0.0, not unknown.
 
         This is the correct answer for those inputs: nothing charged, so the
@@ -392,9 +399,12 @@ class TestAllDayDataMapping:
         the substituted zero is a deliberate trade, so a future change that
         makes it an omission or a None has to be a conscious one.
         """
-        merged = self._merged(lumentree_api_client, {
-            "batF": {"tableValue": 12, "tableValueInfo": [0, 300, 0, 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "batF": {"tableValue": 12, "tableValueInfo": [0, 300, 0, 0]},
+            },
+        )
         assert merged["charge_today"] == 0.0
         assert merged["discharge_today"] == 1.2
 
@@ -406,26 +416,23 @@ class TestAllDayDataMapping:
         assert discharge[0] == pytest.approx(300 * (5 / 60) / 1000)
         assert sum(discharge[1:]) == 0.0
 
-    def test_a_charge_only_payload_reports_zero_discharge(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_charge_only_payload_reports_zero_discharge(self, lumentree_api_client) -> None:
         """The mirror of the previous case, and it must answer the same way."""
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [500, 0, 0, 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [500, 0, 0, 0]},
+            },
+        )
         assert merged["charge_today"] == 3.0
         assert merged["discharge_today"] == 0.0
 
         discharge = merged["battery_discharge_series_hour_kwh"]
         assert len(discharge) == 24
         assert sum(discharge) == 0.0
-        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(
-            500 * (5 / 60) / 1000
-        )
+        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * (5 / 60) / 1000)
 
-    def test_both_sides_present_are_unioned_within_the_payload(
-        self, lumentree_api_client
-    ) -> None:
+    def test_both_sides_present_are_unioned_within_the_payload(self, lumentree_api_client) -> None:
         """One payload carrying both sides keeps both, at their own slots.
 
         This is what bounds the cross-poll caveat: the union happens inside a
@@ -433,10 +440,13 @@ class TestAllDayDataMapping:
         full.  It is not a claim about a payload that drops a side it had
         previously reported.
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [500, 0, 0, 0]},
-            "batF": {"tableValue": 12, "tableValueInfo": [0, 300, 0, 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [500, 0, 0, 0]},
+                "batF": {"tableValue": 12, "tableValueInfo": [0, 300, 0, 0]},
+            },
+        )
         assert merged["battery_series_5min_w"] == [500.0, -300.0, 0.0, 0.0]
         step = (5 / 60) / 1000
         assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * step)
@@ -451,9 +461,12 @@ class TestAllDayDataMapping:
         (``Math.floor(index / 12)``), so the full list is asserted rather than
         its length: the 360 W must read out at index 2, not index 1.
         """
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 6, "tableValueInfo": [120, "bad", 360]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 6, "tableValueInfo": [120, "bad", 360]},
+            },
+        )
         assert merged["pv_series_5min_w"] == [120.0, 0.0, 360.0]
 
     def test_a_hole_no_side_reported_is_published_at_its_own_index(
@@ -465,37 +478,45 @@ class TestAllDayDataMapping:
         it at all -- the case that collapses the list most easily.  The 200 W at
         slot 3 must stay at index 3.
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 30, "tableValueInfo": [500, 0, "x", 200]},
-            "batF": {"tableValue": 12, "tableValueInfo": [0, 0, "y", 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 30, "tableValueInfo": [500, 0, "x", 200]},
+                "batF": {"tableValue": 12, "tableValueInfo": [0, 0, "y", 0]},
+            },
+        )
         assert merged["battery_series_5min_w"] == [500.0, 0.0, 0.0, 200.0]
 
-    def test_filling_a_hole_does_not_change_the_sum(
-        self, lumentree_api_client
-    ) -> None:
+    def test_filling_a_hole_does_not_change_the_sum(self, lumentree_api_client) -> None:
         """The padding is 0.0, so every total derived from the list is unmoved.
 
         Asserted against the same payload without the hole, so this pins
         sum-neutrality rather than just a number.
         """
-        with_hole = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 6, "tableValueInfo": [120, "bad", 360]},
-        })
-        without_hole = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 6, "tableValueInfo": [120, 0, 360]},
-        })
+        with_hole = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 6, "tableValueInfo": [120, "bad", 360]},
+            },
+        )
+        without_hole = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 6, "tableValueInfo": [120, 0, 360]},
+            },
+        )
         assert with_hole["pv_sum_kwh"] == without_hole["pv_sum_kwh"]
         assert with_hole["pv_series_hour_kwh"] == without_hole["pv_series_hour_kwh"]
         assert with_hole["pv_today"] == without_hole["pv_today"]
 
-    def test_a_frame_with_no_reading_still_publishes_no_series(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_frame_with_no_reading_still_publishes_no_series(self, lumentree_api_client) -> None:
         """An empty frame has no span to fill, so it publishes nothing."""
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 6, "tableValueInfo": []},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 6, "tableValueInfo": []},
+            },
+        )
         assert "pv_series_5min_w" not in merged
         assert "pv_sum_kwh" not in merged
 
@@ -503,9 +524,12 @@ class TestAllDayDataMapping:
         self, lumentree_api_client
     ) -> None:
         """Neither metric present means no battery reading, not a battery at 0."""
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
+            },
+        )
         assert "battery_series_5min_w" not in merged
         assert "charge_today" not in merged
         assert "discharge_today" not in merged
@@ -518,10 +542,13 @@ class TestAllDayDataMapping:
         The captured device reports `bat` with a 288-point series and a total
         of 0, so presence alone cannot mean "there is a series to draw".
         """
-        merged = self._merged(lumentree_api_client, {
-            "bat": {"tableValue": 0, "tableValueInfo": [None, "x", None]},
-            "batF": {"tableValue": None, "tableValueInfo": []},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {"tableValue": 0, "tableValueInfo": [None, "x", None]},
+                "batF": {"tableValue": None, "tableValueInfo": []},
+            },
+        )
         assert "battery_series_5min_w" not in merged
         assert merged["charge_today"] == 0.0
         assert merged["discharge_today"] == 0.0
@@ -543,9 +570,7 @@ class TestAllDayDataMapping:
         """
         assert self._merged(lumentree_api_client, {"pv": None, "grid": "nonsense"}) == {}
 
-    def test_a_non_finite_total_is_treated_as_absent(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_non_finite_total_is_treated_as_absent(self, lumentree_api_client) -> None:
         """NaN and Infinity survive float(), so they need a finiteness guard.
 
         json.loads accepts the bare NaN/Infinity literals, so a malformed or
@@ -561,9 +586,12 @@ class TestAllDayDataMapping:
         assert total({"tableValue": float("-inf")}) is None
         assert total({"tableValue": "nan"}) is None
 
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": float("nan"), "tableValueInfo": []},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": float("nan"), "tableValueInfo": []},
+            },
+        )
         assert "pv_today" not in merged, f"a non-finite total was published: {merged}"
 
     def test_a_non_finite_total_does_not_defeat_the_emptiness_check(
@@ -576,15 +604,16 @@ class TestAllDayDataMapping:
         the second check (NaN compares False against the threshold), so a
         guarded payload has to come back empty rather than merely NaN-free.
         """
-        merged = self._merged(lumentree_api_client, {
-            "pv": {"tableValue": float("inf"), "tableValueInfo": []},
-            "grid": {"tableValue": float("-inf"), "tableValueInfo": []},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {"tableValue": float("inf"), "tableValueInfo": []},
+                "grid": {"tableValue": float("-inf"), "tableValueInfo": []},
+            },
+        )
         assert merged == {}, f"a non-finite payload was not treated as empty: {merged}"
 
-    def test_a_non_finite_series_sample_becomes_a_hole(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_non_finite_series_sample_becomes_a_hole(self, lumentree_api_client) -> None:
         """An unreadable sample is a hole, exactly like one that raises.
 
         The series is published as an attribute rather than through the cache,
@@ -593,12 +622,15 @@ class TestAllDayDataMapping:
         is published as 0.0 at its own index so the 300 W after it stays at
         index 2, which is the slot it was reported for.
         """
-        merged = self._merged(lumentree_api_client, {
-            "pv": {
-                "tableValue": 60,
-                "tableValueInfo": [0.0, float("nan"), 300.0] + [0.0] * 9,
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "pv": {
+                    "tableValue": 60,
+                    "tableValueInfo": [0.0, float("nan"), 300.0] + [0.0] * 9,
+                },
             },
-        })
+        )
         # The hole keeps its slot, so 300 W stays at slot 2 -- hour 0.
         assert merged["pv_series_5min_w"] == [0.0, 0.0, 300.0] + [0.0] * 9
         assert not any(math.isnan(v) for v in merged["pv_series_hour_kwh"])
@@ -609,12 +641,15 @@ class TestAllDayDataMapping:
         self, lumentree_api_client
     ) -> None:
         """The battery frame has its own coercion path through the merge."""
-        merged = self._merged(lumentree_api_client, {
-            "bat": {
-                "tableValue": 30,
-                "tableValueInfo": [0.0, float("inf"), 300.0] + [0.0] * 9,
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "bat": {
+                    "tableValue": 30,
+                    "tableValueInfo": [0.0, float("inf"), 300.0] + [0.0] * 9,
+                },
             },
-        })
+        )
         assert merged["battery_series_5min_w"] == [0.0, 0.0, 300.0] + [0.0] * 9
         assert not any(math.isnan(v) for v in merged["battery_charge_series_hour_kwh"])
 
@@ -628,15 +663,16 @@ class TestAllDayDataMapping:
         0.0 -- the same substituted zero the discharge direction replaces
         explicitly.  Both directions must agree in the dict they return.
         """
-        merged = self._merged(lumentree_api_client, {
-            "batF": {"tableValue": 12, "tableValueInfo": [0, 0, 300, 0]},
-        })
+        merged = self._merged(
+            lumentree_api_client,
+            {
+                "batF": {"tableValue": 12, "tableValueInfo": [0, 0, 300, 0]},
+            },
+        )
         assert merged["charge_today"] == 0.0
         assert merged["discharge_today"] == 1.2
 
-    def test_an_out_of_range_integer_is_dropped_not_raised(
-        self, lumentree_api_client
-    ) -> None:
+    def test_an_out_of_range_integer_is_dropped_not_raised(self, lumentree_api_client) -> None:
         """float() refuses an oversized integer, and the refusal must be caught.
 
         json.loads keeps an integer literal of any magnitude as a Python int,
@@ -664,9 +700,7 @@ class TestAllDayDataMapping:
         samples intact rather than raising.
         """
         parsed = json.loads(
-            '{"pv": {"tableValue": 60, "tableValueInfo": [120, 10000'
-            + "0" * 400
-            + ", 240]}}"
+            '{"pv": {"tableValue": 60, "tableValueInfo": [120, 10000' + "0" * 400 + ", 240]}}"
         )
         assert isinstance(parsed["pv"]["tableValueInfo"][1], int)
 
@@ -686,9 +720,7 @@ class TestLegacyBatteryPath:
     not have changed what this path publishes.
     """
 
-    def test_the_legacy_signed_series_is_negated_and_kept_whole(
-        self, lumentree_api_client
-    ) -> None:
+    def test_the_legacy_signed_series_is_negated_and_kept_whole(self, lumentree_api_client) -> None:
         """Positive on the wire means discharge; the sensor reads the opposite.
 
         The device is the authority here (docs/api/API_PROTOCOL.md), and the
@@ -730,13 +762,9 @@ class TestLegacyBatteryPath:
         assert result["battery_discharge_series_hour_kwh"][0] == pytest.approx(
             500 * (5 / 60) / 1000
         )
-        assert result["battery_charge_series_hour_kwh"][0] == pytest.approx(
-            200 * (5 / 60) / 1000
-        )
+        assert result["battery_charge_series_hour_kwh"][0] == pytest.approx(200 * (5 / 60) / 1000)
 
-    def test_a_non_finite_legacy_total_does_not_surface_nan(
-        self, lumentree_api_client
-    ) -> None:
+    def test_a_non_finite_legacy_total_does_not_surface_nan(self, lumentree_api_client) -> None:
         """The legacy totals need the same guard as the combined endpoint's.
 
         ``bats[0].tableValue`` is read straight off the wire by this path, and
@@ -760,9 +788,9 @@ class TestLegacyBatteryPath:
 
         assert result["charge_today"] is None
         assert result["discharge_today"] == 1.2
-        assert not any(
-            math.isnan(v) for v in result.values() if isinstance(v, float)
-        ), f"a non-finite legacy total reached the caller: {result}"
+        assert not any(math.isnan(v) for v in result.values() if isinstance(v, float)), (
+            f"a non-finite legacy total reached the caller: {result}"
+        )
 
 
 def _combined_payload() -> dict:

@@ -34,7 +34,7 @@ docs/
 
 ### API Documentation
 - **[API Protocol](api/API_PROTOCOL.md)**: Complete API reference including authentication, endpoints, and request/response formats
-- **[API Endpoints Discovered](api/API_ENDPOINTS_DISCOVERED.md)**: Endpoint survey, legacy-alias findings, and the corrections to API_PROTOCOL.md
+- **[API Endpoints Discovered](api/API_ENDPOINTS_DISCOVERED.md)**: Endpoint survey, legacy-status findings, and the corrections to API_PROTOCOL.md
 - **[Register Map](api/REGISTER_MAP.md)**: How each real-time Modbus register was recovered from the vendor app, with its scale and signedness
 - **[API Testing Guide](api/API_TEST_GUIDE.md)**: Step-by-step guide for testing API endpoints
 - **[Error Handling](api/ERROR_HANDLING.md)**: Error handling patterns and best practices

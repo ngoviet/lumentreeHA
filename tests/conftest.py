@@ -57,6 +57,7 @@ if sys.platform == "win32":
     if getattr(_policy, "_loop_factory", None) is not asyncio.SelectorEventLoop:
         _policy._loop_factory = asyncio.SelectorEventLoop  # type: ignore[attr-defined]
 
+
 # Home Assistant is an optional dependency of this suite.  The modules under
 # test (the MQTT payload parser and the cache store) are plain Python; only
 # their module-level imports need these names to exist.  The end-to-end test
