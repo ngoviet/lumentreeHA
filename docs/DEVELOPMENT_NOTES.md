@@ -199,6 +199,15 @@ The batF substitution and this one are the same class of decision — an absent
 metric becomes a durable zero — and `_merge_all_day_payload` records them
 together. Neither is fixed here; both are recorded.
 
+**The version number has exactly one home.** `diagnostics.py` restated it by
+hand, comment and all — `"version": "5.1.0",  # Keep in sync with manifest.json`
+— and by the 5.2.0 release it was two versions stale, so a diagnostics dump
+under-reported the running build. A comment cannot keep two copies of a value in
+sync. It now reads `manifest.json` at import (HA runs module import in an
+executor, so the file read stays off the event loop) and returns `"unknown"` if
+the read or the parse fails. If you need the version anywhere else, read the
+manifest — do not restate it.
+
 ## Git and history
 
 `main` on GitHub has been rewritten more than once during this project's
