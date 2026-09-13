@@ -1,8 +1,8 @@
 # Hướng dẫn Test 2 API mới trong Postman
 
 > **Cập nhật:** `getYearData`/`getMonthData` vẫn chạy nhưng **không còn là API "mới"** —
-> chúng cũng đã thành alias legacy giống 4 endpoint daily. Xem
-> [`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#12-bốn-endpoint-integration-đang-dùng-là-alias-legacy)
+> chúng đã thành endpoint legacy giống các endpoint daily mà integration đang dùng. Xem
+> [`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#12-getservertime-là-legacy-v2getalldaydata-không-phải-đường-đi-đúng)
 > trước khi dùng hướng dẫn này để mở rộng integration. Phần còn lại của tài liệu
 > vẫn đúng với tư cách là cách test thủ công 2 endpoint đó.
 

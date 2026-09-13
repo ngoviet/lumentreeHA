@@ -28,6 +28,11 @@ URL_GET_PV_DAY_DATA: Final = "/lesvr/getPVDayData"
 URL_GET_BAT_DAY_DATA: Final = "/lesvr/getBatDayData"
 URL_GET_YEAR_DATA: Final = "/lesvr/getYearData"
 URL_GET_MONTH_DATA: Final = "/lesvr/getMonthData"
+# Single-call replacement for the three per-metric day endpoints above.
+# Note the absence of a "v2/" prefix: the APK contains "lesvr/v2/getAllDayData"
+# because app 3.2.4 targets a different host (lesvrjm.suntcn.com), but against
+# lesvr.suntcn.com the v2 path returns 998 (does not exist) and this one works.
+URL_GET_ALL_DAY_DATA: Final = "/lesvr/getAllDayData"
 
 DEFAULT_HEADERS: Final = {
     "versionCode": "1.6.3",

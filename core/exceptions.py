@@ -8,9 +8,18 @@ class LumentreeException(Exception):
 
 
 class ApiException(LumentreeException):
-    """Exception for API-related errors."""
+    """Exception for API-related errors.
 
-    pass
+    ``code`` is the vendor's ``returnValue`` for errors raised from a response
+    that answered with one.  It is ``None`` for every other failure -- transport
+    errors, timeouts, unparsable bodies, and the auth path, which raises
+    :class:`AuthException` instead.  A caller that has to react to one specific
+    return value reads this rather than matching against the message text.
+    """
+
+    def __init__(self, message: str, code: int | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class AuthException(ApiException):
