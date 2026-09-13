@@ -14,6 +14,12 @@ if mapped wrong:
   battery as a charging one, with no error anywhere.
 * ``batF`` absence.  With no discharge, the combined endpoint omits ``batF``
   entirely rather than returning zeros.  Code that indexes it raises.
+* Slot identity.  A sample's position in ``tableValueInfo`` is the 5-minute
+  slot it was reported for, and both the charge/discharge split and the hourly
+  rollup have to key on that slot.  Dropping an unreadable entry and then
+  working positionally slides every later sample one slot earlier, which books
+  charge as discharge and files readings under the wrong hour.  This is the one
+  a hole-free fixture cannot catch, so the fixtures here include holes.
 
 The payload literals below are modelled on a capture from the real device
 rather than invented, so the builders are pinned to a real shape; they do not
@@ -75,7 +81,29 @@ class TestMetricHelpers:
             ) is None
 
     def test_missing_metric_yields_no_series(self, lumentree_api_client) -> None:
-        assert lumentree_api_client.LumentreeHttpApiClient._metric_series_w(None) == []
+        assert lumentree_api_client.LumentreeHttpApiClient._slot_readings(None) == []
+
+    def test_each_sample_is_keyed_by_the_slot_it_was_reported_for(
+        self, lumentree_api_client
+    ) -> None:
+        """A slot is the sample's position on the wire, holes included.
+
+        An entry that cannot be read is dropped, not shifted: the 300 at wire
+        index 2 stays at slot 2 rather than sliding to slot 1.  Every hour
+        fold downstream reads the slot, so this is the identity the whole
+        mapping rests on.
+        """
+        frame = lumentree_api_client.LumentreeHttpApiClient._slot_readings(
+            {"tableValueInfo": [100, "x", 300]}
+        )
+        assert frame == [(0, 100.0), (2, 300.0)]
+
+    def test_a_series_with_no_readable_entry_frames_as_empty(
+        self, lumentree_api_client
+    ) -> None:
+        assert lumentree_api_client.LumentreeHttpApiClient._slot_readings(
+            {"tableValueInfo": [None, "x", {}]}
+        ) == []
 
 
 class TestBatterySignConvention:
@@ -127,27 +155,29 @@ class TestBatterySignConvention:
         assert built["battery_charge_series_hour_kwh"][0] > 0
         assert built["battery_discharge_series_hour_kwh"][0] > 0
 
-    def test_unreported_slots_are_dropped_rather_than_written_as_zero(
+    def test_unreported_slots_are_not_published_as_readings(
         self, lumentree_api_client
     ) -> None:
         """A slot nobody reported is not a reading, and must not become a 0 W one.
 
         Downstream (entities/sensor.py) publishes this list and turns it into
         kWh, so a hole written as 0.0 W is a chart point that claims the
-        battery was idle at a moment the device said nothing about.
+        battery was idle at a moment the device said nothing about.  The frame
+        simply has no entry for slot 1, so the flat list is two long -- and
+        slot 2's -300 W still folds into hour 0, where it was reported.
         """
         built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
-            [(0, 500.0), (1, None), (2, -300.0)], None, None
+            [(0, 500.0), (2, -300.0)], None, None
         )
         assert built["battery_series_5min_w"] == [500.0, -300.0]
+        assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(
+            300 * (5 / 60) / 1000
+        )
 
     def test_a_frame_with_no_reading_at_all_yields_no_series(self, lumentree_api_client) -> None:
-        """An empty or all-unreported frame must not publish an empty series."""
+        """An empty frame must not publish an empty series."""
         client = lumentree_api_client.LumentreeHttpApiClient
         assert "battery_series_5min_w" not in client._build_battery_result([], None, None)
-        assert "battery_series_5min_w" not in client._build_battery_result(
-            [(0, None), (1, None)], None, None
-        )
 
 
 class TestAllDayDataMapping:
@@ -189,7 +219,58 @@ class TestAllDayDataMapping:
     def test_absent_batf_does_not_truncate_the_charge_series(self, lumentree_api_client) -> None:
         """The charge series keeps its full length when discharge is absent."""
         merged = self._merged(lumentree_api_client, ALL_DAY_NO_DISCHARGE)
-        assert len(merged["battery_series_5min_w"]) == 4
+        assert merged["battery_series_5min_w"] == [0.0, 0.0, 0.0, 0.0]
+
+    def test_the_hour_fold_keeps_each_sample_in_its_own_hour(
+        self, lumentree_api_client
+    ) -> None:
+        """The battery reproduction: a hole must not pull later readings back.
+
+        `bat` reports a 500 W charge at slot 12 -- the first step of hour 1 --
+        and cannot be read at slot 1.  Folding the flat list by array index put
+        that charge in hour 0 and left hour 1 empty, because dropping the hole
+        shortened the list.  The hour comes from the slot, so it lands in hour
+        1 where it was actually reported.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [0, None] + [0.0] * 10 + [500.0]},
+        })
+        rollup = merged["battery_charge_series_hour_kwh"]
+        assert rollup[0] == 0.0
+        assert rollup[1] == pytest.approx(500 * (5 / 60) / 1000)
+        # The flat list keeps only the readings that were sent.
+        assert len(merged["battery_series_5min_w"]) == 12
+
+    def test_the_pv_hour_fold_keeps_each_sample_in_its_own_hour(
+        self, lumentree_api_client
+    ) -> None:
+        """The same reproduction on the PV metric, which has no battery path.
+
+        PV goes straight from the payload to the fold, so if only the battery
+        builder were slot-aware this is the one that would still be wrong.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 60, "tableValueInfo": [0, None] + [0.0] * 10 + [500.0]},
+        })
+        assert merged["pv_series_hour_kwh"][0] == 0.0
+        assert merged["pv_series_hour_kwh"][1] == pytest.approx(500 * (5 / 60) / 1000)
+
+    def test_a_hole_free_series_folds_exactly_as_before(
+        self, lumentree_api_client
+    ) -> None:
+        """Ordinary payloads must be untouched by the slot-aware fold.
+
+        Every slot reported means slot == index for every sample, so the
+        rollup has to equal the plain index-based arithmetic it replaced.
+        """
+        merged = self._merged(lumentree_api_client, ALL_DAY_WITH_DISCHARGE)
+        step = (5 / 60) / 1000
+        # pv [0, 0, 120, 240] all inside hour 0
+        assert merged["pv_series_hour_kwh"][0] == pytest.approx(360 * step)
+        assert merged["pv_sum_kwh"] == pytest.approx(360 * step)
+        # bat [0, 500, 0, 0] / batF [0, 0, 300, 0]
+        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * step)
+        assert merged["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * step)
 
 
     def test_battery_series_is_signed_charge_minus_discharge(self, lumentree_api_client) -> None:
@@ -207,7 +288,8 @@ class TestAllDayDataMapping:
         every later charge sample slid one slot against `batF`.  The reported
         result was [100, 250, 0, 0]: the 300 W charge step was booked as
         discharge and the real 50 W discharge step disappeared.  Slot-signing
-        gives [100, -50, 300]: the hole is the only thing dropped.
+        gives [100, -50, 300, 0]: the hole is the only thing dropped, and the
+        reported 0 at slot 3 is a reading, so it stays.
         """
         merged = self._merged(lumentree_api_client, {
             "bat": {"tableValue": 30, "tableValueInfo": [100, None, 300, 0]},
