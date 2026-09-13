@@ -29,6 +29,7 @@ track the live server, and a shape change there will not fail these tests.
 from __future__ import annotations
 
 import asyncio
+import math
 
 import pytest
 from aiohttp import ServerConnectionError
@@ -418,6 +419,95 @@ class TestAllDayDataMapping:
         """
         assert self._merged(lumentree_api_client, {"pv": None, "grid": "nonsense"}) == {}
 
+    def test_a_non_finite_total_is_treated_as_absent(
+        self, lumentree_api_client
+    ) -> None:
+        """NaN and Infinity survive float(), so they need a finiteness guard.
+
+        json.loads accepts the bare NaN/Infinity literals, so a malformed or
+        truncated vendor body reaches the helpers without raising.  None is
+        what this code already means by "no usable reading"; NaN is not,
+        because it survives every downstream guard -- `or 0.0`, an all-zero
+        emptiness check -- and would be written into the year cache and summed
+        into every aggregate derived from that year.
+        """
+        total = lumentree_api_client.LumentreeHttpApiClient._metric_total_kwh
+        assert total({"tableValue": float("nan")}) is None
+        assert total({"tableValue": float("inf")}) is None
+        assert total({"tableValue": float("-inf")}) is None
+        assert total({"tableValue": "nan"}) is None
+
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": float("nan"), "tableValueInfo": []},
+        })
+        assert "pv_today" not in merged, f"a non-finite total was published: {merged}"
+
+    def test_a_non_finite_total_does_not_defeat_the_emptiness_check(
+        self, lumentree_api_client
+    ) -> None:
+        """The merged dict must still read as "no data" once it is guarded.
+
+        ``get_daily_stats`` treats an empty dict as "the endpoint had nothing",
+        and the coordinator treats an all-zero day as empty too.  A NaN defeats
+        the second check (NaN compares False against the threshold), so a
+        guarded payload has to come back empty rather than merely NaN-free.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": float("inf"), "tableValueInfo": []},
+            "grid": {"tableValue": float("-inf"), "tableValueInfo": []},
+        })
+        assert merged == {}, f"a non-finite payload was not treated as empty: {merged}"
+
+    def test_a_non_finite_series_sample_becomes_a_hole(
+        self, lumentree_api_client
+    ) -> None:
+        """An unreadable sample is a hole, exactly like one that raises.
+
+        The series is published as an attribute rather than through the cache,
+        but the same vendor body feeds it, and a single NaN would otherwise
+        propagate through the sum and every hour bucket it lands in.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "pv": {
+                "tableValue": 60,
+                "tableValueInfo": [0.0, float("nan"), 300.0] + [0.0] * 9,
+            },
+        })
+        # The hole keeps its slot, so 300 W stays at slot 2 -- hour 0.
+        assert merged["pv_series_5min_w"] == [0.0, 300.0] + [0.0] * 9
+        assert not any(math.isnan(v) for v in merged["pv_series_hour_kwh"])
+        assert math.isfinite(merged["pv_sum_kwh"])
+        assert merged["pv_series_hour_kwh"][0] == pytest.approx(300 * (5 / 60) / 1000)
+
+    def test_a_non_finite_sample_in_the_battery_series_becomes_a_hole(
+        self, lumentree_api_client
+    ) -> None:
+        """The battery frame has its own coercion path through the merge."""
+        merged = self._merged(lumentree_api_client, {
+            "bat": {
+                "tableValue": 30,
+                "tableValueInfo": [0.0, float("inf"), 300.0] + [0.0] * 9,
+            },
+        })
+        assert merged["battery_series_5min_w"] == [0.0, 300.0] + [0.0] * 9
+        assert not any(math.isnan(v) for v in merged["battery_charge_series_hour_kwh"])
+
+    def test_an_absent_charge_side_is_normalised_like_an_absent_discharge_side(
+        self, lumentree_api_client
+    ) -> None:
+        """The gate has to be symmetric, or the mirror case takes the other road.
+
+        With batF present and bat absent, charge_today would stay None, the key
+        would be dropped, and the coordinator's `or 0.0` would read it back as
+        0.0 -- the same substituted zero the discharge direction replaces
+        explicitly.  Both directions must agree in the dict they return.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "batF": {"tableValue": 12, "tableValueInfo": [0, 0, 300, 0]},
+        })
+        assert merged["charge_today"] == 0.0
+        assert merged["discharge_today"] == 1.2
+
 
 class TestLegacyBatteryPath:
     """The legacy signed series must keep behaving exactly as it did.
@@ -474,6 +564,36 @@ class TestLegacyBatteryPath:
         assert result["battery_charge_series_hour_kwh"][0] == pytest.approx(
             200 * (5 / 60) / 1000
         )
+
+    def test_a_non_finite_legacy_total_does_not_surface_nan(
+        self, lumentree_api_client
+    ) -> None:
+        """The legacy totals need the same guard as the combined endpoint's.
+
+        ``bats[0].tableValue`` is read straight off the wire by this path, and
+        a non-finite value there would reach the coordinator exactly as a
+        combined-endpoint one would -- through `or 0.0`, which NaN survives.
+        """
+        legacy = {
+            "/lesvr/getBatDayData": {
+                "returnValue": 1,
+                "data": {
+                    "bats": [{"tableValue": float("nan")}, {"tableValue": 12}],
+                    "tableValueInfo": [],
+                },
+            },
+        }
+        session = _make_stub_session(legacy)
+        client = lumentree_api_client.LumentreeHttpApiClient(session=session)
+        client.set_token("stub-token")
+
+        result = asyncio.run(client._fetch_battery_data({"deviceId": "H240909079"}))
+
+        assert result["charge_today"] is None
+        assert result["discharge_today"] == 1.2
+        assert not any(
+            math.isnan(v) for v in result.values() if isinstance(v, float)
+        ), f"a non-finite legacy total reached the caller: {result}"
 
 
 def _combined_payload() -> dict:

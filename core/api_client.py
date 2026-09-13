@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -44,6 +45,26 @@ API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 RETURN_VALUE_ENDPOINT_MISSING = 998
 
 
+def _finite_or_none(value: Any) -> float | None:
+    """Coerce a vendor number, treating an unusable one as absent.
+
+    ``float()`` succeeds on the bare ``NaN``/``Infinity`` literals that
+    ``json.loads`` accepts, so a malformed or truncated vendor body produces a
+    non-finite number without raising.  A non-finite reading is no more usable
+    than an unparsable one, and letting it through is worse: it survives
+    ``_drop_none_scalars`` (NaN is not None), survives the coordinator's
+    ``or 0.0`` (NaN is truthy) and survives an all-zero emptiness check (NaN
+    compares False), so it reaches the year cache and is summed into every
+    aggregate derived from that year.  Absent is the only answer downstream
+    already knows how to handle.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 class LumentreeHttpApiClient:
     """HTTP API client for Lumentree cloud services."""
 
@@ -74,11 +95,9 @@ class LumentreeHttpApiClient:
         if isinstance(vals, list):
             out: list[float] = []
             for v in vals:
-                try:
-                    out.append(float(v))
-                except Exception:
-                    # Skip invalid entries
-                    continue
+                number = _finite_or_none(v)
+                if number is not None:
+                    out.append(number)
             return out
         return []
 
@@ -139,10 +158,8 @@ class LumentreeHttpApiClient:
         val = metric.get("tableValue")
         if val is None:
             return None
-        try:
-            return float(val) / 10.0
-        except (TypeError, ValueError):
-            return None
+        number = _finite_or_none(val)
+        return None if number is None else number / 10.0
 
     @staticmethod
     def _slot_readings(metric: Any) -> list[tuple[int, float]]:
@@ -160,10 +177,9 @@ class LumentreeHttpApiClient:
             return []
         frame: list[tuple[int, float]] = []
         for slot, value in enumerate(vals):
-            try:
-                frame.append((slot, float(value)))
-            except (TypeError, ValueError):
-                continue
+            number = _finite_or_none(value)
+            if number is not None:
+                frame.append((slot, number))
         return frame
 
     @staticmethod
@@ -886,10 +902,10 @@ class LumentreeHttpApiClient:
             charge_today: float | None = None
             discharge_today: float | None = None
             if isinstance(bats_data, list):
-                if len(bats_data) > 0 and isinstance(bats_data[0], dict) and "tableValue" in bats_data[0]:
-                    charge_today = float(bats_data[0]["tableValue"]) / 10.0
-                if len(bats_data) > 1 and isinstance(bats_data[1], dict) and "tableValue" in bats_data[1]:
-                    discharge_today = float(bats_data[1]["tableValue"]) / 10.0
+                if len(bats_data) > 0 and isinstance(bats_data[0], dict):
+                    charge_today = self._metric_total_kwh(bats_data[0])
+                if len(bats_data) > 1 and isinstance(bats_data[1], dict):
+                    discharge_today = self._metric_total_kwh(bats_data[1])
 
             # This endpoint's series is signed with positive meaning DISCHARGE
             # (which contradicts the old API_PROTOCOL.md; the device is the
@@ -971,22 +987,39 @@ class LumentreeHttpApiClient:
 
         charge_today = cls._metric_total_kwh(data.get("bat"))
         discharge_today = cls._metric_total_kwh(data.get("batF"))
-        # An absent batF is normalised to 0.0 kWh whenever the charge metric
-        # for the same day is present.  The gate is charge presence because
-        # presence is the only proxy the payload offers for "this device has a
-        # battery and reported on this day": the slot-level `batF` omission is
-        # an output detail the legacy endpoint never shared.  This is a chosen
-        # trade, not a proven equivalence -- it is what keeps the combined
-        # source answering the same as getBatDayData, whose bats[1] reads back
-        # as an explicit 0 on a day with no discharge.  Counterfactual: a day
-        # that discharged while omitting batF is reported as 0 kWh rather
-        # than unknown, and no payload in this repo can rule that out.
-        # That wrong 0 is durable: daily_coordinator persists the day's
-        # discharge into the year cache on rollover, so the substituted value
-        # outlives the response that produced it and is not corrected by a
-        # later poll.
+        # An absent side is normalised to 0.0 kWh whenever the other side for
+        # the same day is present.  The gate is the other side's presence
+        # because presence is the only proxy the payload offers for "this
+        # device has a battery and reported on this day": the slot-level
+        # omission is an output detail the legacy endpoint never shared.
+        # Symmetric on purpose -- "bat present, batF absent" and "batF present,
+        # bat absent" are the same situation seen from either end, and the
+        # second one would otherwise reach the same substituted zero by a
+        # different road: charge_today would stay None, _drop_none_scalars
+        # would drop the key, and the coordinator's `or 0.0` would read it back
+        # as 0.0.  Both directions now agree in the returned dict shape and in
+        # the durable outcome, so neither is an undocumented instance of the
+        # other's trade.
+        #
+        # This is a chosen trade, not a proven equivalence -- it is what keeps
+        # the combined source answering the same as getBatDayData, whose
+        # absent bats[0]/bats[1] also reads back as 0 downstream.
+        # Counterfactual: a day that discharged while omitting batF is reported
+        # as 0 kWh rather than unknown, and no payload in this repo can rule
+        # that out.
+        #
+        # The wrong 0 is durable and that is accepted deliberately: the
+        # coordinator persists the day into the year cache on rollover, where
+        # recompute_aggregates folds it into the monthly, yearly and total
+        # statistics the dashboards read, and a later poll does not rewrite an
+        # already-finalized day.  The alternative -- teaching the coordinator
+        # and the cache to distinguish "not reported" from "measured zero" --
+        # needs durable state and a cache-format decision, so it is out of
+        # scope for a change whose point is one request instead of three.
         if charge_today is not None and discharge_today is None:
             discharge_today = 0.0
+        elif discharge_today is not None and charge_today is None:
+            charge_today = 0.0
 
         result.update(cls._build_battery_result(signed_slots, charge_today, discharge_today))
         return cls._drop_none_scalars(result)

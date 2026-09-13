@@ -11,12 +11,12 @@ There are two environments, and they collect different numbers:
 ```bash
 # CI's environment: pytest + aiohttp + paho + crcmod only.
 # Home Assistant is absent, so the end-to-end test skips.
-python -m pytest tests/ -q     # 85 passed, 6 skipped
+python -m pytest tests/ -q     # 91 passed, 6 skipped
 
 # The real end-to-end harness: a virtualenv with Home Assistant and
 # pytest-homeassistant-custom-component installed.  The interpreter path is
 # local to the author's machine -- point this at your own environment.
-"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 91 passed
+"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 97 passed
 ```
 
 The end-to-end test (`tests/test_e2e_mqtt_to_entity.py`) **skips**, it does not
@@ -127,6 +127,21 @@ declares that floor.
 homeassistant.config_entries import ConfigFlowResult`, and that symbol only
 exists from 2024.4. On 2023.1–2024.3 the integration installs and then fails at
 setup.
+
+## A non-finite vendor number is not a reading
+
+`json.loads` accepts the bare `NaN` / `Infinity` / `-Infinity` literals, so a
+truncated or malformed response body reaches the mapping helpers **without
+raising**, and `float("nan")` then succeeds. Every guard downstream of that
+point was written for `None`, and NaN slips past all of them: `_drop_none_scalars`
+keeps it (NaN is not None), the coordinator's `or 0.0` keeps it (NaN is truthy),
+and an `all(abs(v) < 1e-6 ...)` emptiness check reads False for it, so the day is
+not treated as empty. The value then lands in the year cache and is summed into
+the monthly, yearly and total rollups, where a later poll will not correct it.
+
+`core/api_client.py::_finite_or_none` is the one place that decides what a usable
+vendor number is; every coercion of a wire value goes through it, and a
+non-finite result is treated exactly like an unparsable one — absent.
 
 ## Git and history
 
