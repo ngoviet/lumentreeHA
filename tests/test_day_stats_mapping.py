@@ -999,7 +999,9 @@ class TestDailyStatsFallback:
         for name in ("API_RETRY_BASE_DELAY", "API_RETRY_MAX_DELAY"):
             monkeypatch.setattr(lumentree_api_client, name, 0.0)
 
-        responses = dict(self._LEGACY)
+        # Annotated: this is the one site that stores an exception rather than
+        # a payload, so the dict cannot stay inferred as dict[str, dict].
+        responses: dict[str, object] = dict(self._LEGACY)
         responses["/lesvr/getAllDayData"] = ServerConnectionError("connection dropped")
         client, session = self._client(lumentree_api_client, responses)
 
