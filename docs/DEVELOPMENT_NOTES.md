@@ -11,12 +11,12 @@ There are two environments, and they collect different numbers:
 ```bash
 # CI's environment: pytest + aiohttp + paho + crcmod only.
 # Home Assistant is absent, so the end-to-end test skips.
-python -m pytest tests/ -q     # 96 passed, 6 skipped
+python -m pytest tests/ -q     # 100 passed, 6 skipped
 
 # The real end-to-end harness: a virtualenv with Home Assistant and
 # pytest-homeassistant-custom-component installed.  The interpreter path is
 # local to the author's machine -- point this at your own environment.
-"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 102 passed
+"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 106 passed
 ```
 
 The end-to-end test (`tests/test_e2e_mqtt_to_entity.py`) **skips**, it does not
@@ -151,6 +151,25 @@ lets it escape every caller. On the `getYearData` path that is not a dropped
 sample: `get_year_data` re-raises from its own `except Exception`, the aggregator
 returns `None`, and the yearly coordinator silently falls back to the cache,
 discarding the whole API-supplied year array over one unreadable literal.
+
+## A hole in a series must keep its position
+
+The day series are published twice over: as slot-keyed frames internally, and as
+flat lists (`*_series_5min_w`) on the sensor attributes. The frames may hold a
+hole — an unreported or unreadable slot simply has no entry — and each shape
+needs the hole handled differently.
+
+`_series_hour_kwh` folds by `slot // 12`, so a hole is harmless there.
+
+The flat lists are not: `entities/sensor.py` copies `battery_series_5min_w`
+straight onto the sensors, and every dashboard turns an array index into a clock
+time with `Math.floor(index / 12)`. A hole published as a gap therefore plots
+every later sample earlier in the day than it was reported. `_values` fills the
+gap with `0.0` up to the frame's own last slot, making index == slot. It does
+**not** pad to a fixed 288: a day in progress has not reported the rest of it,
+and padding would draw readings the device never sent. An empty frame still
+publishes no series at all, which is how "no battery data" stays distinguishable
+from "a battery that sat at zero".
 
 ## Git and history
 

@@ -158,21 +158,24 @@ class TestBatterySignConvention:
         assert built["battery_charge_series_hour_kwh"][0] > 0
         assert built["battery_discharge_series_hour_kwh"][0] > 0
 
-    def test_unreported_slots_are_not_published_as_readings(
+    def test_an_unreported_slot_keeps_its_position(
         self, lumentree_api_client
     ) -> None:
-        """A slot nobody reported is not a reading, and must not become a 0 W one.
+        """A slot nobody reported holds its place instead of collapsing.
 
-        Downstream (entities/sensor.py) publishes this list and turns it into
-        kWh, so a hole written as 0.0 W is a chart point that claims the
-        battery was idle at a moment the device said nothing about.  The frame
-        simply has no entry for slot 1, so the flat list is two long -- and
-        slot 2's -300 W still folds into hour 0, where it was reported.
+        The consumers derive the clock time from the array index
+        (``Math.floor(index / 12)`` in the dashboards), so a hole published as
+        a gap plots every later sample earlier in the day than it was reported
+        -- here the -300 W was reported for slot 2 but would render at index 1.
+        The 0.0 that fills the gap is a chart point the device did not send,
+        and that is the deliberate trade: index == slot is what keeps the rest
+        of the day where it belongs.  The hourly fold is unaffected either way,
+        because it keys on the slot.
         """
         built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
             [(0, 500.0), (2, -300.0)], None, None
         )
-        assert built["battery_series_5min_w"] == [500.0, -300.0]
+        assert built["battery_series_5min_w"] == [500.0, 0.0, -300.0]
         assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(
             300 * (5 / 60) / 1000
         )
@@ -241,8 +244,11 @@ class TestAllDayDataMapping:
         rollup = merged["battery_charge_series_hour_kwh"]
         assert rollup[0] == 0.0
         assert rollup[1] == pytest.approx(500 * (5 / 60) / 1000)
-        # The flat list keeps only the readings that were sent.
-        assert len(merged["battery_series_5min_w"]) == 12
+        # The flat list spans the reported frame, and the 500 W sits at index
+        # 12 -- the slot it was reported for, not the third list position.
+        series = merged["battery_series_5min_w"]
+        assert series[12] == 500.0
+        assert len(series) == 13
 
     def test_the_pv_hour_fold_keeps_each_sample_in_its_own_hour(
         self, lumentree_api_client
@@ -436,6 +442,63 @@ class TestAllDayDataMapping:
         assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * step)
         assert merged["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * step)
 
+    def test_a_hole_in_the_pv_series_is_published_at_its_own_index(
+        self, lumentree_api_client
+    ) -> None:
+        """The published list spans the frame with the hole filled in place.
+
+        Index == slot is the contract the dashboards rely on
+        (``Math.floor(index / 12)``), so the full list is asserted rather than
+        its length: the 360 W must read out at index 2, not index 1.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 6, "tableValueInfo": [120, "bad", 360]},
+        })
+        assert merged["pv_series_5min_w"] == [120.0, 0.0, 360.0]
+
+    def test_a_hole_no_side_reported_is_published_at_its_own_index(
+        self, lumentree_api_client
+    ) -> None:
+        """A slot neither battery side reported still holds its position.
+
+        Slot 2 is a hole in both frames, so `_slot_difference` has no entry for
+        it at all -- the case that collapses the list most easily.  The 200 W at
+        slot 3 must stay at index 3.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [500, 0, "x", 200]},
+            "batF": {"tableValue": 12, "tableValueInfo": [0, 0, "y", 0]},
+        })
+        assert merged["battery_series_5min_w"] == [500.0, 0.0, 0.0, 200.0]
+
+    def test_filling_a_hole_does_not_change_the_sum(
+        self, lumentree_api_client
+    ) -> None:
+        """The padding is 0.0, so every total derived from the list is unmoved.
+
+        Asserted against the same payload without the hole, so this pins
+        sum-neutrality rather than just a number.
+        """
+        with_hole = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 6, "tableValueInfo": [120, "bad", 360]},
+        })
+        without_hole = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 6, "tableValueInfo": [120, 0, 360]},
+        })
+        assert with_hole["pv_sum_kwh"] == without_hole["pv_sum_kwh"]
+        assert with_hole["pv_series_hour_kwh"] == without_hole["pv_series_hour_kwh"]
+        assert with_hole["pv_today"] == without_hole["pv_today"]
+
+    def test_a_frame_with_no_reading_still_publishes_no_series(
+        self, lumentree_api_client
+    ) -> None:
+        """An empty frame has no span to fill, so it publishes nothing."""
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 6, "tableValueInfo": []},
+        })
+        assert "pv_series_5min_w" not in merged
+        assert "pv_sum_kwh" not in merged
+
     def test_no_battery_at_all_yields_no_series_and_no_discharge(
         self, lumentree_api_client
     ) -> None:
@@ -526,7 +589,9 @@ class TestAllDayDataMapping:
 
         The series is published as an attribute rather than through the cache,
         but the same vendor body feeds it, and a single NaN would otherwise
-        propagate through the sum and every hour bucket it lands in.
+        propagate through the sum and every hour bucket it lands in.  The hole
+        is published as 0.0 at its own index so the 300 W after it stays at
+        index 2, which is the slot it was reported for.
         """
         merged = self._merged(lumentree_api_client, {
             "pv": {
@@ -535,7 +600,7 @@ class TestAllDayDataMapping:
             },
         })
         # The hole keeps its slot, so 300 W stays at slot 2 -- hour 0.
-        assert merged["pv_series_5min_w"] == [0.0, 300.0] + [0.0] * 9
+        assert merged["pv_series_5min_w"] == [0.0, 0.0, 300.0] + [0.0] * 9
         assert not any(math.isnan(v) for v in merged["pv_series_hour_kwh"])
         assert math.isfinite(merged["pv_sum_kwh"])
         assert merged["pv_series_hour_kwh"][0] == pytest.approx(300 * (5 / 60) / 1000)
@@ -550,7 +615,7 @@ class TestAllDayDataMapping:
                 "tableValueInfo": [0.0, float("inf"), 300.0] + [0.0] * 9,
             },
         })
-        assert merged["battery_series_5min_w"] == [0.0, 300.0] + [0.0] * 9
+        assert merged["battery_series_5min_w"] == [0.0, 0.0, 300.0] + [0.0] * 9
         assert not any(math.isnan(v) for v in merged["battery_charge_series_hour_kwh"])
 
     def test_an_absent_charge_side_is_normalised_like_an_absent_discharge_side(
@@ -608,8 +673,9 @@ class TestAllDayDataMapping:
         merged = self._merged(lumentree_api_client, parsed)
 
         assert merged["pv_today"] == 6.0
-        # The unreadable sample is a hole, so the 240 W keeps slot 2.
-        assert merged["pv_series_5min_w"] == [120.0, 240.0]
+        # The unreadable sample is a hole that keeps its index, so the 240 W
+        # stays at index 2, where it was reported.
+        assert merged["pv_series_5min_w"] == [120.0, 0.0, 240.0]
 
 
 class TestLegacyBatteryPath:
