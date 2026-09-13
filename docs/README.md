@@ -7,6 +7,7 @@ This directory contains documentation, guides, and example code for the Lumentre
 ```
 docs/
 ├── README.md                    # This file
+├── DEVELOPMENT_NOTES.md         # Traps in the test harness, the layout, and the build
 ├── api/                         # API documentation
 │   ├── API_PROTOCOL.md         # API endpoints and authentication
 │   ├── API_ENDPOINTS_DISCOVERED.md # Full endpoint survey and corrections to API_PROTOCOL.md
@@ -23,14 +24,17 @@ docs/
 │   └── dashboard_daily_stats.yaml # Daily statistics dashboard
 ├── examples/                    # Code examples
 │   └── backfill_2024.yaml      # Example automation for backfilling historical data
-└── probe_results_tier1.json     # Read-only probe output backing API_ENDPOINTS_DISCOVERED.md
+└── probe_*.json                 # Read-only probe output backing API_ENDPOINTS_DISCOVERED.md
 ```
 
 ## 📚 Documentation
 
+### Development
+- **[Development Notes](DEVELOPMENT_NOTES.md)**: Traps in the test harness, the `content_in_root` layout, and the build — and what was measured about each
+
 ### API Documentation
 - **[API Protocol](api/API_PROTOCOL.md)**: Complete API reference including authentication, endpoints, and request/response formats
-- **[API Endpoints Discovered](api/API_ENDPOINTS_DISCOVERED.md)**: Endpoint survey, legacy-alias findings, and the corrections to API_PROTOCOL.md
+- **[API Endpoints Discovered](api/API_ENDPOINTS_DISCOVERED.md)**: Endpoint survey, legacy-status findings, and the corrections to API_PROTOCOL.md
 - **[Register Map](api/REGISTER_MAP.md)**: How each real-time Modbus register was recovered from the vendor app, with its scale and signedness
 - **[API Testing Guide](api/API_TEST_GUIDE.md)**: Step-by-step guide for testing API endpoints
 - **[Error Handling](api/ERROR_HANDLING.md)**: Error handling patterns and best practices

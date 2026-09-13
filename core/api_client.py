@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from collections.abc import Iterable
 from typing import Any
@@ -16,6 +17,7 @@ from ..const import (
     BASE_URL,
     DEFAULT_HEADERS,
     URL_DEVICE_MANAGE,
+    URL_GET_ALL_DAY_DATA,
     URL_GET_BAT_DAY_DATA,
     URL_GET_MONTH_DATA,
     URL_GET_OTHER_DAY_DATA,
@@ -37,11 +39,42 @@ API_MAX_RETRIES = 3
 API_RETRY_BASE_DELAY = 1.0  # Start with 1 second
 API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 
+# The vendor's catch-all "this endpoint does not exist" answer.  It is a
+# property of the host, so it is worth remembering; see
+# `_all_day_data_absent` and docs/api/API_ENDPOINTS_DISCOVERED.md.
+RETURN_VALUE_ENDPOINT_MISSING = 998
+
+
+def _finite_or_none(value: Any) -> float | None:
+    """Coerce a vendor number, treating an unusable one as absent.
+
+    ``float()`` succeeds on the bare ``NaN``/``Infinity`` literals that
+    ``json.loads`` accepts, so a malformed or truncated vendor body produces a
+    non-finite number without raising.  A non-finite reading is no more usable
+    than an unparsable one, and letting it through is worse: it survives
+    ``_drop_none_scalars`` (NaN is not None), survives the coordinator's
+    ``or 0.0`` (NaN is truthy) and survives an all-zero emptiness check (NaN
+    compares False), so it reaches the year cache and is summed into every
+    aggregate derived from that year.  Absent is the only answer downstream
+    already knows how to handle.
+
+    ``OverflowError`` is caught alongside them because ``json.loads`` produces
+    an arbitrary-precision ``int`` for an integer literal of any magnitude, and
+    ``float()`` refuses the ones that do not fit a double.  It is an
+    ``ArithmeticError``, not a ``ValueError``, so listing it is not optional --
+    without it one oversized literal in a body raises out of every caller.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
 
 class LumentreeHttpApiClient:
     """HTTP API client for Lumentree cloud services."""
 
-    __slots__ = ("_session", "_token", "_device_info_cache")
+    __slots__ = ("_session", "_token", "_device_info_cache", "_all_day_data_absent")
 
     _CACHE_TIMEOUT = 3600  # 1 hour
 
@@ -54,6 +87,10 @@ class LumentreeHttpApiClient:
         self._session = session
         self._token: str | None = None
         self._device_info_cache: dict[str, tuple[dict[str, Any], float]] = {}
+        # Set once the host has answered 998 for the combined day endpoint.
+        # 998 means "endpoint does not exist", which is a property of the host,
+        # not of the device or the day, so it holds for the client's lifetime.
+        self._all_day_data_absent = False
 
     # ---------------------------
     # Helpers for statistics
@@ -64,39 +101,294 @@ class LumentreeHttpApiClient:
         if isinstance(vals, list):
             out: list[float] = []
             for v in vals:
-                try:
-                    out.append(float(v))
-                except Exception:
-                    # Skip invalid entries
-                    continue
+                number = _finite_or_none(v)
+                if number is not None:
+                    out.append(number)
             return out
         return []
 
     @staticmethod
-    def _series_5min_kwh(series_w: list[float]) -> list[float]:
+    def _series_5min_kwh(series_w: list[tuple[int, float]]) -> list[tuple[int, float]]:
         # Convert W (5‑minute interval) → kWh for each step - keep full precision
         factor = (5.0 / 60.0) / 1000.0
-        return [w * factor for w in series_w]
+        return [(slot, w * factor) for slot, w in series_w]
 
     @staticmethod
-    def _series_hour_kwh(series_kwh5: list[float]) -> list[float]:
-        # 12 steps of 5‑min per hour
+    def _series_hour_kwh(series_kwh5: list[tuple[int, float]]) -> list[float]:
+        """Fold a 5-minute kWh frame into 24 hourly sums.
+
+        The hour comes from the slot, not from the array index.  That is the
+        whole reason this helper takes a frame: a series with a hole in it
+        keeps every later sample in the hour it was reported for, and a day
+        that stopped early leaves the remaining hours at zero instead of
+        pulling the readings it did send backwards.  Bucketing the flat list
+        by index did exactly that damage, and did it silently.
+
+        The flat lists published beside these rollups need the same treatment
+        for a different reason: a consumer derives the clock time from the
+        array index, so an unfilled hole would plot every later sample earlier
+        in the day than it was reported.  ``_values`` fills the hole instead.
+        """
         if not series_kwh5:
             return []
-        hours = []
-        for h in range(24):
-            start = h * 12
-            end = start + 12
-            if start >= len(series_kwh5):
-                hours.append(0.0)
-            else:
-                hours.append(sum(series_kwh5[start:end]))  # Keep full precision
+        hours = [0.0] * 24
+        for slot, value in series_kwh5:
+            hour = slot // 12  # 12 steps of 5 minutes per hour
+            if 0 <= hour < 24:
+                hours[hour] += value  # Keep full precision
         return hours
+
+    @staticmethod
+    def _values(frame: list[tuple[int, float]]) -> list[float]:
+        """A frame's readings in slot order -- the flat lists consumers read.
+
+        Filled to the frame's own last slot, with 0.0 standing in for a slot
+        the frame has no entry for, so a reading's index is the slot it was
+        reported for.  The consumers turn an index into a clock time, so a
+        hole left as a gap would silently shift the rest of the day earlier.
+
+        The span is the frame's last reported slot and not the full 288: a day
+        in progress has not reported the rest of it, and inventing those slots
+        would draw readings the device never sent.
+        """
+        if not frame:
+            return []
+        values = [0.0] * (max(slot for slot, _ in frame) + 1)
+        for slot, value in frame:
+            values[slot] = value
+        return values
 
     @staticmethod
     def _sum(series: list[float]) -> float:
         # Keep full precision
         return sum(series) if series else 0.0
+
+    # ---------------------------
+    # Per-metric builders
+    #
+    # Both the three legacy per-metric day endpoints and the combined
+    # getAllDayData endpoint describe the same six metrics with the same
+    # tableValue/tableValueInfo shape, so both paths go through these builders.
+    # Keeping one copy of the series math is what stops the two paths from
+    # quietly disagreeing after someone edits only one of them.
+    # ---------------------------
+
+    @staticmethod
+    def _metric_total_kwh(metric: Any) -> float | None:
+        """Return a metric's daily total in kWh, or None when absent.
+
+        The API reports daily totals in 0.1 kWh units.
+        """
+        if not isinstance(metric, dict):
+            return None
+        val = metric.get("tableValue")
+        if val is None:
+            return None
+        number = _finite_or_none(val)
+        return None if number is None else number / 10.0
+
+    @staticmethod
+    def _slot_readings(metric: Any) -> list[tuple[int, float]]:
+        """A metric's reported 5-minute readings, each keyed by its slot.
+
+        This is the identity a series has to keep: a sample's hour is derived
+        from the slot it was reported for, so an unreadable entry at slot n
+        must not pull the samples after it one slot earlier.  Only reported
+        values are framed; a hole simply has no entry.
+        """
+        if not isinstance(metric, dict):
+            return []
+        vals = metric.get("tableValueInfo")
+        if not isinstance(vals, list):
+            return []
+        frame: list[tuple[int, float]] = []
+        for slot, value in enumerate(vals):
+            number = _finite_or_none(value)
+            if number is not None:
+                frame.append((slot, number))
+        return frame
+
+    @staticmethod
+    def _slot_sum(
+        left: list[tuple[int, float]],
+        right: list[tuple[int, float]],
+    ) -> list[tuple[int, float]]:
+        """Add two frames slot by slot.
+
+        Used for the total-load series, where the two inputs are magnitudes
+        that simply add.  A slot neither input reported contributes no entry.
+        """
+        a = dict(left)
+        b = dict(right)
+        summed: list[tuple[int, float]] = []
+        for slot in range(max([*a, *b], default=-1) + 1):
+            x = a.get(slot)
+            y = b.get(slot)
+            if x is None and y is None:
+                continue
+            summed.append((slot, float(x or 0.0) + float(y or 0.0)))
+        return summed
+
+    @staticmethod
+    def _slot_difference(
+        charge_slots: list[tuple[int, float]],
+        discharge_slots: list[tuple[int, float]],
+    ) -> list[tuple[int, float]]:
+        """Sign the two unsigned battery frames against each other, by slot.
+
+        Charge reported and no discharge that slot means +charge; discharge
+        reported with no charge means -discharge; both reported means the
+        difference.  A slot neither series reported has no entry, so a hole in
+        one frame cannot book a phantom reading derived from the other.
+        """
+        charge = dict(charge_slots)
+        discharge = dict(discharge_slots)
+        signed: list[tuple[int, float]] = []
+        for slot in range(max([*charge, *discharge], default=-1) + 1):
+            c = charge.get(slot)
+            d = discharge.get(slot)
+            if c is not None and d is not None:
+                signed.append((slot, c - d))
+            elif d is not None:
+                signed.append((slot, -d))
+            elif c is not None:
+                signed.append((slot, c))
+        return signed
+
+    @classmethod
+    def _build_pv_result(cls, metric: Any) -> dict[str, Any]:
+        result: dict[str, Any] = {"pv_today": cls._metric_total_kwh(metric)}
+        series = cls._slot_readings(metric)
+        if series:
+            series_kwh5 = cls._series_5min_kwh(series)
+            result.update(
+                {
+                    "pv_series_5min_w": cls._values(series),
+                    "pv_series_5min_kwh": cls._values(series_kwh5),
+                    "pv_series_hour_kwh": cls._series_hour_kwh(series_kwh5),
+                    "pv_sum_kwh": cls._sum(cls._values(series_kwh5)),
+                }
+            )
+        return result
+
+    @classmethod
+    def _build_grid_result(cls, metric: Any) -> dict[str, Any]:
+        result: dict[str, Any] = {"grid_in_today": cls._metric_total_kwh(metric)}
+        series = cls._slot_readings(metric)
+        if series:
+            g5 = cls._series_5min_kwh(series)
+            result.update(
+                {
+                    "grid_series_5min_w": cls._values(series),
+                    "grid_series_5min_kwh": cls._values(g5),
+                    "grid_series_hour_kwh": cls._series_hour_kwh(g5),
+                }
+            )
+        return result
+
+    @classmethod
+    def _build_load_result(cls, load_metric: Any, essential_metric: Any) -> dict[str, Any]:
+        """Build the household/essential/total-load metrics.
+
+        The three are produced together because total load is the sum of the
+        other two -- both as a daily total and as a series -- so splitting them
+        across callers would only create a way for them to disagree.
+        """
+        result: dict[str, Any] = {}
+        load_total = cls._metric_total_kwh(load_metric)
+        essential_total = cls._metric_total_kwh(essential_metric)
+        if load_total is not None:
+            result["load_today"] = load_total
+        if essential_total is not None:
+            result["essential_today"] = essential_total
+
+        if load_total is not None or essential_total is not None:
+            result["total_load_today"] = float(load_total or 0.0) + float(essential_total or 0.0)
+
+        load_series = cls._slot_readings(load_metric)
+        essential_series = cls._slot_readings(essential_metric)
+
+        if load_series:
+            l5 = cls._series_5min_kwh(load_series)
+            result.update(
+                {
+                    "load_series_5min_w": cls._values(load_series),
+                    "load_series_5min_kwh": cls._values(l5),
+                    "load_series_hour_kwh": cls._series_hour_kwh(l5),
+                }
+            )
+        if essential_series:
+            e5 = cls._series_5min_kwh(essential_series)
+            result.update(
+                {
+                    "essential_series_5min_w": cls._values(essential_series),
+                    "essential_series_5min_kwh": cls._values(e5),
+                    "essential_series_hour_kwh": cls._series_hour_kwh(e5),
+                }
+            )
+
+        if load_series and essential_series:
+            # Slots, not array positions: a short series contributes nothing to
+            # the slots it never reported instead of silently adding its zeros
+            # to the tail of the longer one.
+            total_load = cls._slot_sum(load_series, essential_series)
+            total_load_kwh5 = cls._series_5min_kwh(total_load)
+
+            result.update(
+                {
+                    "total_load_series_5min_w": cls._values(total_load),
+                    "total_load_series_5min_kwh": cls._values(total_load_kwh5),
+                    "total_load_series_hour_kwh": cls._series_hour_kwh(total_load_kwh5),
+                }
+            )
+
+            if "total_load_today" not in result:
+                result["total_load_today"] = cls._sum(cls._values(total_load_kwh5))
+
+        return result
+
+    @classmethod
+    def _build_battery_result(
+        cls,
+        series_slots: list[tuple[int, float]],
+        charge_today: float | None,
+        discharge_today: float | None,
+    ) -> dict[str, Any]:
+        """Build battery metrics from a signed frame where positive means charge.
+
+        The two day endpoints disagree on representation, so each produces one
+        of these frames first:
+          * getBatDayData ships a single *signed* series with positive meaning
+            discharge, which the caller negates into this frame.
+          * getAllDayData ships separate unsigned `bat` (charge) and `batF`
+            (discharge) series, which the caller signs against each other.
+        Downstream consumers (entities/sensor.py) expect positive = charge.
+        """
+        result: dict[str, Any] = {
+            "charge_today": charge_today,
+            "discharge_today": discharge_today,
+        }
+        if not series_slots:
+            return result
+        # The hourly rollups keep one slot each, so a short day still lands in
+        # the right hours.  Both sides are published over the slots the frame
+        # reported, so a day that only ever charged still carries a 24-entry
+        # discharge series of zeros: "this side was idle" and "there was no
+        # battery data at all" are different answers, and only the second one
+        # is allowed to publish no series.
+        factor = (5.0 / 60.0) / 1000.0
+        charge_kwh5 = [(slot, value * factor if value > 0 else 0.0) for slot, value in series_slots]
+        discharge_kwh5 = [
+            (slot, abs(value) * factor if value < 0 else 0.0) for slot, value in series_slots
+        ]
+        result.update(
+            {
+                "battery_series_5min_w": cls._values(series_slots),
+                "battery_charge_series_hour_kwh": cls._series_hour_kwh(charge_kwh5),
+                "battery_discharge_series_hour_kwh": cls._series_hour_kwh(discharge_kwh5),
+            }
+        )
+        return result
 
     def set_token(self, token: str | None) -> None:
         """Set the authentication token.
@@ -201,7 +493,9 @@ class LumentreeHttpApiClient:
                                 f"Auth failed (code={return_value}, status={response.status}): {msg}"
                             )
 
-                        raise ApiException(f"API error: {msg} (code={return_value})")
+                        raise ApiException(
+                            f"API error: {msg} (code={return_value})", code=return_value
+                        )
 
                     # Success - reset delay for next request
                     delay = API_RETRY_BASE_DELAY
@@ -440,7 +734,36 @@ class LumentreeHttpApiClient:
             return {"_error": f"Unexpected error: {exc}"}
 
     async def get_daily_stats(self, device_identifier: str, query_date: str) -> dict[str, Any]:
-        """Get daily statistics with concurrent API calls.
+        """Get daily statistics, preferring the single combined endpoint.
+
+        Tries GET /lesvr/getAllDayData first: one request instead of three, and
+        one round of server-side work instead of three. Falls back to the three
+        per-metric legacy endpoints when that comes back empty -- a transport
+        error, or a response whose every metric was unusable -- they were the
+        only path for a long time and still answer identically for PV, grid,
+        load and essential load, which the recorded comparison measured equal.
+        The battery discharge representation differs (an explicit zero there,
+        an absent `batF` here) and the client normalises it, though the battery
+        mapping itself is unverified because the captured device has no
+        battery. A failure of the combined endpoint therefore degrades speed
+        rather than function. An empty result means exactly that for both
+        sources, so this test is the endpoint's own "no data" answer either way.
+
+        The trigger is the whole response, so a response that carries some
+        metrics is returned as it stands and the endpoints are not consulted
+        for the metrics it omitted.  The vendor does omit a metric that has
+        nothing to report while still listing it in `titleParams`, so an
+        omitted pv/grid/homeload total is published as 0.0 by the caller's
+        `or 0.0` and persisted for that day.  Deliberate: widening the trigger
+        to a metric set would pay for three extra requests on the common path,
+        on the strength of a shape no payload in this repo shows for those
+        metrics -- they are unmeasured -- and the legacy path collapses an
+        omitted metric to 0.0 by that same route anyway.
+
+        One failure is not retried: a 998 ("endpoint does not exist") is a
+        property of the host, so it is cached on the client and every later
+        poll skips straight to the legacy calls. The fallback notice above
+        therefore fires at most once per client rather than once per poll.
 
         Args:
             device_identifier: Device ID or serial number
@@ -452,9 +775,26 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Fetching daily stats for %s @ %s", device_identifier, query_date)
 
+        if self._all_day_data_absent:
+            # A previous poll was told this host has no combined day endpoint.
+            # Asking again would buy the same 998, so the retry ladder starts at
+            # the legacy calls and the fallback notice below stays quiet.
+            combined: dict[str, Any] = {}
+        else:
+            combined = await self.get_all_day_data(device_identifier, query_date)
+            if combined:
+                return combined
+
+            _LOGGER.info(
+                "Combined day endpoint returned no data for %s @ %s; "
+                "falling back to the three per-metric endpoints",
+                device_identifier,
+                query_date,
+            )
+
         base_params = {"deviceId": device_identifier, "queryDate": query_date}
 
-        # Call 3 APIs concurrently for 3x speed improvement
+        # Call 3 APIs concurrently
         pv_task = self._fetch_pv_data(base_params)
         bat_task = self._fetch_battery_data(base_params)
         other_task = self._fetch_other_data(base_params)
@@ -574,7 +914,7 @@ class LumentreeHttpApiClient:
             }
 
     async def _fetch_pv_data(self, base_params: dict[str, str]) -> dict[str, Any]:
-        """Fetch PV generation data.
+        """Fetch PV generation data from the per-metric legacy endpoint.
 
         Args:
             base_params: Base query parameters
@@ -586,29 +926,7 @@ class LumentreeHttpApiClient:
             resp = await self._request(
                 "GET", URL_GET_PV_DAY_DATA, params=base_params, requires_auth=True
             )
-            data = resp.get("data", {})
-            pv_data = data.get("pv", {})
-
-            result: dict[str, Any] = {}
-
-            val = pv_data.get("tableValue")
-            result["pv_today"] = float(val) / 10.0 if val is not None else None
-
-            # Optional series (5‑minute W)
-            series_w = self._to_float_list(pv_data.get("tableValueInfo"))
-            if series_w:
-                series_kwh5 = self._series_5min_kwh(series_w)
-                series_hour = self._series_hour_kwh(series_kwh5)
-                result.update(
-                    {
-                        "pv_series_5min_w": series_w,
-                        "pv_series_5min_kwh": series_kwh5,
-                        "pv_series_hour_kwh": series_hour,
-                        "pv_sum_kwh": self._sum(series_kwh5),
-                    }
-                )
-
-            return result
+            return self._build_pv_result((resp.get("data") or {}).get("pv"))
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed PV stats ({type(exc).__name__}): {exc}")
             return {"pv_today": None}
@@ -617,7 +935,7 @@ class LumentreeHttpApiClient:
             return {"pv_today": None}
 
     async def _fetch_battery_data(self, base_params: dict[str, str]) -> dict[str, Any]:
-        """Fetch battery charge/discharge data.
+        """Fetch battery charge/discharge data from the legacy endpoint.
 
         Args:
             base_params: Base query parameters
@@ -629,48 +947,22 @@ class LumentreeHttpApiClient:
             resp = await self._request(
                 "GET", URL_GET_BAT_DAY_DATA, params=base_params, requires_auth=True
             )
-            data = resp.get("data", {})
+            data = resp.get("data") or {}
             bats_data = data.get("bats", [])
 
-            result: dict[str, Any] = {"charge_today": None, "discharge_today": None}
-
+            charge_today: float | None = None
+            discharge_today: float | None = None
             if isinstance(bats_data, list):
-                if len(bats_data) > 0 and "tableValue" in bats_data[0]:
-                    result["charge_today"] = float(bats_data[0]["tableValue"]) / 10.0
-                if len(bats_data) > 1 and "tableValue" in bats_data[1]:
-                    result["discharge_today"] = float(bats_data[1]["tableValue"]) / 10.0
+                if len(bats_data) > 0 and isinstance(bats_data[0], dict):
+                    charge_today = self._metric_total_kwh(bats_data[0])
+                if len(bats_data) > 1 and isinstance(bats_data[1], dict):
+                    discharge_today = self._metric_total_kwh(bats_data[1])
 
-            # Signed power series → split charge/discharge
-            # NOTE: API actually returns REVERSED: positive = discharge, negative = charge
-            # This contradicts API_PROTOCOL.md but matches actual device behavior
-            # Positive (+) = Discharge (pin phát năng lượng)
-            # Negative (-) = Charge (pin nhận năng lượng)
-            series_w = self._to_float_list(data.get("tableValueInfo"))
-            if series_w:
-                # Invert signs: API positive = discharge, API negative = charge
-                # For processing: Charge = negative values (invert to positive for kWh), Discharge = positive values
-                # But keep original signed in battery_series_5min_w for chart (will be inverted in sensor)
-                inverted_series_w = [
-                    -w for w in series_w
-                ]  # Invert: positive becomes negative (charge), negative becomes positive (discharge)
-                # Charge: was negative in API, now positive after inversion
-                charge_kwh5 = self._series_5min_kwh(
-                    [w if w > 0 else 0.0 for w in inverted_series_w]
-                )
-                # Discharge: was positive in API, now negative after inversion
-                discharge_kwh5 = self._series_5min_kwh(
-                    [abs(w) if w < 0 else 0.0 for w in inverted_series_w]
-                )
-                # Store inverted series for sensor processing (sensor expects: positive = charge, negative = discharge)
-                result.update(
-                    {
-                        "battery_series_5min_w": inverted_series_w,
-                        "battery_charge_series_hour_kwh": self._series_hour_kwh(charge_kwh5),
-                        "battery_discharge_series_hour_kwh": self._series_hour_kwh(discharge_kwh5),
-                    }
-                )
-
-            return result
+            # This endpoint's series is signed with positive meaning DISCHARGE
+            # (which contradicts the old API_PROTOCOL.md; the device is the
+            # authority). Negate so the shared builder sees positive = charge.
+            series_slots = [(slot, -value) for slot, value in self._slot_readings(data)]
+            return self._build_battery_result(series_slots, charge_today, discharge_today)
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed battery stats ({type(exc).__name__}): {exc}")
             return {"charge_today": None, "discharge_today": None}
@@ -679,7 +971,7 @@ class LumentreeHttpApiClient:
             return {"charge_today": None, "discharge_today": None}
 
     async def _fetch_other_data(self, base_params: dict[str, str]) -> dict[str, Any]:
-        """Fetch grid and load data.
+        """Fetch grid and load data from the legacy endpoint.
 
         Args:
             base_params: Base query parameters
@@ -691,119 +983,9 @@ class LumentreeHttpApiClient:
             resp = await self._request(
                 "GET", URL_GET_OTHER_DAY_DATA, params=base_params, requires_auth=True
             )
-            data = resp.get("data", {})
-
-            result: dict[str, Any] = {"grid_in_today": None, "load_today": None}
-
-            # Grid
-            grid_data = data.get("grid", {})
-            grid_val = grid_data.get("tableValue")
-            if grid_val is not None:
-                result["grid_in_today"] = float(grid_val) / 10.0
-            grid_series_w = self._to_float_list(grid_data.get("tableValueInfo"))
-            if grid_series_w:
-                g5 = self._series_5min_kwh(grid_series_w)
-                result.update(
-                    {
-                        "grid_series_5min_w": grid_series_w,
-                        "grid_series_5min_kwh": g5,
-                        "grid_series_hour_kwh": self._series_hour_kwh(g5),
-                    }
-                )
-
-            # Load and Essential (read together, process together)
-            load_data = data.get("homeload", {})
-            essential_data = data.get("essentialLoad", {})
-
-            # Extract daily totals
-            load_val = load_data.get("tableValue") if load_data else None
-            e_val = essential_data.get("tableValue") if isinstance(essential_data, dict) else None
-
-            if load_val is not None:
-                result["load_today"] = float(load_val) / 10.0
-            if e_val is not None:
-                result["essential_today"] = float(e_val) / 10.0
-
-            # Calculate total_load_today immediately when we have both values
-            load_value = result.get("load_today")
-            essential_value = result.get("essential_today")
-            if load_value is not None or essential_value is not None:
-                total_load_value = float(load_value or 0.0) + float(essential_value or 0.0)
-                if total_load_value > 0 or (load_value is not None and essential_value is not None):
-                    result["total_load_today"] = total_load_value
-
-            # Extract and process series data in parallel
-            load_series_w = (
-                self._to_float_list(load_data.get("tableValueInfo")) if load_data else []
-            )
-            e_series_w = (
-                self._to_float_list(essential_data.get("tableValueInfo"))
-                if isinstance(essential_data, dict)
-                else []
-            )
-
-            # Process load series
-            if load_series_w:
-                l5 = self._series_5min_kwh(load_series_w)
-                result.update(
-                    {
-                        "load_series_5min_w": load_series_w,
-                        "load_series_5min_kwh": l5,
-                        "load_series_hour_kwh": self._series_hour_kwh(l5),
-                    }
-                )
-
-            # Process essential series
-            if e_series_w:
-                e5 = self._series_5min_kwh(e_series_w)
-                result.update(
-                    {
-                        "essential_series_5min_w": e_series_w,
-                        "essential_series_5min_kwh": e5,
-                        "essential_series_hour_kwh": self._series_hour_kwh(e5),
-                    }
-                )
-
-            # Calculate total_load series immediately when we have both series
-            load_w = result.get("load_series_5min_w", [])
-            essential_w = result.get("essential_series_5min_w", [])
-            if load_w and essential_w:
-                # Handle different lengths by padding with zeros
-                max_len = max(len(load_w), len(essential_w))
-                load_w_padded = list(load_w) + [0.0] * (max_len - len(load_w))
-                essential_w_padded = list(essential_w) + [0.0] * (max_len - len(essential_w))
-                total_load_w = [
-                    float(lo or 0) + float(es or 0)
-                    for lo, es in zip(load_w_padded, essential_w_padded, strict=False)
-                ]
-
-                load_5min_kwh = result.get("load_series_5min_kwh", [])
-                essential_5min_kwh = result.get("essential_series_5min_kwh", [])
-                # Handle different lengths for kWh series too
-                max_len_kwh = max(len(load_5min_kwh), len(essential_5min_kwh))
-                load_5min_kwh_padded = list(load_5min_kwh) + [0.0] * (
-                    max_len_kwh - len(load_5min_kwh)
-                )
-                essential_5min_kwh_padded = list(essential_5min_kwh) + [0.0] * (
-                    max_len_kwh - len(essential_5min_kwh)
-                )
-                total_load_5min_kwh = [
-                    float(lo or 0) + float(es or 0)
-                    for lo, es in zip(load_5min_kwh_padded, essential_5min_kwh_padded, strict=False)
-                ]
-
-                result.update(
-                    {
-                        "total_load_series_5min_w": total_load_w,
-                        "total_load_series_5min_kwh": total_load_5min_kwh,
-                        "total_load_series_hour_kwh": self._series_hour_kwh(total_load_5min_kwh),
-                    }
-                )
-
-                # If we have series but no daily total yet, calculate from series sum
-                if "total_load_today" not in result and total_load_5min_kwh:
-                    result["total_load_today"] = self._sum(total_load_5min_kwh)
-
+            data = resp.get("data") or {}
+            result = self._build_grid_result(data.get("grid"))
+            result.update(self._build_load_result(data.get("homeload"), data.get("essentialLoad")))
             return result
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed other stats ({type(exc).__name__}): {exc}")
@@ -811,6 +993,158 @@ class LumentreeHttpApiClient:
         except Exception:
             _LOGGER.exception("Unexpected other stats error")
             return {"grid_in_today": None, "load_today": None}
+
+    @staticmethod
+    def _drop_none_scalars(stats: dict[str, Any]) -> dict[str, Any]:
+        """Keep series data and real readings; drop metrics that came back None.
+
+        A None scalar means the metric was reported unusable, and the two
+        sources of a day's statistics both have to answer that the same way.
+        """
+        return {
+            key: value
+            for key, value in stats.items()
+            if isinstance(value, list) or value is not None
+        }
+
+    @classmethod
+    def _merge_all_day_payload(cls, payload: Any) -> dict[str, Any]:
+        """Turn a getAllDayData `data` object into the standard stats dict.
+
+        Returns an empty dict when the payload carried no usable metric at all,
+        the same as the three per-metric endpoints do, so a caller can treat
+        "empty" as "no data" regardless of which source answered.
+
+        Split out from the request method so the mapping can be tested against
+        captured payloads without a live session -- the sign convention and the
+        absent-`batF` case are the parts worth pinning down, and neither needs
+        the network to exercise.
+        """
+        if not isinstance(payload, dict) or not payload:
+            return {}
+
+        data = payload
+        result = cls._build_pv_result(data.get("pv"))
+        result.update(cls._build_grid_result(data.get("grid")))
+        result.update(cls._build_load_result(data.get("homeload"), data.get("essentialLoad")))
+
+        # Two unsigned series -> one signed series, positive meaning charge.
+        # Signing is by slot, so an entry that cannot be read in one series
+        # cannot shift the other's samples onto the wrong 5-minute step.
+        signed_slots = cls._slot_difference(
+            cls._slot_readings(data.get("bat")),
+            cls._slot_readings(data.get("batF")),
+        )
+
+        charge_today = cls._metric_total_kwh(data.get("bat"))
+        discharge_today = cls._metric_total_kwh(data.get("batF"))
+        # An absent side is normalised to 0.0 kWh whenever the other side for
+        # the same day is present.  The gate is the other side's presence
+        # because presence is the only proxy the payload offers for "this
+        # device has a battery and reported on this day": the slot-level
+        # omission is an output detail the legacy endpoint never shared.
+        # Symmetric on purpose -- "bat present, batF absent" and "batF present,
+        # bat absent" are the same situation seen from either end, and the
+        # second one would otherwise reach the same substituted zero by a
+        # different road: charge_today would stay None, _drop_none_scalars
+        # would drop the key, and the coordinator's `or 0.0` would read it back
+        # as 0.0.  Both directions now agree in the returned dict shape and in
+        # the durable outcome, so neither is an undocumented instance of the
+        # other's trade.
+        #
+        # This is a chosen trade, not a proven equivalence -- it is what keeps
+        # the combined source answering the same as getBatDayData, whose
+        # absent bats[0]/bats[1] also reads back as 0 downstream.
+        # Counterfactual: a day that discharged while omitting batF is reported
+        # as 0 kWh rather than unknown, and no payload in this repo can rule
+        # that out.
+        #
+        # The wrong 0 is durable and that is accepted deliberately: the
+        # coordinator persists the day into the year cache on rollover, where
+        # recompute_aggregates folds it into the monthly, yearly and total
+        # statistics the dashboards read, and a later poll does not rewrite an
+        # already-finalized day.  The alternative -- teaching the coordinator
+        # and the cache to distinguish "not reported" from "measured zero" --
+        # needs durable state and a cache-format decision, so it is out of
+        # scope for a change whose point is one request instead of three.
+        #
+        # A second consequence of the same trade: the coordinator re-queries the
+        # whole current day on every poll, so the published
+        # `battery_series_5min_w` and both hourly rollups reflect only what the
+        # response in hand carried.  Within one payload the two frames are
+        # unioned by slot -- a side present at a slot keeps it, and neither can
+        # drop the other -- but nothing carries a slot across polls, so a day
+        # whose payload gains or loses a side between polls can publish a
+        # different series on each poll.  Accepted for the same reason as the
+        # durable zero: a monotonic across-poll union would need durable
+        # per-day state and a cache-format decision.  Counterfactual: a day
+        # where the vendor reports one side only, which no payload in this repo
+        # can confirm or rule out.
+        #
+        # The absent-metric substitution above and `get_daily_stats` returning a
+        # partial response instead of falling back are one class of decision and
+        # are read together: an absent metric becomes a durable zero for the
+        # day.  This change records both rather than fixing either; the
+        # recorded residual for pv/grid/homeload lives on `get_daily_stats`.
+        if charge_today is not None and discharge_today is None:
+            discharge_today = 0.0
+        elif discharge_today is not None and charge_today is None:
+            charge_today = 0.0
+
+        result.update(cls._build_battery_result(signed_slots, charge_today, discharge_today))
+        return cls._drop_none_scalars(result)
+
+    async def get_all_day_data(self, device_identifier: str, query_date: str) -> dict[str, Any]:
+        """Fetch a whole day's statistics in one request.
+
+        Replaces three concurrent calls (PV, battery, grid/load) with one. The
+        response carries every metric under `data`, plus a `titleParams` array
+        describing them.
+
+        Two representation differences from the legacy endpoints, both handled
+        in `_merge_all_day_payload` rather than at the call site:
+
+        * Battery arrives as two *unsigned* series -- `bat` (charge) and `batF`
+          (discharge) -- where the legacy endpoint used one signed series.
+        * `batF` is **omitted entirely** when the day had no discharge, rather
+          than being present and zero.
+
+        Args:
+            device_identifier: Device ID or serial number
+            query_date: Date in YYYY-MM-DD format
+
+        Returns:
+            Dictionary with the same keys the legacy three-call path produces,
+            so callers cannot tell which endpoint served them. Empty when the
+            call failed or every metric was unusable -- the same "no data"
+            answer the legacy path gives, so a caller can fall back on it.
+        """
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Fetching all-day data for %s @ %s", device_identifier, query_date)
+
+        try:
+            resp = await self._request(
+                "GET",
+                URL_GET_ALL_DAY_DATA,
+                params={"deviceId": device_identifier, "queryDate": query_date},
+                requires_auth=True,
+            )
+            return self._merge_all_day_payload(resp.get("data"))
+
+        except (ApiException, AuthException) as exc:
+            if getattr(exc, "code", None) == RETURN_VALUE_ENDPOINT_MISSING:
+                # The host answered "no such endpoint" for the combined day
+                # endpoint.  That will not change on a later poll, so record it
+                # and stop paying for the request; `get_daily_stats` reads the
+                # flag and goes straight to the legacy calls.  Only this code
+                # sets it -- a transport error or any other return value leaves
+                # it alone, so the combined endpoint is still retried.
+                self._all_day_data_absent = True
+            _LOGGER.warning(f"Failed all-day stats ({type(exc).__name__}): {exc}")
+            return {}
+        except Exception:
+            _LOGGER.exception("Unexpected all-day stats error")
+            return {}
 
     def _merge_stats_results(self, results: Iterable[Any]) -> dict[str, Any]:
         """Merge results from concurrent API calls.
@@ -832,12 +1166,4 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Merged daily stats: %s", merged)
 
-        # Filter out None values but keep lists (series data) and other valid values
-        # This preserves series data even if tableValue is None
-        filtered = {}
-        for k, v in merged.items():
-            # Keep lists (series data) and non-None values, skip None scalar values
-            if isinstance(v, list) or v is not None:
-                filtered[k] = v
-
-        return filtered
+        return self._drop_none_scalars(merged)

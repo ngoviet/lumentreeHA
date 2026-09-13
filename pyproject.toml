@@ -43,6 +43,13 @@ module = [
     "paho.mqtt.*",
     "crcmod.*",
     "homeassistant.*",
+    # ``custom_components`` exists only while pytest runs: tests/conftest.py
+    # synthesises it so the root, which is itself the package, can be imported
+    # under a parent named custom_components.lumentree. mypy never executes that
+    # file, so it cannot resolve the name -- but the modules behind it are
+    # checked anyway, under their real paths.
+    "custom_components.*",
+    "pytest_homeassistant_custom_component.*",
 ]
 ignore_missing_imports = true
 

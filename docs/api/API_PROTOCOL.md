@@ -33,12 +33,57 @@
 
 ## API Endpoints
 
-> **Endpoint status:** the integration uses the three daily endpoints documented below.
-> See the [endpoint survey](API_ENDPOINTS_DISCOVERED.md#12-bốn-endpoint-integration-đang-dùng-là-alias-legacy) for their legacy status and the vendor app's combined endpoint.
+> **Endpoint status:** `getAllDayData` is the integration's primary daily path — one
+> request returns PV, battery, load and grid for a day. The three per-metric
+> endpoints below are its **fallback**: they answer identically for PV, grid,
+> load and essential load, which the recorded comparison measured equal on both
+> paths ([probe_compare_day_endpoints.json](../probe_compare_day_endpoints.json)). The battery discharge
+> representation differs — the legacy endpoint returns an explicit zero, the
+> combined endpoint omits `batF` — and the client normalises it, but the battery
+> mapping itself is **unverified**, because the captured device reports no
+> battery. See the [endpoint survey](API_ENDPOINTS_DISCOVERED.md) for their
+> legacy status. The combined endpoint is used on the coordinator path only:
+> `services/aggregator.py` backfill still issues the three legacy calls per day,
+> and adopting it there is deliberately deferred.
 
 ### Daily Data APIs
 
-#### Get PV Day Data
+#### Get All Day Data (primary)
+- **Endpoint**: `/lesvr/getAllDayData`
+- **Method**: `GET`
+- **Auth**: Required (`Authorization` header — see the note on 998 below)
+- **Params**: `deviceId`, `queryDate` (`yyyy-MM-dd`)
+- **Response**: one `data` object carrying every metric — `pv`, `bat` (charge),
+  `batF` (discharge), `homeload`, `essentialLoad`, `grid` — each with its own
+  `tableValue` / `tableValueInfo` (288 points), plus a `titleParams` array
+  listing the same metrics with their display names. A metric with nothing to
+  report can be absent from `data` while still appearing in `titleParams`, so
+  `titleParams` is a shape to read, not an index of what `data` holds.
+- **Caveat**: `batF` is **omitted entirely** when there was no discharge, where
+  `getBatDayData` returns an explicit zero. The key is absent, not present and
+  null; the `batF` entry that still appears in `titleParams` carries
+  `tableValueInfo: null`, not an empty list. The client normalises the missing
+  key (charge present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
+  interchangeable for callers. The recorded comparison behind that claim covers
+  the day **totals** only — the per-metric series lists were not compared, so
+  series-level equivalence between the two sources is **not** established.
+- **Caveat**: a metric's `tableValue` total and its `tableValueInfo` series can
+  disagree — on the captured device `bat.tableValue` is 0 while its 288-point
+  series sums to 157. The daily sensor reports the total, so it can read 0
+  while its own series attribute is non-zero. This is a vendor data property,
+  not a mapping bug; `getBatDayData` read `bats[0].tableValue` the same way, so
+  it predates the combined endpoint. Series samples are **watts** over a
+  5-minute slot, so that 157 W day is roughly 0.013 kWh, not 0.157 — the raw
+  series sum is not interchangeable with the total's 0.1 kWh units.
+- **Path note**: the APK contains `lesvr/v2/getAllDayData` because app 3.2.4
+  targets a different host (`lesvrjm.suntcn.com`), where `v2/` is correct.
+  Against `lesvr.suntcn.com` the `v2/` form answers `998` (does not exist) and
+  this un-prefixed form answers `1`. An earlier version of this document had
+  that backwards.
+- **Used by**: [core/api_client.py](../../core/api_client.py) `get_all_day_data()`,
+  which `get_daily_stats()` calls first.
+
+#### Get PV Day Data (fallback)
 - **Endpoint**: `/lesvr/getPVDayData`
 - **Method**: `GET`
 - **Auth**: Required (Authorization header)
@@ -47,9 +92,11 @@
   - `queryDate: {YYYY-MM-DD}` (optional, defaults to today)
 - **Response**: 
   - `tableValue`: Total daily value (in 0.1 kWh units)
-  - `tableValueInfo`: Array of 288 values (5-minute intervals, 24h × 12 points/hour)
+  - `tableValueInfo`: Array of 288 values (5-minute intervals, 24h × 12 points/hour), each
+    a **watt** reading for its 5-minute slot — not a kWh figure and not in the total's
+    0.1 kWh units. See [Data Units](#data-units).
 
-#### Get Battery Day Data
+#### Get Battery Day Data (fallback)
 - **Endpoint**: `/lesvr/getBatDayData`
 - **Method**: `GET`
 - **Auth**: Required
@@ -88,7 +135,7 @@
   - `bats[1]` = Discharge total
   - `tableValueInfo`: Signed power series — see the sign convention note in the sample response above
 
-#### Get Other Day Data
+#### Get Other Day Data (fallback)
 - **Endpoint**: `/lesvr/getOtherDayData`
 - **Method**: `GET`
 - **Auth**: Required
@@ -132,13 +179,13 @@
   "data": {
     "pv": {
       "tableValue": 24791,  // Total (in 0.1 kWh units)
-      "tableValueInfo": [2217, 1423, ...]  // Array of values
+      "tableValueInfo": [2217, 1423, ...]  // 5-minute watts, not 0.1 kWh -- see Data Units
     },
     "grid": { ... },
     "homeload": { ... },
     "essentialLoad": { ... },
     "bat": { ... },      // Battery charge
-    "batF": { ... }      // Battery discharge
+    "batF": { ... }      // Battery discharge -- key absent entirely on a day with none
   }
 }
 ```
@@ -152,16 +199,37 @@
 ```
 
 `998` is a catch-all 404 — the endpoint does not exist. It is **not** an
-authentication error. See
+authentication error, and because it is a property of the host the client
+remembers it: `get_all_day_data` sets `_all_day_data_absent` and every later
+poll skips the combined endpoint for the life of the client. See
 [`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#11-returnvalue-998--không-tồn-tại-không-phải-cần-auth)
 for the probe evidence.
 
 ## Data Units
 
 - **Daily totals**: `tableValue` in 0.1 kWh units (divide by 10.0 to get kWh)
-- **5-minute series**: `tableValueInfo` array values in 0.1 kWh units
-- **Power values**: Convert to Watt by: `(value * 0.1) / (5/60) * 1000` = W
-- **Simplified**: `value * 120` for 5-minute kWh → W conversion
+- **5-minute series**: `tableValueInfo` samples are **watts** over a 5-minute slot —
+  not 0.1 kWh, and not kWh. A whole series is a power trace, so it cannot be
+  summed into the total above.
+- **Per-slot energy**: multiply a sample by 5 minutes and convert:
+  `sample * (5 / 60) / 1000` kWh per slot, i.e. `sample / 12000`. That factor is
+  what the client applies (`_series_5min_kwh` in
+  [core/api_client.py](../../core/api_client.py)).
+- **If a series were ever in the total's 0.1 kWh units**, the watt conversion
+  would be `(value * 0.1) / (5/60) * 1000` = `value * 1200` — the formula an
+  earlier version of this document gave as the shipping one. It is not: the
+  client reads the series as watts, exactly as the caveat on
+  [Get All Day Data](#get-all-day-data-primary) describes. The two statements
+  are the same claim and must not drift apart.
+- **Consequence**: a series sum and a `tableValue` total are in different units
+  and are **not interchangeable**. On the captured device `bat.tableValue` is 0
+  while its `tableValueInfo` sums to 157, and 157 W over one 5-minute slot is
+  about 0.013 kWh — not 157, and not 15.7.
+
+> Historical note: an earlier version of this section listed the series as
+> `0.1 kWh` and offered `value * 120` as a "simplified" watt conversion. That
+> pairing was self-consistent arithmetic on the wrong premise; it is recorded
+> here only so a reader who has seen it knows which reading supersedes it.
 
 ## Headers
 
