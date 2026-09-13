@@ -60,7 +60,9 @@
 - **Caveat**: `batF` is **omitted entirely** when there was no discharge, where
   `getBatDayData` returns an explicit zero. The client normalises this (charge
   present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
-  interchangeable for callers.
+  interchangeable for callers. The recorded comparison behind that claim covers
+  the day **totals** only — the per-metric series lists were not compared, so
+  series-level equivalence between the two sources is **not** established.
 - **Caveat**: a metric's `tableValue` total and its `tableValueInfo` series can
   disagree — on the captured device `bat.tableValue` is 0 while its 288-point
   series sums to 157 (0.157 kWh). The daily sensor reports the total, so it can
