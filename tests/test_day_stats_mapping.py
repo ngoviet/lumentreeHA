@@ -273,6 +273,58 @@ class TestAllDayDataMapping:
         assert merged["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * step)
 
 
+    def test_a_charge_only_day_publishes_a_full_discharge_rollup(
+        self, lumentree_api_client
+    ) -> None:
+        """A day that only ever charged still has a discharge series -- of zeros.
+
+        This is the documented no-discharge case: `bat` is present with the
+        charge steps and `batF` is absent.  Both chart attributes have to carry
+        24 entries, or the discharge chart renders blank instead of flat.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [0.0, 0.0, 300.0, 0.0]},
+        })
+        discharge = merged["battery_discharge_series_hour_kwh"]
+        assert len(discharge) == 24
+        assert sum(discharge) == 0.0
+        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(
+            300 * (5 / 60) / 1000
+        )
+
+    def test_a_discharge_only_day_publishes_a_full_charge_rollup(
+        self, lumentree_api_client
+    ) -> None:
+        """The mirror: an all-discharge frame still reports a 24-entry charge series.
+
+        Reached from the legacy `getBatDayData` fallback, whose wire series is
+        negated before it gets here, so a pure-discharge day arrives as a frame
+        with no positive sample at all.
+        """
+        built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
+            [(0, -0.0), (1, -0.0), (2, -300.0), (3, -0.0)], None, None
+        )
+        charge = built["battery_charge_series_hour_kwh"]
+        assert len(charge) == 24
+        assert sum(charge) == 0.0
+        assert built["battery_discharge_series_hour_kwh"][0] == pytest.approx(
+            300 * (5 / 60) / 1000
+        )
+
+    def test_a_frame_with_no_battery_at_all_still_publishes_no_rollup(
+        self, lumentree_api_client
+    ) -> None:
+        """The idle-side fix must not undo the absent-frame early-out.
+
+        "This side was idle" and "there was no battery data" are different
+        answers, and only the first one gets a zero-filled series.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
+        })
+        assert "battery_charge_series_hour_kwh" not in merged
+        assert "battery_discharge_series_hour_kwh" not in merged
+
     def test_battery_series_is_signed_charge_minus_discharge(self, lumentree_api_client) -> None:
         """Two unsigned series become one signed series, positive = charge."""
         merged = self._merged(lumentree_api_client, ALL_DAY_WITH_DISCHARGE)

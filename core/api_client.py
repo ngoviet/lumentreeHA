@@ -310,11 +310,18 @@ class LumentreeHttpApiClient:
         if not series_slots:
             return result
         # The hourly rollups keep one slot each, so a short day still lands in
-        # the right hours.  An unreported slot contributes no energy to either
-        # side instead of being booked as an idle step.
+        # the right hours.  Both sides are published over the slots the frame
+        # reported, so a day that only ever charged still carries a 24-entry
+        # discharge series of zeros: "this side was idle" and "there was no
+        # battery data at all" are different answers, and only the second one
+        # is allowed to publish no series.
         factor = (5.0 / 60.0) / 1000.0
-        charge_kwh5 = [(slot, value * factor) for slot, value in series_slots if value > 0]
-        discharge_kwh5 = [(slot, abs(value) * factor) for slot, value in series_slots if value < 0]
+        charge_kwh5 = [
+            (slot, value * factor if value > 0 else 0.0) for slot, value in series_slots
+        ]
+        discharge_kwh5 = [
+            (slot, abs(value) * factor if value < 0 else 0.0) for slot, value in series_slots
+        ]
         result.update({
             "battery_series_5min_w": cls._values(series_slots),
             "battery_charge_series_hour_kwh": cls._series_hour_kwh(charge_kwh5),

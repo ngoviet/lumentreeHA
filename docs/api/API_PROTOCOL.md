@@ -65,10 +65,12 @@
   series-level equivalence between the two sources is **not** established.
 - **Caveat**: a metric's `tableValue` total and its `tableValueInfo` series can
   disagree — on the captured device `bat.tableValue` is 0 while its 288-point
-  series sums to 157 (0.157 kWh). The daily sensor reports the total, so it can
-  read 0 while its own series attribute is non-zero. This is a vendor data
-  property, not a mapping bug; `getBatDayData` read `bats[0].tableValue` the
-  same way, so it predates the combined endpoint.
+  series sums to 157. The daily sensor reports the total, so it can read 0
+  while its own series attribute is non-zero. This is a vendor data property,
+  not a mapping bug; `getBatDayData` read `bats[0].tableValue` the same way, so
+  it predates the combined endpoint. Series samples are **watts** over a
+  5-minute slot, so that 157 W day is roughly 0.013 kWh, not 0.157 — the raw
+  series sum is not interchangeable with the total's 0.1 kWh units.
 - **Path note**: the APK contains `lesvr/v2/getAllDayData` because app 3.2.4
   targets a different host (`lesvrjm.suntcn.com`), where `v2/` is correct.
   Against `lesvr.suntcn.com` the `v2/` form answers `998` (does not exist) and
