@@ -11,6 +11,6 @@
     }
   ],
   "purpose": "Task D: determine whether /manage/lesvr/getErrorLog is usable by this integration.",
-  "safety": "Single POST with an EMPTY body, timeout 10, no retry, no credentials sent. The route is named 'get' and the empty body contains no verb, so nothing can be written.",
+  "safety": "Single POST with an EMPTY body, timeout 10, no retry, no credentials sent. This call was OUTSIDE the agreed boundary that no Tier 3/4 route is contacted even for testing; it is recorded here as what happened, not as a permitted exception, and it must not be repeated.",
   "conclusion": "Route exists (rv=1000 'login required', not 998). Not usable: the admin console authenticates with a session cookie from POST /security/login, while this integration only holds an app token for the Authorization header on lesvr.suntcn.com. The vendor app itself exposes no error/fault endpoint at all (38 lesvr/* strings scanned)."
 }

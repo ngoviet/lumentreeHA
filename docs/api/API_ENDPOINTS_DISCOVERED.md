@@ -343,7 +343,7 @@ Sau ~30 request nhanh, host cũ bắt đầu ngắt kết nối (`RemoteDisconne
 
 ## 9. Ranh giới an toàn (bắt buộc, không thương lượng)
 
-- **Chỉ read-only.** Integration không gọi endpoint Tier 3/4 nào. Ngoại lệ duy nhất từng chạy là **một** probe read-only vào route admin `/manage/lesvr/getErrorLog` (mục 6) — POST body rỗng, không credential, không retry, chỉ để trả lời câu hỏi `getErrorLog`; route đó không đi vào code chạy thật.
+- **Chỉ read-only.** Integration không gọi endpoint Tier 3/4 nào. **Ghi chú trung thực:** trong quá trình khảo sát, **một** probe read-only vào route admin `/manage/lesvr/getErrorLog` (mục 6) đã được chạy — việc này **vượt ranh giới** "không gọi Tier 3/4, kể cả để test" mà plan đặt ra, **không phải** một ngoại lệ được phép. Probe dùng POST body rỗng, không credential, không retry, không ghi gì; route trả `1000` (cần đăng nhập) nên không xác thực và không tiết lộ gì. Bản ghi được giữ lại làm bằng chứng rằng việc này đã xảy ra; **không lặp lại**.
 - **Không ghi vào hạ tầng vendor**: không register, không bind device, không `upSnAddress`, không `device/sendMsg`.
 - `tools/` (gồm `emqx_clients.json` 128 MB có credential admin EMQX) **đã được `.gitignore` chặn** ở Phase 0 — không bao giờ commit.
 - **Không** đưa token/uid/nickname/phone thô vào bất kỳ file nào được track. Trong tài liệu này chúng là `<redacted>`.
