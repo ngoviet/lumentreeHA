@@ -56,10 +56,14 @@
 - **Response**: one `data` object carrying every metric — `pv`, `bat` (charge),
   `batF` (discharge), `homeload`, `essentialLoad`, `grid` — each with its own
   `tableValue` / `tableValueInfo` (288 points), plus a `titleParams` array
-  listing the same metrics with their display names.
+  listing the same metrics with their display names. A metric with nothing to
+  report can be absent from `data` while still appearing in `titleParams`, so
+  `titleParams` is a shape to read, not an index of what `data` holds.
 - **Caveat**: `batF` is **omitted entirely** when there was no discharge, where
-  `getBatDayData` returns an explicit zero. The client normalises this (charge
-  present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
+  `getBatDayData` returns an explicit zero. The key is absent, not present and
+  null; the `batF` entry that still appears in `titleParams` carries
+  `tableValueInfo: null`, not an empty list. The client normalises the missing
+  key (charge present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
   interchangeable for callers. The recorded comparison behind that claim covers
   the day **totals** only — the per-metric series lists were not compared, so
   series-level equivalence between the two sources is **not** established.
@@ -88,7 +92,9 @@
   - `queryDate: {YYYY-MM-DD}` (optional, defaults to today)
 - **Response**: 
   - `tableValue`: Total daily value (in 0.1 kWh units)
-  - `tableValueInfo`: Array of 288 values (5-minute intervals, 24h × 12 points/hour)
+  - `tableValueInfo`: Array of 288 values (5-minute intervals, 24h × 12 points/hour), each
+    a **watt** reading for its 5-minute slot — not a kWh figure and not in the total's
+    0.1 kWh units. See [Data Units](#data-units).
 
 #### Get Battery Day Data (fallback)
 - **Endpoint**: `/lesvr/getBatDayData`
@@ -173,13 +179,13 @@
   "data": {
     "pv": {
       "tableValue": 24791,  // Total (in 0.1 kWh units)
-      "tableValueInfo": [2217, 1423, ...]  // Array of values
+      "tableValueInfo": [2217, 1423, ...]  // 5-minute watts, not 0.1 kWh -- see Data Units
     },
     "grid": { ... },
     "homeload": { ... },
     "essentialLoad": { ... },
     "bat": { ... },      // Battery charge
-    "batF": { ... }      // Battery discharge
+    "batF": { ... }      // Battery discharge -- key absent entirely on a day with none
   }
 }
 ```
@@ -193,16 +199,37 @@
 ```
 
 `998` is a catch-all 404 — the endpoint does not exist. It is **not** an
-authentication error. See
+authentication error, and because it is a property of the host the client
+remembers it: `get_all_day_data` sets `_all_day_data_absent` and every later
+poll skips the combined endpoint for the life of the client. See
 [`API_ENDPOINTS_DISCOVERED.md`](API_ENDPOINTS_DISCOVERED.md#11-returnvalue-998--không-tồn-tại-không-phải-cần-auth)
 for the probe evidence.
 
 ## Data Units
 
 - **Daily totals**: `tableValue` in 0.1 kWh units (divide by 10.0 to get kWh)
-- **5-minute series**: `tableValueInfo` array values in 0.1 kWh units
-- **Power values**: Convert to Watt by: `(value * 0.1) / (5/60) * 1000` = W
-- **Simplified**: `value * 120` for 5-minute kWh → W conversion
+- **5-minute series**: `tableValueInfo` samples are **watts** over a 5-minute slot —
+  not 0.1 kWh, and not kWh. A whole series is a power trace, so it cannot be
+  summed into the total above.
+- **Per-slot energy**: multiply a sample by 5 minutes and convert:
+  `sample * (5 / 60) / 1000` kWh per slot, i.e. `sample / 12000`. That factor is
+  what the client applies (`_series_5min_kwh` in
+  [core/api_client.py](../../core/api_client.py)).
+- **If a series were ever in the total's 0.1 kWh units**, the watt conversion
+  would be `(value * 0.1) / (5/60) * 1000` = `value * 1200` — the formula an
+  earlier version of this document gave as the shipping one. It is not: the
+  client reads the series as watts, exactly as the caveat on
+  [Get All Day Data](#get-all-day-data-primary) describes. The two statements
+  are the same claim and must not drift apart.
+- **Consequence**: a series sum and a `tableValue` total are in different units
+  and are **not interchangeable**. On the captured device `bat.tableValue` is 0
+  while its `tableValueInfo` sums to 157, and 157 W over one 5-minute slot is
+  about 0.013 kWh — not 157, and not 15.7.
+
+> Historical note: an earlier version of this section listed the series as
+> `0.1 kWh` and offered `value * 120` as a "simplified" watt conversion. That
+> pairing was self-consistent arithmetic on the wrong premise; it is recorded
+> here only so a reader who has seen it knows which reading supersedes it.
 
 ## Headers
 

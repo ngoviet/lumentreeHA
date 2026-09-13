@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from aiohttp import ServerConnectionError
 
 # Shape modelled on GET /lesvr/getAllDayData on a real device (abridged).  The
 # tableValue totals are taken from that capture (pv 60, grid 116, homeload 170,
@@ -485,7 +486,9 @@ def _make_stub_session(responses: dict):
 
     ``responses`` maps an endpoint path to the JSON body to answer it with, so
     the client's real ``_request`` path runs and the calls it makes are
-    observable in ``session.calls``.
+    observable in ``session.calls``.  A path mapped to an exception instance
+    raises it on entry instead, which is how a transport failure is staged;
+    the attempt is recorded before the raise, so a retry is still countable.
     """
 
     class _Response:
@@ -509,7 +512,10 @@ def _make_stub_session(responses: dict):
 
         async def __aenter__(self):
             self._recorder.append({"path": self._path, "headers": dict(self._headers)})
-            return _Response(responses[self._path])
+            body = responses[self._path]
+            if isinstance(body, BaseException):
+                raise body
+            return _Response(body)
 
         async def __aexit__(self, *exc_info) -> bool:
             return False
@@ -600,6 +606,71 @@ class TestDailyStatsFallback:
 
         assert result["pv_today"] == 6.0
         assert [c["path"] for c in session.calls] == ["/lesvr/getAllDayData"]
+
+    def test_a_missing_combined_endpoint_is_asked_for_only_once(self, lumentree_api_client) -> None:
+        """998 means "no such endpoint on this host", so stop paying for it.
+
+        Regression: the combined call was attempted on every poll, so a host
+        without the endpoint cost one wasted request per poll forever and
+        logged the fallback notice just as often.
+        """
+        responses = dict(self._LEGACY)
+        responses["/lesvr/getAllDayData"] = {
+            "returnValue": 998,
+            "msg": "您访问对页面不存在",
+        }
+        client, session = self._client(lumentree_api_client, responses)
+
+        first = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+        assert first["total_load_today"] == 17.0
+        assert [c["path"] for c in session.calls] == [
+            "/lesvr/getAllDayData",
+            "/lesvr/getPVDayData",
+            "/lesvr/getBatDayData",
+            "/lesvr/getOtherDayData",
+        ], f"first poll should probe the combined endpoint once: {session.calls}"
+
+        del session.calls[:]
+        second = asyncio.run(client.get_daily_stats("H240909079", "2026-09-12"))
+
+        assert "/lesvr/getAllDayData" not in {c["path"] for c in session.calls}, (
+            f"the absent endpoint was probed again: {session.calls}"
+        )
+        assert sorted(c["path"] for c in session.calls) == sorted(self._LEGACY), (
+            f"the second poll should be the three legacy calls only: {session.calls}"
+        )
+        assert second["total_load_today"] == 17.0
+        assert second["pv_today"] == 6.0
+
+    def test_a_transport_error_leaves_the_combined_endpoint_in_the_retry_ladder(
+        self, lumentree_api_client, monkeypatch
+    ) -> None:
+        """Only 998 is durable -- a dead connection says nothing about the host.
+
+        The next poll must try the combined endpoint again, otherwise one
+        dropped connection would silently demote the host to the three-call
+        path for the life of the client.
+        """
+        for name in ("API_RETRY_BASE_DELAY", "API_RETRY_MAX_DELAY"):
+            monkeypatch.setattr(lumentree_api_client, name, 0.0)
+
+        responses = dict(self._LEGACY)
+        responses["/lesvr/getAllDayData"] = ServerConnectionError("connection dropped")
+        client, session = self._client(lumentree_api_client, responses)
+
+        first = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+        assert first["total_load_today"] == 17.0
+        assert client._all_day_data_absent is False, (
+            "a transport failure must not be mistaken for a missing endpoint"
+        )
+
+        del session.calls[:]
+        second = asyncio.run(client.get_daily_stats("H240909079", "2026-09-12"))
+
+        assert "/lesvr/getAllDayData" in {c["path"] for c in session.calls}, (
+            f"the combined endpoint was dropped from the retry ladder: {session.calls}"
+        )
+        assert second["total_load_today"] == 17.0
 
 
 class TestPayloadShapeGuards:

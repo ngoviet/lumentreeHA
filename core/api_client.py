@@ -38,11 +38,16 @@ API_MAX_RETRIES = 3
 API_RETRY_BASE_DELAY = 1.0  # Start with 1 second
 API_RETRY_MAX_DELAY = 10.0  # Cap at 10 seconds
 
+# The vendor's catch-all "this endpoint does not exist" answer.  It is a
+# property of the host, so it is worth remembering; see
+# `_all_day_data_absent` and docs/api/API_ENDPOINTS_DISCOVERED.md.
+RETURN_VALUE_ENDPOINT_MISSING = 998
+
 
 class LumentreeHttpApiClient:
     """HTTP API client for Lumentree cloud services."""
 
-    __slots__ = ("_session", "_token", "_device_info_cache")
+    __slots__ = ("_session", "_token", "_device_info_cache", "_all_day_data_absent")
 
     _CACHE_TIMEOUT = 3600  # 1 hour
 
@@ -55,6 +60,10 @@ class LumentreeHttpApiClient:
         self._session = session
         self._token: str | None = None
         self._device_info_cache: dict[str, tuple[dict[str, Any], float]] = {}
+        # Set once the host has answered 998 for the combined day endpoint.
+        # 998 means "endpoint does not exist", which is a property of the host,
+        # not of the device or the day, so it holds for the client's lifetime.
+        self._all_day_data_absent = False
 
     # ---------------------------
     # Helpers for statistics
@@ -432,7 +441,9 @@ class LumentreeHttpApiClient:
                                 f"Auth failed (code={return_value}, status={response.status}): {msg}"
                             )
 
-                        raise ApiException(f"API error: {msg} (code={return_value})")
+                        raise ApiException(
+                            f"API error: {msg} (code={return_value})", code=return_value
+                        )
 
                     # Success - reset delay for next request
                     delay = API_RETRY_BASE_DELAY
@@ -686,6 +697,11 @@ class LumentreeHttpApiClient:
         rather than function. An empty result means exactly that for both
         sources, so this test is the endpoint's own "no data" answer either way.
 
+        One failure is not retried: a 998 ("endpoint does not exist") is a
+        property of the host, so it is cached on the client and every later
+        poll skips straight to the legacy calls. The fallback notice above
+        therefore fires at most once per client rather than once per poll.
+
         Args:
             device_identifier: Device ID or serial number
             query_date: Date in YYYY-MM-DD format
@@ -696,15 +712,21 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Fetching daily stats for %s @ %s", device_identifier, query_date)
 
-        combined = await self.get_all_day_data(device_identifier, query_date)
-        if combined:
-            return combined
+        if self._all_day_data_absent:
+            # A previous poll was told this host has no combined day endpoint.
+            # Asking again would buy the same 998, so the retry ladder starts at
+            # the legacy calls and the fallback notice below stays quiet.
+            combined: dict[str, Any] = {}
+        else:
+            combined = await self.get_all_day_data(device_identifier, query_date)
+            if combined:
+                return combined
 
-        _LOGGER.info(
-            "Combined day endpoint returned no data for %s @ %s; "
-            "falling back to the three per-metric endpoints",
-            device_identifier, query_date,
-        )
+            _LOGGER.info(
+                "Combined day endpoint returned no data for %s @ %s; "
+                "falling back to the three per-metric endpoints",
+                device_identifier, query_date,
+            )
 
         base_params = {"deviceId": device_identifier, "queryDate": query_date}
 
@@ -1007,6 +1029,14 @@ class LumentreeHttpApiClient:
             return self._merge_all_day_payload(resp.get("data"))
 
         except (ApiException, AuthException) as exc:
+            if getattr(exc, "code", None) == RETURN_VALUE_ENDPOINT_MISSING:
+                # The host answered "no such endpoint" for the combined day
+                # endpoint.  That will not change on a later poll, so record it
+                # and stop paying for the request; `get_daily_stats` reads the
+                # flag and goes straight to the legacy calls.  Only this code
+                # sets it -- a transport error or any other return value leaves
+                # it alone, so the combined endpoint is still retried.
+                self._all_day_data_absent = True
             _LOGGER.warning(f"Failed all-day stats ({type(exc).__name__}): {exc}")
             return {}
         except Exception:

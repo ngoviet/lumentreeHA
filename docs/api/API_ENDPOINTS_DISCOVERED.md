@@ -146,7 +146,7 @@ Cộng thêm `_decrypt` dùng một hằng số AES (`svr_aes`) và một key đ
 
 | Endpoint | Method | Kết quả | Payload thật |
 |----------|--------|---------|--------------|
-| `lesvr/getAllDayData` | GET | ✅ `1` | **Gộp cả ngày** — `pv`, `bat`, `batF`, `homeload`, `essentialLoad`, `grid`, `titleParams` |
+| `lesvr/getAllDayData` | GET | ✅ `1` | **Gộp cả ngày** — `pv`, `bat`, `homeload`, `essentialLoad`, `grid`, `titleParams`. `batF` chỉ có khi ngày đó **có** phát điện; lần probe này không có nên key vắng hẳn — xem mục 7.2 |
 | `lesvr/getHistoryYearData` | GET | ✅ `1` | Thêm `firstYear` so với `getYearData` |
 | `lesvr/getMonthData` | GET | ✅ `1` | `deviceId`, `year`, `month` |
 | `lesvr/getYearData` | GET | ✅ `1` | `deviceId`, `year` |
@@ -308,11 +308,13 @@ Cùng thiết bị, cùng `queryDate`, so từng chỉ số:
 | `homeload.tableValue` | 170 (`getOtherDayData`) | 170 | ✅ |
 | `essentialLoad.tableValue` | 0 (`getOtherDayData`) | 0 | ✅ |
 | `bat` (charge) | 0 (`getBatDayData:bats[0]`) | 0 | ✅ |
-| `batF` (discharge) | 0 (`getBatDayData:bats[1]`) | `None` | ⚠️ |
+| `batF` (discharge) | 0 (`getBatDayData:bats[1]`) | *key vắng hẳn* | ⚠️ |
 
 **Hai điểm cần lưu khi implement:**
 
-1. **`batF` vắng mặt khi không có phát điện.** Legacy trả `bats[1].tableValue = 0`; `getAllDayData` **bỏ hẳn key `batF`** khỏi `data` (và `titleParams` có `batF` với `tableValueInfo` rỗng). Code đọc `data["batF"]` phải chịu được key vắng, không được `KeyError`.
+1. **`batF` vắng mặt khi không có phát điện.** Legacy trả `bats[1].tableValue = 0`; `getAllDayData` **bỏ hẳn key `batF`** khỏi `data` — key không tồn tại, không phải key có giá trị `null`, cũng không phải `batF: {}`. Trong `titleParams` thì entry `batF` **có** mặt nhưng `tableValueInfo` của nó là **`null`**, không phải mảng rỗng. Hai điều đó khác nhau và cả hai đều cùng tồn tại: một reader chỉ chống mảng rỗng (`if not info:`) vẫn rơi vào nhánh `null`, còn reader chỉ chống `null` vẫn `KeyError` khi lấy `data["batF"]`. Code đọc `data["batF"]` phải chịu được key vắng, không được `KeyError`.
+
+   > Đối chiếu với `docs/probe_results_getalldaydata.json`: `sorted(data.keys())` là `['bat', 'essentialLoad', 'grid', 'homeload', 'pv', 'titleParams']`, và entry `tableKey == "batF"` trong `titleParams` có `tableValueInfo: null`.
 2. **Pin chưa được chứng minh.** Thiết bị test báo không có pin (`battery_type = No Battery`), nên cả hai đường đều ra 0 và phép so sánh **không kiểm chứng được** phần pin. Mapping PV/grid/load thì đã kiểm chứng thật.
 
 ### 7.3. Kết quả CŨ — KHÔNG dùng (header sai tên)
