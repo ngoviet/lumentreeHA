@@ -29,6 +29,7 @@ track the live server, and a shape change there will not fail these tests.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 
 import pytest
@@ -375,6 +376,66 @@ class TestAllDayDataMapping:
         })
         assert merged["battery_series_5min_w"] == [100.0, 250.0]
 
+    def test_a_discharge_only_payload_reports_zero_charge(
+        self, lumentree_api_client
+    ) -> None:
+        """A day that only discharged reports no charge -- 0.0, not unknown.
+
+        This is the correct answer for those inputs: nothing charged, so the
+        charge total is 0.0 and its hourly rollup is 24 zeros.  Pinned because
+        the substituted zero is a deliberate trade, so a future change that
+        makes it an omission or a None has to be a conscious one.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "batF": {"tableValue": 12, "tableValueInfo": [0, 300, 0, 0]},
+        })
+        assert merged["charge_today"] == 0.0
+        assert merged["discharge_today"] == 1.2
+
+        charge = merged["battery_charge_series_hour_kwh"]
+        assert len(charge) == 24
+        assert sum(charge) == 0.0
+        # The 300 W sample is at slot 1, the second step of hour 0.
+        discharge = merged["battery_discharge_series_hour_kwh"]
+        assert discharge[0] == pytest.approx(300 * (5 / 60) / 1000)
+        assert sum(discharge[1:]) == 0.0
+
+    def test_a_charge_only_payload_reports_zero_discharge(
+        self, lumentree_api_client
+    ) -> None:
+        """The mirror of the previous case, and it must answer the same way."""
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [500, 0, 0, 0]},
+        })
+        assert merged["charge_today"] == 3.0
+        assert merged["discharge_today"] == 0.0
+
+        discharge = merged["battery_discharge_series_hour_kwh"]
+        assert len(discharge) == 24
+        assert sum(discharge) == 0.0
+        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(
+            500 * (5 / 60) / 1000
+        )
+
+    def test_both_sides_present_are_unioned_within_the_payload(
+        self, lumentree_api_client
+    ) -> None:
+        """One payload carrying both sides keeps both, at their own slots.
+
+        This is what bounds the cross-poll caveat: the union happens inside a
+        single response, so whichever side a response carries is published in
+        full.  It is not a claim about a payload that drops a side it had
+        previously reported.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [500, 0, 0, 0]},
+            "batF": {"tableValue": 12, "tableValueInfo": [0, 300, 0, 0]},
+        })
+        assert merged["battery_series_5min_w"] == [500.0, -300.0, 0.0, 0.0]
+        step = (5 / 60) / 1000
+        assert merged["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * step)
+        assert merged["battery_discharge_series_hour_kwh"][0] == pytest.approx(300 * step)
+
     def test_no_battery_at_all_yields_no_series_and_no_discharge(
         self, lumentree_api_client
     ) -> None:
@@ -507,6 +568,48 @@ class TestAllDayDataMapping:
         })
         assert merged["charge_today"] == 0.0
         assert merged["discharge_today"] == 1.2
+
+    def test_an_out_of_range_integer_is_dropped_not_raised(
+        self, lumentree_api_client
+    ) -> None:
+        """float() refuses an oversized integer, and the refusal must be caught.
+
+        json.loads keeps an integer literal of any magnitude as a Python int,
+        so it parses cleanly and only fails at the coercion.  OverflowError is
+        an ArithmeticError rather than a ValueError, so a handler that lists
+        only the latter lets it through -- and one such literal in a getYearData
+        body would raise out of the whole year's array instead of dropping the
+        single unreadable entry.
+        """
+        client = lumentree_api_client.LumentreeHttpApiClient
+        too_big = 10**400
+
+        assert client._to_float_list([too_big]) == []
+        assert client._to_float_list([1, too_big, 2]) == [1.0, 2.0]
+        assert client._metric_total_kwh({"tableValue": too_big}) is None
+
+    def test_an_out_of_range_integer_in_a_parsed_body_drops_only_that_sample(
+        self, lumentree_api_client
+    ) -> None:
+        """The whole reachability path, driven through json.loads.
+
+        A hand-built list would not prove the literal survives parsing.  Built
+        this way, the payload is exactly what the vendor body produces, and the
+        assertion is that the merge still returns a dict with the readable
+        samples intact rather than raising.
+        """
+        parsed = json.loads(
+            '{"pv": {"tableValue": 60, "tableValueInfo": [120, 10000'
+            + "0" * 400
+            + ", 240]}}"
+        )
+        assert isinstance(parsed["pv"]["tableValueInfo"][1], int)
+
+        merged = self._merged(lumentree_api_client, parsed)
+
+        assert merged["pv_today"] == 6.0
+        # The unreadable sample is a hole, so the 240 W keeps slot 2.
+        assert merged["pv_series_5min_w"] == [120.0, 240.0]
 
 
 class TestLegacyBatteryPath:
