@@ -123,6 +123,11 @@ class LumentreeHttpApiClient:
         that stopped early leaves the remaining hours at zero instead of
         pulling the readings it did send backwards.  Bucketing the flat list
         by index did exactly that damage, and did it silently.
+
+        The flat lists published beside these rollups need the same treatment
+        for a different reason: a consumer derives the clock time from the
+        array index, so an unfilled hole would plot every later sample earlier
+        in the day than it was reported.  ``_values`` fills the hole instead.
         """
         if not series_kwh5:
             return []
@@ -135,8 +140,23 @@ class LumentreeHttpApiClient:
 
     @staticmethod
     def _values(frame: list[tuple[int, float]]) -> list[float]:
-        """A frame's readings in slot order -- the flat lists consumers read."""
-        return [value for _, value in frame]
+        """A frame's readings in slot order -- the flat lists consumers read.
+
+        Filled to the frame's own last slot, with 0.0 standing in for a slot
+        the frame has no entry for, so a reading's index is the slot it was
+        reported for.  The consumers turn an index into a clock time, so a
+        hole left as a gap would silently shift the rest of the day earlier.
+
+        The span is the frame's last reported slot and not the full 288: a day
+        in progress has not reported the rest of it, and inventing those slots
+        would draw readings the device never sent.
+        """
+        if not frame:
+            return []
+        values = [0.0] * (max(slot for slot, _ in frame) + 1)
+        for slot, value in frame:
+            values[slot] = value
+        return values
 
     @staticmethod
     def _sum(series: list[float]) -> float:
