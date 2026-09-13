@@ -103,7 +103,7 @@ Integration khai báo `cloud_polling`. Do đó **mọi endpoint ghi (Tier 3) và
 
 | Host | Giao thức | Vai trò | Trong repo? |
 |------|-----------|---------|-------------|
-| `lesvr.suntcn.com` | **HTTP thuần** + MQTT `:1886` | Host integration đang dùng | ✅ `const.py:21,41` |
+| `lesvr.suntcn.com` | **HTTP thuần** + MQTT `:1886` | Host integration đang dùng | ✅ `const.py:22,47` |
 | `lesvrjm.suntcn.com` | **HTTPS** | Host app 3.2.4 dùng (`ServerApi` base URL) | ❌ chưa có |
 | `lehtapi.suntcn.com` | HTTPS | API của web admin console | ❌ chưa có |
 | `rsdown.suntcn.com` | HTTPS | CDN ảnh/tài liệu | ❌ (không cần) |
@@ -166,7 +166,9 @@ Cộng thêm `_decrypt` dùng một hằng số AES (`svr_aes`) và một key đ
 | `lesvr/v2/getAllDayData` | GET | ❌ `998` | **Sai path** — đúng là `/lesvr/getAllDayData` |
 | `lesvr/getUserInfo` | GET | ❌ `203` | Tài khoản guest không đủ quyền (không phải lỗi endpoint) |
 
-**Giá trị cao nhất:** `/lesvr/getAllDayData` — gộp PV + battery + load + grid vào **một call duy nhất**, thay cho 3 call riêng (`getPVDayData` + `getBatDayData` + `getOtherDayData`) mà integration đang dùng. Phép đối chiếu ở mục 7.2 đo được `pv`, `grid`, `homeload`, `essentialLoad` **khớp nhau** trên cả hai đường; phần **pin thì chưa kiểm chứng được** (thiết bị test báo không có pin nên cả hai đường đều ra 0).
+**Giá trị cao nhất:** `/lesvr/getAllDayData` — gộp PV + battery + load + grid vào **một call duy nhất**, thay cho 3 call riêng (`getPVDayData` + `getBatDayData` + `getOtherDayData`). Phép đối chiếu ở mục 7.2 đo được `pv`, `grid`, `homeload`, `essentialLoad` **khớp nhau** trên cả hai đường; phần **pin thì chưa kiểm chứng được** (thiết bị test báo không có pin nên cả hai đường đều ra 0).
+
+> **Phạm vi thay thế:** chỉ đường coordinator dùng endpoint gộp; backfill trong `services/aggregator.py` vẫn gọi 3 endpoint legacy mỗi ngày. [`API_PROTOCOL.md`](API_PROTOCOL.md#api-endpoints) là nơi ghi nhận điều này.
 
 
 ### Tier 2 — Cần đánh giá thêm

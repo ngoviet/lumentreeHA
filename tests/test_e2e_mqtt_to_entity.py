@@ -80,7 +80,7 @@ def build_frame(registers: dict[int, int], n_regs: int = 151) -> str:
 # A full frame with one value pinned, so an assertion has something exact to
 # compare against without hardcoding the whole register map here.
 FRAME_FULL = build_frame({50: 77})  # register 50 = BATTERY_SOC
-BAD_CRC_FRAME = (SEPARATOR + "01030000ffff")
+BAD_CRC_FRAME = SEPARATOR + "01030000ffff"
 
 DEVICE_INFO = {
     "deviceId": DEVICE_SN,
@@ -169,6 +169,7 @@ def vendor_http(aioclient_mock):
     the mocker, so a forgotten call fails the test instead of reaching the
     internet.
     """
+
     # ``aioclient_mock``'s response object exposes ``.status`` but not
     # ``response.ok``, which is the aiohttp property ``api_client._request``
     # reads. Deriving it here keeps the shim at the mock boundary instead of
@@ -237,9 +238,7 @@ async def _setup(hass: HomeAssistant, entry, mqtt: FakeTransport, monkeypatch) -
     # line, so running it is both safe and the point of the exercise.
     monkeypatch.setattr(mqtt_module.LumentreeMqttClient, "connect", mqtt.connect)
     monkeypatch.setattr(mqtt_module.LumentreeMqttClient, "async_request_data", mqtt.noop)
-    monkeypatch.setattr(
-        mqtt_module.LumentreeMqttClient, "async_request_battery_cells", mqtt.noop
-    )
+    monkeypatch.setattr(mqtt_module.LumentreeMqttClient, "async_request_battery_cells", mqtt.noop)
 
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
@@ -292,7 +291,9 @@ def _deliver(client, payload_hex: str, topic: str | None = None) -> None:
     The first two arguments are paho's client and userdata, which
     ``_on_message`` never reads; only ``msg.topic`` and ``msg.payload`` matter.
     """
-    msg = type("Msg", (), {"topic": topic or client._topic_sub, "payload": bytes.fromhex(payload_hex)})
+    msg = type(
+        "Msg", (), {"topic": topic or client._topic_sub, "payload": bytes.fromhex(payload_hex)}
+    )
     client._on_message(None, None, msg)
 
 
@@ -316,7 +317,9 @@ def _state(hass: HomeAssistant, entity_id: str):
     return state
 
 
-async def test_constructed_frame_reaches_entity_state(hass: HomeAssistant, entry, vendor_http, monkeypatch):
+async def test_constructed_frame_reaches_entity_state(
+    hass: HomeAssistant, entry, vendor_http, monkeypatch
+):
     """A constructed frame ends up as decoded numbers on the entity states."""
     ctx = await _setup(hass, entry, FakeTransport(), monkeypatch)
 
@@ -359,7 +362,9 @@ async def test_every_parsed_key_has_an_entity(hass: HomeAssistant, entry, vendor
     )
 
 
-async def test_dispatcher_signal_matches_between_client_and_sensor(hass: HomeAssistant, entry, vendor_http, monkeypatch):
+async def test_dispatcher_signal_matches_between_client_and_sensor(
+    hass: HomeAssistant, entry, vendor_http, monkeypatch
+):
     """The client's signal and the entities' subscription are one string.
 
     Both are built from ``SIGNAL_UPDATE_FORMAT`` in different modules. If either
@@ -380,7 +385,9 @@ async def test_dispatcher_signal_matches_between_client_and_sensor(hass: HomeAss
     )
 
 
-async def test_malformed_frame_leaves_previous_state_intact(hass: HomeAssistant, entry, vendor_http, monkeypatch):
+async def test_malformed_frame_leaves_previous_state_intact(
+    hass: HomeAssistant, entry, vendor_http, monkeypatch
+):
     """Garbage on the topic must not blank out entity state."""
     ctx = await _setup(hass, entry, FakeTransport(), monkeypatch)
 

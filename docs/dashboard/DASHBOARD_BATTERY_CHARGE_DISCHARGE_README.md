@@ -14,6 +14,7 @@ Dashboard này hiển thị biểu đồ nạp (charge) và xả (discharge) pin
 ### 1. API Response (HTTP API)
 ```
 Endpoint: /lesvr/getBatDayData?deviceId={id}&queryDate={date}
+          (fallback — coordinator còn dùng /lesvr/getAllDayData; xem API_PROTOCOL.md)
 
 Response:
 {
@@ -31,7 +32,7 @@ Response:
 }
 ```
 
-### 2. API Client Processing (`api_client.py:616-638`)
+### 2. API Client Processing (xem `core/api_client.py`: `_fetch_battery_data` / `_build_battery_result`)
 ```python
 # API trả về: positive = discharge, negative = charge
 series_w = [500, 500, -200, -300, ...]  # Từ API
@@ -45,7 +46,7 @@ inverted_series_w = [-w for w in series_w]
 result["battery_series_5min_w"] = inverted_series_w
 ```
 
-### 3. Sensor Entity Processing (`sensor.py:973-992`)
+### 3. Sensor Entity Processing (`entities/sensor.py`: `extra_state_attributes`)
 ```python
 # Charge sensor (KEY_DAILY_CHARGE_KWH):
 battery_series = [-500, -500, 200, 300, ...]  # Từ coordinator
