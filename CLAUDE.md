@@ -77,5 +77,5 @@ See [docs/api/REGISTER_MAP.md](docs/api/REGISTER_MAP.md) for the register layout
 
 - `hacs.json` at root, `manifest.json` for HA metadata
 - Version tracked via GitHub Releases (semantic versioning)
-- Effective HA floor is **2024.4**, not the `2023.1.0` declared in `hacs.json`: `config_flow.py` does a runtime `from homeassistant.config_entries import ConfigFlowResult`, and that symbol only exists from 2024.4. On 2023.1–2024.3 the integration installs and then fails at setup.
+- HA floor is **2024.4**, declared in both `hacs.json` and the README: `config_flow.py` does a runtime `from homeassistant.config_entries import ConfigFlowResult`, and that symbol first appears in HA 2024.4 (checked against the `homeassistant/core` tree at 2024.1–2024.4). `hacs.json` was on `2023.1.0` until 5.2.0, which let HACS install the integration on 2023.1–2024.3 where it then failed at setup.
 - Python 3.11+ (`asyncio.timeout` in the coordinators).

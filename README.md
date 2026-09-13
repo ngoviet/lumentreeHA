@@ -77,7 +77,7 @@ High-performance **Home Assistant custom integration** for **Lumentree hybrid so
 
 ## Requirements
 
-- **Home Assistant**: 2024.4+ (`config_flow.py` imports `ConfigFlowResult`, added in 2024.4; `hacs.json` still declares `2023.1.0`)
+- **Home Assistant**: 2024.4+ (`config_flow.py` imports `ConfigFlowResult`, which HA added in 2024.4 — verified against the `homeassistant/core` tree at `2024.1.0`, `2024.2.0`, `2024.3.0` and `2024.4.0`; `hacs.json` declares the same floor so HACS blocks the install instead of letting it fail at setup)
 - **Python**: 3.11+ (the coordinators use `asyncio.timeout`, added in 3.11; the parser and sensor modules also annotate signatures with `X | None` without `from __future__ import annotations`, which Python 3.9 evaluates at import time and rejects)
 - **Dependencies**: aiohttp>=3.8.0, paho-mqtt>=1.6.0, crcmod>=1.7
 - **Network**: Internet (API + MQTT to `lesvr.suntcn.com`)
