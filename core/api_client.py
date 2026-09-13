@@ -74,37 +74,35 @@ class LumentreeHttpApiClient:
         return []
 
     @staticmethod
-    def _series_5min_kwh(series_w: list[float]) -> list[float]:
+    def _series_5min_kwh(series_w: list[tuple[int, float]]) -> list[tuple[int, float]]:
         # Convert W (5‑minute interval) → kWh for each step - keep full precision
         factor = (5.0 / 60.0) / 1000.0
-        return [w * factor for w in series_w]
+        return [(slot, w * factor) for slot, w in series_w]
 
     @staticmethod
-    def _series_hour_kwh(series_kwh5: list[float]) -> list[float]:
-        # 12 steps of 5‑min per hour
+    def _series_hour_kwh(series_kwh5: list[tuple[int, float]]) -> list[float]:
+        """Fold a 5-minute kWh frame into 24 hourly sums.
+
+        The hour comes from the slot, not from the array index.  That is the
+        whole reason this helper takes a frame: a series with a hole in it
+        keeps every later sample in the hour it was reported for, and a day
+        that stopped early leaves the remaining hours at zero instead of
+        pulling the readings it did send backwards.  Bucketing the flat list
+        by index did exactly that damage, and did it silently.
+        """
         if not series_kwh5:
             return []
-        hours = []
-        for h in range(24):
-            start = h * 12
-            end = start + 12
-            if start >= len(series_kwh5):
-                hours.append(0.0)
-            else:
-                hours.append(sum(series_kwh5[start:end]))  # Keep full precision
+        hours = [0.0] * 24
+        for slot, value in series_kwh5:
+            hour = slot // 12  # 12 steps of 5 minutes per hour
+            if 0 <= hour < 24:
+                hours[hour] += value  # Keep full precision
         return hours
 
     @staticmethod
-    def _reported_values(frame: list[tuple[int, float | None]]) -> list[float]:
-        """Fold a frame back into the flat list of readings callers read.
-
-        A slot nobody reported is dropped rather than written as 0 W: a hole
-        is not a reading, and stretching a series that stopped early out to the
-        width of its sibling would put invented readings on the chart.  Losing
-        the width costs nothing -- the consumers that fold this list into hours
-        read a day shorter than 288 slots as zeros for the rest.
-        """
-        return [value for _, value in frame if value is not None]
+    def _values(frame: list[tuple[int, float]]) -> list[float]:
+        """A frame's readings in slot order -- the flat lists consumers read."""
+        return [value for _, value in frame]
 
     @staticmethod
     def _sum(series: list[float]) -> float:
@@ -138,118 +136,97 @@ class LumentreeHttpApiClient:
             return None
 
     @staticmethod
-    def _readings(vals: Any) -> list[float | None]:
-        """Float a raw series, marking entries that cannot be read as None.
+    def _slot_readings(metric: Any) -> list[tuple[int, float]]:
+        """A metric's reported 5-minute readings, each keyed by its slot.
 
-        Unlike a filter, this keeps the list exactly as wide as the wire, so a
-        sample's index is still the 5-minute slot it was reported for.  A hole
-        is not a reading, so it survives as None rather than as 0 W and does
-        not slide the samples after it onto the wrong slot.
+        This is the identity a series has to keep: a sample's hour is derived
+        from the slot it was reported for, so an unreadable entry at slot n
+        must not pull the samples after it one slot earlier.  Only reported
+        values are framed; a hole simply has no entry.
         """
-        if not isinstance(vals, list):
-            return []
-        readings: list[float | None] = []
-        for value in vals:
-            try:
-                readings.append(float(value))
-            except (TypeError, ValueError):
-                readings.append(None)
-        return readings
-
-    @staticmethod
-    def _metric_readings(metric: Any) -> list[float | None]:
-        """Return a metric's 5-minute series positionally (empty when absent)."""
         if not isinstance(metric, dict):
             return []
-        return LumentreeHttpApiClient._readings(metric.get("tableValueInfo"))
-
-    @classmethod
-    def _metric_series_w(cls, metric: Any) -> list[float]:
-        """Return a metric's reported 5-minute values in W (empty when absent)."""
-        return [value for value in cls._metric_readings(metric) if value is not None]
-
-    @staticmethod
-    def _frame(values: list[float | None]) -> list[tuple[int, float | None]]:
-        """Pair each sample with the 5-minute slot it was reported for.
-
-        The frame is as wide as the series itself -- a short series contributes
-        nothing to the slots it never sent rather than zeros, and no payload in
-        this repo reports a full day of battery discharge to widen one against.
-        Consumers that fold the list into hours read a missing slot as 0 kWh.
-        """
-        return [(slot, value) for slot, value in enumerate(values)]
+        vals = metric.get("tableValueInfo")
+        if not isinstance(vals, list):
+            return []
+        frame: list[tuple[int, float]] = []
+        for slot, value in enumerate(vals):
+            try:
+                frame.append((slot, float(value)))
+            except (TypeError, ValueError):
+                continue
+        return frame
 
     @staticmethod
     def _slot_sum(
-        left: list[tuple[int, float | None]],
-        right: list[tuple[int, float | None]],
-    ) -> list[tuple[int, float | None]]:
-        """Add two frames slot by slot; an unreported slot contributes nothing.
+        left: list[tuple[int, float]],
+        right: list[tuple[int, float]],
+    ) -> list[tuple[int, float]]:
+        """Add two frames slot by slot.
 
         Used for the total-load series, where the two inputs are magnitudes
-        that simply add.  A slot neither input reported stays unreported.
+        that simply add.  A slot neither input reported contributes no entry.
         """
         a = dict(left)
         b = dict(right)
-        summed: list[tuple[int, float | None]] = []
-        for slot in range(max(len(a), len(b))):
+        summed: list[tuple[int, float]] = []
+        for slot in range(max([*a, *b], default=-1) + 1):
             x = a.get(slot)
             y = b.get(slot)
-            summed.append((slot, None if x is None and y is None else float(x or 0.0) + float(y or 0.0)))
+            if x is None and y is None:
+                continue
+            summed.append((slot, float(x or 0.0) + float(y or 0.0)))
         return summed
 
     @staticmethod
     def _slot_difference(
-        charge_slots: list[tuple[int, float | None]],
-        discharge_slots: list[tuple[int, float | None]],
-    ) -> list[tuple[int, float | None]]:
+        charge_slots: list[tuple[int, float]],
+        discharge_slots: list[tuple[int, float]],
+    ) -> list[tuple[int, float]]:
         """Sign the two unsigned battery frames against each other, by slot.
 
         Charge reported and no discharge that slot means +charge; discharge
         reported with no charge means -discharge; both reported means the
-        difference.  A slot neither series reported stays None, so a hole in
+        difference.  A slot neither series reported has no entry, so a hole in
         one frame cannot book a phantom reading derived from the other.
         """
         charge = dict(charge_slots)
         discharge = dict(discharge_slots)
-        width = max(len(charge), len(discharge))
-        signed: list[tuple[int, float | None]] = []
-        for slot in range(width):
+        signed: list[tuple[int, float]] = []
+        for slot in range(max([*charge, *discharge], default=-1) + 1):
             c = charge.get(slot)
             d = discharge.get(slot)
-            if c is None and d is None:
-                signed.append((slot, None))
-            elif d is None:
-                signed.append((slot, c))
-            elif c is None:
-                signed.append((slot, -d))
-            else:
+            if c is not None and d is not None:
                 signed.append((slot, c - d))
+            elif d is not None:
+                signed.append((slot, -d))
+            elif c is not None:
+                signed.append((slot, c))
         return signed
 
     @classmethod
     def _build_pv_result(cls, metric: Any) -> dict[str, Any]:
         result: dict[str, Any] = {"pv_today": cls._metric_total_kwh(metric)}
-        series_w = cls._metric_series_w(metric)
-        if series_w:
-            series_kwh5 = cls._series_5min_kwh(series_w)
+        series = cls._slot_readings(metric)
+        if series:
+            series_kwh5 = cls._series_5min_kwh(series)
             result.update({
-                "pv_series_5min_w": series_w,
-                "pv_series_5min_kwh": series_kwh5,
+                "pv_series_5min_w": cls._values(series),
+                "pv_series_5min_kwh": cls._values(series_kwh5),
                 "pv_series_hour_kwh": cls._series_hour_kwh(series_kwh5),
-                "pv_sum_kwh": cls._sum(series_kwh5),
+                "pv_sum_kwh": cls._sum(cls._values(series_kwh5)),
             })
         return result
 
     @classmethod
     def _build_grid_result(cls, metric: Any) -> dict[str, Any]:
         result: dict[str, Any] = {"grid_in_today": cls._metric_total_kwh(metric)}
-        series_w = cls._metric_series_w(metric)
-        if series_w:
-            g5 = cls._series_5min_kwh(series_w)
+        series = cls._slot_readings(metric)
+        if series:
+            g5 = cls._series_5min_kwh(series)
             result.update({
-                "grid_series_5min_w": series_w,
-                "grid_series_5min_kwh": g5,
+                "grid_series_5min_w": cls._values(series),
+                "grid_series_5min_kwh": cls._values(g5),
                 "grid_series_hour_kwh": cls._series_hour_kwh(g5),
             })
         return result
@@ -273,51 +250,46 @@ class LumentreeHttpApiClient:
         if load_total is not None or essential_total is not None:
             result["total_load_today"] = float(load_total or 0.0) + float(essential_total or 0.0)
 
-        load_readings = cls._metric_readings(load_metric)
-        essential_readings = cls._metric_readings(essential_metric)
-        load_series_w = [value for value in load_readings if value is not None]
-        essential_series_w = [value for value in essential_readings if value is not None]
+        load_series = cls._slot_readings(load_metric)
+        essential_series = cls._slot_readings(essential_metric)
 
-        if load_series_w:
-            l5 = cls._series_5min_kwh(load_series_w)
+        if load_series:
+            l5 = cls._series_5min_kwh(load_series)
             result.update({
-                "load_series_5min_w": load_series_w,
-                "load_series_5min_kwh": l5,
+                "load_series_5min_w": cls._values(load_series),
+                "load_series_5min_kwh": cls._values(l5),
                 "load_series_hour_kwh": cls._series_hour_kwh(l5),
             })
-        if essential_series_w:
-            e5 = cls._series_5min_kwh(essential_series_w)
+        if essential_series:
+            e5 = cls._series_5min_kwh(essential_series)
             result.update({
-                "essential_series_5min_w": essential_series_w,
-                "essential_series_5min_kwh": e5,
+                "essential_series_5min_w": cls._values(essential_series),
+                "essential_series_5min_kwh": cls._values(e5),
                 "essential_series_hour_kwh": cls._series_hour_kwh(e5),
             })
 
-        if load_readings and essential_readings:
+        if load_series and essential_series:
             # Slots, not array positions: a short series contributes nothing to
             # the slots it never reported instead of silently adding its zeros
             # to the tail of the longer one.
-            total_load_w = cls._reported_values(cls._slot_sum(
-                cls._frame(load_readings),
-                cls._frame(essential_readings),
-            ))
-            total_load_kwh5 = cls._series_5min_kwh(total_load_w)
+            total_load = cls._slot_sum(load_series, essential_series)
+            total_load_kwh5 = cls._series_5min_kwh(total_load)
 
             result.update({
-                "total_load_series_5min_w": total_load_w,
-                "total_load_series_5min_kwh": total_load_kwh5,
+                "total_load_series_5min_w": cls._values(total_load),
+                "total_load_series_5min_kwh": cls._values(total_load_kwh5),
                 "total_load_series_hour_kwh": cls._series_hour_kwh(total_load_kwh5),
             })
 
             if "total_load_today" not in result:
-                result["total_load_today"] = cls._sum(total_load_kwh5)
+                result["total_load_today"] = cls._sum(cls._values(total_load_kwh5))
 
         return result
 
     @classmethod
     def _build_battery_result(
         cls,
-        series_slots: list[tuple[int, float | None]],
+        series_slots: list[tuple[int, float]],
         charge_today: float | None,
         discharge_today: float | None,
     ) -> dict[str, Any]:
@@ -335,20 +307,16 @@ class LumentreeHttpApiClient:
             "charge_today": charge_today,
             "discharge_today": discharge_today,
         }
-        reported = cls._reported_values(series_slots)
-        if not reported:
+        if not series_slots:
             return result
         # The hourly rollups keep one slot each, so a short day still lands in
         # the right hours.  An unreported slot contributes no energy to either
         # side instead of being booked as an idle step.
         factor = (5.0 / 60.0) / 1000.0
-        charge_kwh5: list[float] = []
-        discharge_kwh5: list[float] = []
-        for value in reported:
-            charge_kwh5.append(value * factor if value > 0 else 0.0)
-            discharge_kwh5.append(abs(value) * factor if value < 0 else 0.0)
+        charge_kwh5 = [(slot, value * factor) for slot, value in series_slots if value > 0]
+        discharge_kwh5 = [(slot, abs(value) * factor) for slot, value in series_slots if value < 0]
         result.update({
-            "battery_series_5min_w": reported,
+            "battery_series_5min_w": cls._values(series_slots),
             "battery_charge_series_hour_kwh": cls._series_hour_kwh(charge_kwh5),
             "battery_discharge_series_hour_kwh": cls._series_hour_kwh(discharge_kwh5),
         })
@@ -897,10 +865,9 @@ class LumentreeHttpApiClient:
             # This endpoint's series is signed with positive meaning DISCHARGE
             # (which contradicts the old API_PROTOCOL.md; the device is the
             # authority). Negate so the shared builder sees positive = charge.
-            readings = self._readings(data.get("tableValueInfo"))
-            series_slots = self._frame(
-                [None if w is None else -w for w in readings]
-            )
+            series_slots = [
+                (slot, -value) for slot, value in self._slot_readings(data)
+            ]
             return self._build_battery_result(series_slots, charge_today, discharge_today)
         except (ApiException, AuthException) as exc:
             _LOGGER.warning(f"Failed battery stats ({type(exc).__name__}): {exc}")
@@ -969,8 +936,8 @@ class LumentreeHttpApiClient:
         # Signing is by slot, so an entry that cannot be read in one series
         # cannot shift the other's samples onto the wrong 5-minute step.
         signed_slots = cls._slot_difference(
-            cls._frame(cls._metric_readings(data.get("bat"))),
-            cls._frame(cls._metric_readings(data.get("batF"))),
+            cls._slot_readings(data.get("bat")),
+            cls._slot_readings(data.get("batF")),
         )
 
         charge_today = cls._metric_total_kwh(data.get("bat"))
@@ -985,6 +952,10 @@ class LumentreeHttpApiClient:
         # as an explicit 0 on a day with no discharge.  Counterfactual: a day
         # that discharged while omitting batF is reported as 0 kWh rather
         # than unknown, and no payload in this repo can rule that out.
+        # That wrong 0 is durable: daily_coordinator persists the day's
+        # discharge into the year cache on rollover, so the substituted value
+        # outlives the response that produced it and is not corrected by a
+        # later poll.
         if charge_today is not None and discharge_today is None:
             discharge_today = 0.0
 
