@@ -739,6 +739,17 @@ class LumentreeHttpApiClient:
         rather than function. An empty result means exactly that for both
         sources, so this test is the endpoint's own "no data" answer either way.
 
+        The trigger is the whole response, so a response that carries some
+        metrics is returned as it stands and the endpoints are not consulted
+        for the metrics it omitted.  The vendor does omit a metric that has
+        nothing to report while still listing it in `titleParams`, so an
+        omitted pv/grid/homeload total is published as 0.0 by the caller's
+        `or 0.0` and persisted for that day.  Deliberate: widening the trigger
+        to a metric set would pay for three extra requests on the common path,
+        on the strength of a shape no payload in this repo shows for those
+        metrics -- they are unmeasured -- and the legacy path collapses an
+        omitted metric to 0.0 by that same route anyway.
+
         One failure is not retried: a 998 ("endpoint does not exist") is a
         property of the host, so it is cached on the client and every later
         poll skips straight to the legacy calls. The fallback notice above
@@ -1055,6 +1066,12 @@ class LumentreeHttpApiClient:
         # per-day state and a cache-format decision.  Counterfactual: a day
         # where the vendor reports one side only, which no payload in this repo
         # can confirm or rule out.
+        #
+        # The absent-metric substitution above and `get_daily_stats` returning a
+        # partial response instead of falling back are one class of decision and
+        # are read together: an absent metric becomes a durable zero for the
+        # day.  This change records both rather than fixing either; the
+        # recorded residual for pv/grid/homeload lives on `get_daily_stats`.
         if charge_today is not None and discharge_today is None:
             discharge_today = 0.0
         elif discharge_today is not None and charge_today is None:
