@@ -12,14 +12,18 @@ body:
     id: ha_version
     attributes:
       label: Home Assistant Version
-      placeholder: "2025.1.0"
+      description: Settings → About → the version next to "Home Assistant".
     validations:
       required: true
   - type: input
     id: integration_version
     attributes:
       label: Integration Version
-      placeholder: "v5.1.2"
+      description: |
+        The version shown for Lumentree Inverter in HACS, or the "version" in
+        this integration's manifest.json. This template deliberately does not
+        print an example: a version copied into it here would be one release
+        stale before you read it.
     validations:
       required: true
   - type: input

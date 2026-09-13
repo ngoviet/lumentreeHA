@@ -122,11 +122,18 @@ of 1.3.
 **`asyncio.timeout` requires Python 3.11+**, which is why the integration
 declares that floor.
 
-**The effective Home Assistant floor is 2024.4, not the `2023.1.0` in
-`hacs.json`.** `config_flow.py` does a runtime `from
-homeassistant.config_entries import ConfigFlowResult`, and that symbol only
-exists from 2024.4. On 2023.1–2024.3 the integration installs and then fails at
-setup.
+**The Home Assistant floor is 2024.4.** `config_flow.py` does a runtime `from
+homeassistant.config_entries import ConfigFlowResult`, and that symbol first
+appears in HA 2024.4 — checked directly against the `homeassistant/core` tree at
+`2024.1.0`, `2024.2.0`, `2024.3.0` and `2024.4.0`, because a secondary source
+claimed `2024.2` and the repository's own prose disagreed with it. Both
+`hacs.json` and the README now declare `2024.4.0`. Until 5.2.0 `hacs.json` said
+`2023.1.0`, which is worse than a cosmetic mismatch: HACS gates *installation*
+on that key, so it let users on 2023.1–2024.3 install a version that then failed
+at setup — an install error rather than a "needs a newer HA" message.
+
+A version floor written down twice drifts the same way the version number did.
+If you change one, change `hacs.json` and the README together.
 
 ## A non-finite vendor number is not a reading
 
