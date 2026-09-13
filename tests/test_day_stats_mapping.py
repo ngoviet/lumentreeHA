@@ -88,7 +88,7 @@ class TestBatterySignConvention:
         inverted these, the charge and discharge sensors would swap.
         """
         built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
-            [500.0, -300.0, 0.0], 30.0, 12.0
+            [(0, 500.0), (1, -300.0), (2, 0.0)], 30.0, 12.0
         )
         # 500 W over a 5-minute step, positive => charge
         assert built["battery_charge_series_hour_kwh"][0] == pytest.approx(500 * (5 / 60) / 1000)
@@ -102,7 +102,7 @@ class TestBatterySignConvention:
         there -- so the exclusive property belongs at the 5-minute level.
         """
         built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
-            [100.0, -100.0], None, None
+            [(0, 100.0), (1, -100.0)], None, None
         )
         charge_5min = built["battery_charge_series_hour_kwh"]
         discharge_5min = built["battery_discharge_series_hour_kwh"]
@@ -122,10 +122,32 @@ class TestBatterySignConvention:
         hourly series -- asserting they are mutually exclusive would be wrong.
         """
         built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
-            [100.0, -100.0], None, None
+            [(0, 100.0), (1, -100.0)], None, None
         )
         assert built["battery_charge_series_hour_kwh"][0] > 0
         assert built["battery_discharge_series_hour_kwh"][0] > 0
+
+    def test_unreported_slots_are_dropped_rather_than_written_as_zero(
+        self, lumentree_api_client
+    ) -> None:
+        """A slot nobody reported is not a reading, and must not become a 0 W one.
+
+        Downstream (entities/sensor.py) publishes this list and turns it into
+        kWh, so a hole written as 0.0 W is a chart point that claims the
+        battery was idle at a moment the device said nothing about.
+        """
+        built = lumentree_api_client.LumentreeHttpApiClient._build_battery_result(
+            [(0, 500.0), (1, None), (2, -300.0)], None, None
+        )
+        assert built["battery_series_5min_w"] == [500.0, -300.0]
+
+    def test_a_frame_with_no_reading_at_all_yields_no_series(self, lumentree_api_client) -> None:
+        """An empty or all-unreported frame must not publish an empty series."""
+        client = lumentree_api_client.LumentreeHttpApiClient
+        assert "battery_series_5min_w" not in client._build_battery_result([], None, None)
+        assert "battery_series_5min_w" not in client._build_battery_result(
+            [(0, None), (1, None)], None, None
+        )
 
 
 class TestAllDayDataMapping:
@@ -169,11 +191,80 @@ class TestAllDayDataMapping:
         merged = self._merged(lumentree_api_client, ALL_DAY_NO_DISCHARGE)
         assert len(merged["battery_series_5min_w"]) == 4
 
+
     def test_battery_series_is_signed_charge_minus_discharge(self, lumentree_api_client) -> None:
         """Two unsigned series become one signed series, positive = charge."""
         merged = self._merged(lumentree_api_client, ALL_DAY_WITH_DISCHARGE)
         # bat=[0,500,0,0], batF=[0,0,300,0] => [0, +500, -300, 0]
         assert merged["battery_series_5min_w"] == [0.0, 500.0, -300.0, 0.0]
+
+    def test_a_hole_in_one_series_does_not_shift_the_other_series(
+        self, lumentree_api_client
+    ) -> None:
+        """The regression this mapping was rewritten for.
+
+        An entry that cannot be read in `bat` used to shorten it by one, so
+        every later charge sample slid one slot against `batF`.  The reported
+        result was [100, 250, 0, 0]: the 300 W charge step was booked as
+        discharge and the real 50 W discharge step disappeared.  Slot-signing
+        gives [100, -50, 300]: the hole is the only thing dropped.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [100, None, 300, 0]},
+            "batF": {"tableValue": 12, "tableValueInfo": [0, 50, 0, 0]},
+        })
+        assert merged["battery_series_5min_w"] == [100.0, -50.0, 300.0, 0.0]
+
+    def test_a_hole_in_the_discharge_series_keeps_the_charge_series_aligned(
+        self, lumentree_api_client
+    ) -> None:
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [100, 300, 0, 200]},
+            "batF": {"tableValue": 12, "tableValueInfo": [0, None, 50, 0]},
+        })
+        assert merged["battery_series_5min_w"] == [100.0, 300.0, -50.0, 200.0]
+
+    def test_a_short_series_publishes_only_the_slots_it_reported(
+        self, lumentree_api_client
+    ) -> None:
+        """A device that stopped publishing has not reported the rest of the day.
+
+        Nothing is invented for the slots the series never reached, so a
+        battery that went quiet at slot 2 does not draw a flat line at 0 W
+        across the remainder of the chart.
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 30, "tableValueInfo": [100, 300]},
+            "batF": {"tableValue": 12, "tableValueInfo": [0, 50, None, None]},
+        })
+        assert merged["battery_series_5min_w"] == [100.0, 250.0]
+
+    def test_no_battery_at_all_yields_no_series_and_no_discharge(
+        self, lumentree_api_client
+    ) -> None:
+        """Neither metric present means no battery reading, not a battery at 0."""
+        merged = self._merged(lumentree_api_client, {
+            "pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]},
+        })
+        assert "battery_series_5min_w" not in merged
+        assert "charge_today" not in merged
+        assert "discharge_today" not in merged
+
+    def test_a_battery_that_reported_nothing_still_publishes_no_series(
+        self, lumentree_api_client
+    ) -> None:
+        """A present `bat` with no usable samples is the same answer as absent.
+
+        The captured device reports `bat` with a 288-point series and a total
+        of 0, so presence alone cannot mean "there is a series to draw".
+        """
+        merged = self._merged(lumentree_api_client, {
+            "bat": {"tableValue": 0, "tableValueInfo": [None, "x", None]},
+            "batF": {"tableValue": None, "tableValueInfo": []},
+        })
+        assert "battery_series_5min_w" not in merged
+        assert merged["charge_today"] == 0.0
+        assert merged["discharge_today"] == 0.0
 
     def test_empty_payload_does_not_raise(self, lumentree_api_client) -> None:
         """A response with no metrics at all yields no data rather than an error."""
@@ -191,6 +282,63 @@ class TestAllDayDataMapping:
         zeros, so emptiness has to mean "nothing usable", not "some keys".
         """
         assert self._merged(lumentree_api_client, {"pv": None, "grid": "nonsense"}) == {}
+
+
+class TestLegacyBatteryPath:
+    """The legacy signed series must keep behaving exactly as it did.
+
+    ``getBatDayData`` is still the fallback and still answers days the
+    combined endpoint cannot, so the frame rework in the combined merge must
+    not have changed what this path publishes.
+    """
+
+    def test_the_legacy_signed_series_is_negated_and_kept_whole(
+        self, lumentree_api_client
+    ) -> None:
+        """Positive on the wire means discharge; the sensor reads the opposite.
+
+        The device is the authority here (docs/api/API_PROTOCOL.md), and the
+        negation is what makes the charge and discharge sensors point at the
+        right side.  The zeros are real reported steps, so they stay.
+        """
+        legacy = {
+            "/lesvr/getPVDayData": {
+                "returnValue": 1,
+                "data": {"pv": {"tableValue": 60, "tableValueInfo": []}},
+            },
+            "/lesvr/getBatDayData": {
+                "returnValue": 1,
+                "data": {
+                    "bats": [{"tableValue": 30}, {"tableValue": 12}],
+                    "tableValueInfo": [500, -200, 0],
+                },
+            },
+            "/lesvr/getOtherDayData": {
+                "returnValue": 1,
+                "data": {
+                    "grid": {"tableValue": 116, "tableValueInfo": []},
+                    "homeload": {"tableValue": 170, "tableValueInfo": []},
+                    "essentialLoad": {"tableValue": 0, "tableValueInfo": []},
+                },
+            },
+        }
+        session = _make_stub_session(legacy)
+        client = lumentree_api_client.LumentreeHttpApiClient(session=session)
+        client.set_token("stub-token")
+
+        result = asyncio.run(client._fetch_battery_data({"deviceId": "H240909079"}))
+
+        assert result["battery_series_5min_w"] == [-500.0, 200.0, 0.0]
+        assert result["charge_today"] == 3.0
+        assert result["discharge_today"] == 1.2
+        # The wire's +500 is a DISCHARGE, so it belongs to the discharge rollup;
+        # the -200 is the charge at slot 1 and is reported as +200 W.
+        assert result["battery_discharge_series_hour_kwh"][0] == pytest.approx(
+            500 * (5 / 60) / 1000
+        )
+        assert result["battery_charge_series_hour_kwh"][0] == pytest.approx(
+            200 * (5 / 60) / 1000
+        )
 
 
 def _combined_payload() -> dict:
