@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -12,6 +14,30 @@ from .const import CONF_DEVICE_ID, CONF_DEVICE_SN, CONF_HTTP_TOKEN, DOMAIN
 from .core.mqtt_client import LumentreeMqttClient
 
 TO_REDACT = {CONF_HTTP_TOKEN, "token", "password", "secret"}
+
+_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
+
+
+def _manifest_version() -> str:
+    """The integration version, read from the manifest rather than restated.
+
+    A hand-copied version drifts silently: this file read ``5.1.0`` while the
+    manifest was on ``5.1.3``, so diagnostics under-reported the running
+    version for two releases.  The manifest is the single source of truth for
+    it, so read it instead of keeping a second copy.
+
+    Resolved at import, which Home Assistant runs in an executor when it loads
+    this module -- the read must not happen inside the diagnostics coroutine,
+    where ``open()`` would be a blocking call on the event loop.
+    """
+    try:
+        with _MANIFEST_PATH.open(encoding="utf-8") as handle:
+            return str(json.load(handle).get("version", "unknown"))
+    except (OSError, ValueError):  # unreadable or malformed manifest
+        return "unknown"
+
+
+_VERSION = _manifest_version()
 
 
 async def async_get_config_entry_diagnostics(
@@ -34,7 +60,7 @@ async def async_get_config_entry_diagnostics(
             "data": redacted_entry_data,
             "options": entry.options,
         },
-        "version": "5.1.0",  # Keep in sync with manifest.json
+        "version": _VERSION,
         "device": {
             "device_sn": device_sn,
             "device_id": device_id,

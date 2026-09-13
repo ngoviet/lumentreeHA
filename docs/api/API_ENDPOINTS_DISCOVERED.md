@@ -1,7 +1,7 @@
 # API Discovery — LightEarth 3.2.4 vs. lumentreeHA 5.2.0
 
 > **Trạng thái:** khảo sát (survey) + đính chính lần hai. Chưa implement sensor nào.
-> **Phiên bản:** tài liệu này thuộc đợt 5.2.0; `manifest.json` vẫn ghi `5.1.3` cho tới khi release.
+> **Phiên bản:** tài liệu này thuộc đợt 5.2.0; `manifest.json` đã lên `5.2.0` từ release này.
 > **Nguồn:** `blutter` trên `libapp.so` (Dart 3.9.2, `light_earth` 3.2.4), `web_app.js` (admin console), EMQX exports, và probe read-only có kiểm soát.
 > **Ngày:** 2026-09-12 (đính chính lần hai cùng ngày, xem mục 0)
 
