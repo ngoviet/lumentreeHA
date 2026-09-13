@@ -11,12 +11,12 @@ There are two environments, and they collect different numbers:
 ```bash
 # CI's environment: pytest + aiohttp + paho + crcmod only.
 # Home Assistant is absent, so the end-to-end test skips.
-python -m pytest tests/ -q     # 91 passed, 6 skipped
+python -m pytest tests/ -q     # 96 passed, 6 skipped
 
 # The real end-to-end harness: a virtualenv with Home Assistant and
 # pytest-homeassistant-custom-component installed.  The interpreter path is
 # local to the author's machine -- point this at your own environment.
-"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 97 passed
+"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 102 passed
 ```
 
 The end-to-end test (`tests/test_e2e_mqtt_to_entity.py`) **skips**, it does not
@@ -142,6 +142,15 @@ the monthly, yearly and total rollups, where a later poll will not correct it.
 `core/api_client.py::_finite_or_none` is the one place that decides what a usable
 vendor number is; every coercion of a wire value goes through it, and a
 non-finite result is treated exactly like an unparsable one — absent.
+
+`OverflowError` belongs in that handler's caught tuple. `json.loads` returns an
+arbitrary-precision `int` for an integer literal of any magnitude, so a body
+carrying `10000…0` parses cleanly and only fails at `float()`. `OverflowError` is
+an `ArithmeticError`, **not** a `ValueError`, so a handler listing only the latter
+lets it escape every caller. On the `getYearData` path that is not a dropped
+sample: `get_year_data` re-raises from its own `except Exception`, the aggregator
+returns `None`, and the yearly coordinator silently falls back to the cache,
+discarding the whole API-supplied year array over one unreadable literal.
 
 ## Git and history
 

@@ -57,10 +57,16 @@ def _finite_or_none(value: Any) -> float | None:
     compares False), so it reaches the year cache and is summed into every
     aggregate derived from that year.  Absent is the only answer downstream
     already knows how to handle.
+
+    ``OverflowError`` is caught alongside them because ``json.loads`` produces
+    an arbitrary-precision ``int`` for an integer literal of any magnitude, and
+    ``float()`` refuses the ones that do not fit a double.  It is an
+    ``ArithmeticError``, not a ``ValueError``, so listing it is not optional --
+    without it one oversized literal in a body raises out of every caller.
     """
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     return number if math.isfinite(number) else None
 
@@ -1016,6 +1022,19 @@ class LumentreeHttpApiClient:
         # and the cache to distinguish "not reported" from "measured zero" --
         # needs durable state and a cache-format decision, so it is out of
         # scope for a change whose point is one request instead of three.
+        #
+        # A second consequence of the same trade: the coordinator re-queries the
+        # whole current day on every poll, so the published
+        # `battery_series_5min_w` and both hourly rollups reflect only what the
+        # response in hand carried.  Within one payload the two frames are
+        # unioned by slot -- a side present at a slot keeps it, and neither can
+        # drop the other -- but nothing carries a slot across polls, so a day
+        # whose payload gains or loses a side between polls can publish a
+        # different series on each poll.  Accepted for the same reason as the
+        # durable zero: a monotonic across-poll union would need durable
+        # per-day state and a cache-format decision.  Counterfactual: a day
+        # where the vendor reports one side only, which no payload in this repo
+        # can confirm or rule out.
         if charge_today is not None and discharge_today is None:
             discharge_today = 0.0
         elif discharge_today is not None and charge_today is None:
