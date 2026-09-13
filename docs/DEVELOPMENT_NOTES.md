@@ -135,6 +135,15 @@ at setup — an install error rather than a "needs a newer HA" message.
 A version floor written down twice drifts the same way the version number did.
 If you change one, change `hacs.json` and the README together.
 
+**A metadata fix on `main` does not reach HACS users until it is in a tag.**
+HACS reads `hacs.json` *at the version it is considering*, not from the default
+branch: `version_to_download()` resolves to the latest release tag and
+`async_get_hacs_json()` fetches the file at that ref. Correcting `main` alone
+changes nothing for anyone — `raw.githubusercontent.com/.../main/hacs.json` and
+`.../v5.2.0/hacs.json` can disagree, and HACS only ever reads the second. Ship a
+patch release with the corrected metadata; raising `manifest.json` in the same
+release is what makes the existing install look stale enough to update.
+
 ## A non-finite vendor number is not a reading
 
 `json.loads` accepts the bare `NaN` / `Infinity` / `-Infinity` literals, so a
