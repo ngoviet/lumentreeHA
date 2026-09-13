@@ -11,12 +11,12 @@ There are two environments, and they collect different numbers:
 ```bash
 # CI's environment: pytest + aiohttp + paho + crcmod only.
 # Home Assistant is absent, so the end-to-end test skips.
-python -m pytest tests/ -q     # 100 passed, 6 skipped
+python -m pytest tests/ -q     # 101 passed, 6 skipped
 
 # The real end-to-end harness: a virtualenv with Home Assistant and
 # pytest-homeassistant-custom-component installed.  The interpreter path is
 # local to the author's machine -- point this at your own environment.
-"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 106 passed
+"<venv>/Scripts/python.exe" -m pytest tests/ -q   # 107 passed
 ```
 
 The end-to-end test (`tests/test_e2e_mqtt_to_entity.py`) **skips**, it does not
@@ -170,6 +170,34 @@ gap with `0.0` up to the frame's own last slot, making index == slot. It does
 and padding would draw readings the device never sent. An empty frame still
 publishes no series at all, which is how "no battery data" stays distinguishable
 from "a battery that sat at zero".
+
+## A partial combined day response suppresses the legacy fallback
+
+`get_daily_stats` falls back to the three legacy endpoints only when the
+combined `getAllDayData` response is *entirely* unusable. A response carrying
+some metrics is returned as it stands, and the endpoints are not consulted for
+the metrics it omitted. The vendor documents that shape — a metric with nothing
+to report can be absent from `data` while still listed in `titleParams` — and
+the branch's own capture shows it for `batF`, which is normalised.
+
+What is not normalised is the same shape on pv/grid/homeload. The coordinator
+reads each total back with `float(... or 0.0)`, so an omitted `grid_in_today`
+becomes a published `0.0`, `is_empty` is False because the other metrics are
+non-zero, and the day is persisted into the year cache, where a later poll does
+not rewrite it. That is a durable wrong zero with no error logged.
+
+Deliberate, and the trigger is not widened for it. Widening it to a metric set
+would pay for the three legacy calls on every poll whose combined response is
+missing any one metric — including the permanently-absent `batF` shape — which
+is exactly the request count this change removes. Two things bound the
+residual: no payload in this repo shows pv/grid/homeload going absent while
+others are present, so the shape is unmeasured for them; and the legacy path
+collapses an omitted metric to 0.0 by the same `or 0.0` route, which predates
+this change. What the change removes is the second chance, not the zero.
+
+The batF substitution and this one are the same class of decision — an absent
+metric becomes a durable zero — and `_merge_all_day_payload` records them
+together. Neither is fixed here; both are recorded.
 
 ## Git and history
 

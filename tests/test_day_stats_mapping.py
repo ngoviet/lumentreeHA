@@ -896,6 +896,34 @@ class TestDailyStatsFallback:
         assert result["pv_today"] == 6.0
         assert [c["path"] for c in session.calls] == ["/lesvr/getAllDayData"]
 
+    def test_a_partial_combined_response_is_served_without_the_legacy_calls(
+        self, lumentree_api_client
+    ) -> None:
+        """The trigger is the whole response, so a partial one is not widened.
+
+        The combined payload here carries PV and omits grid and load.  The
+        legacy endpoints answer those two with 11.6 and 17.0, and those calls
+        must not be made: paying three requests for a response the vendor
+        documents as ordinary per-metric absence is the cost this change
+        exists to remove.  The omission is therefore visible in the result --
+        no grid/load key at all -- rather than papered over here.
+        """
+        responses = dict(self._LEGACY)
+        responses["/lesvr/getAllDayData"] = {
+            "returnValue": 1,
+            "data": {"pv": {"tableValue": 60, "tableValueInfo": [0, 0, 120, 240]}},
+        }
+        client, session = self._client(lumentree_api_client, responses)
+
+        result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+
+        assert [c["path"] for c in session.calls] == ["/lesvr/getAllDayData"], (
+            f"a partial combined response must not trigger the legacy calls: {session.calls}"
+        )
+        assert result["pv_today"] == 6.0
+        assert "grid_in_today" not in result
+        assert "total_load_today" not in result
+
     def test_a_missing_combined_endpoint_is_asked_for_only_once(self, lumentree_api_client) -> None:
         """998 means "no such endpoint on this host", so stop paying for it.
 
