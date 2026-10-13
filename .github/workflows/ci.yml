@@ -32,8 +32,8 @@ jobs:
       - name: Install test dependencies
         run: |
           python -m pip install --upgrade pip
-          # aiohttp, crcmod and paho-mqtt are manifest.json runtime
-          # requirements: the suite loads core/api_client.py,
+          # crcmod and paho-mqtt are manifest.json runtime requirements, and
+          # aiohttp is the one Home Assistant provides: the suite loads core/api_client.py,
           # core/realtime_parser.py and core/mqtt_client.py by path, and each
           # imports its transport at module scope, so the API-client tests fail
           # to import without them even though no test opens a real connection.
