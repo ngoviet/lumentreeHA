@@ -1,197 +1,264 @@
-# Lumentree Solar Inverter — Home Assistant Integration
+# Lumentree Inverter for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/release/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/releases)
 [![GitHub stars](https://img.shields.io/github/stars/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/stargazers)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ngoviet)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-ff69b4?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ngoviet)
 
-<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=ngoviet&repository=lumentreeHA&category=integration" class="my badge" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS" width="200" height="36"></a>
+<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=ngoviet&repository=lumentreeHA&category=integration" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS" width="200" height="36"></a>
 
-> **Tôi là người Việt, tự mình duy trì dự án này.** Nếu integration này giúp bạn theo dõi và tiết kiệm tiền điện, hãy [mua tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕ — mỗi cốc = 50,000 VND = động lực để tôi tiếp tục phát triển.
+Monitor a **Lumentree hybrid solar inverter** (SUNT series) in Home Assistant: live power, battery and grid readings every 5 seconds, plus daily, monthly, yearly and lifetime energy statistics with charts and electricity-cost savings in VND.
 
-<p align="center">
-  <a href="https://buymeacoffee.com/ngoviet">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=ngoviet&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
-  </a>
-</p>
+> 🇻🇳 **Dự án do một người Việt tự duy trì.** Nếu integration giúp bạn theo dõi và tiết kiệm tiền điện, hãy [mời tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕
 
 ---
 
-High-performance **Home Assistant custom integration** for **Lumentree hybrid solar inverters** (SUNT series). Real-time monitoring via **MQTT (Modbus)**, historical energy statistics via **HTTP API**, and comprehensive battery management. Track solar PV generation, grid import/export, battery SOC, and calculate electricity cost savings in VND.
+## Contents
+
+- [Screenshots](#screenshots)
+- [What you get](#what-you-get)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Setup](#setup)
+- [Updating](#updating)
+- [Entities](#entities)
+- [Statistics and history](#statistics-and-history)
+- [Services](#services)
+- [Dashboards](#dashboards)
+- [Troubleshooting](#troubleshooting)
+- [How it works](#how-it-works)
+- [Support the project](#support-the-project)
 
 ---
 
 ## Screenshots
 
-### Sensors Overview
-![Sensors Entity Overview](images/sensors_entity_overview.jpg)
-
-### Dashboard — Energy Charts (24h)
-![Dashboard Energy Charts 24h](images/dashboard_energy_charts_24h.jpg)
-
-### Dashboard — Statistics Summary
-![Dashboard Statistics Summary](images/dashboard_statistics_summary.jpg)
+| Sensors | 24 h energy charts | Statistics summary |
+|---|---|---|
+| ![Sensors overview](images/sensors_entity_overview.jpg) | ![Energy charts 24h](images/dashboard_energy_charts_24h.jpg) | ![Statistics summary](images/dashboard_statistics_summary.jpg) |
 
 ---
 
-## Features
+## What you get
 
-### Real-time Data (MQTT — 5s polling)
-- **PV Power**: Solar generation (W) — PV1 + PV2
-- **Battery Management**: Power, voltage, current, SOC (%), status (Charging/Discharging)
-- **Grid Power**: Import/export power + status
-- **Load Power**: Total consumption monitoring
-- **AC Output**: Voltage, frequency, power, apparent power, current
-- **AC Input**: Voltage, frequency, power, current
-- **Battery Settings**: Capacity, charge/discharge current limits, charge voltages, protection thresholds
-- **Device**: Temperature, online status, UPS mode, serial number, inverter/generator power
-- **Battery Cells**: Individual cell voltage monitoring
-
-### Daily Statistics (HTTP API — 5min refresh)
-- PV Generation, Battery Charge/Discharge, Grid Import, Load Consumption
-- Essential Load, Total Load, Energy Saved (kWh), Cost Savings (VND)
-- **288-point 5-minute series** for detailed charts
-
-### Monthly Statistics
-- 7 metrics: PV, Charge, Discharge, Grid, Load, Essential, Total Load
-- Saved (kWh) and Savings (VND) as state attributes
-- **Daily arrays** for month-view charts (1-31 days)
-
-### Yearly Statistics
-- 7 metrics with **monthly arrays** for year-view charts (1-12 months)
-- Historical data across multiple years via disk cache
-
-### Lifetime/Total Statistics
-- Cumulative totals across all available years
-- Auto-aggregated from yearly data
-
-### Performance
-- **40-50% faster** parsing with struct caching
-- **3x faster** API calls with concurrent requests
-- **20-30% lower** memory with `__slots__`
-
-> 💡 **Người dùng báo cáo tiết kiệm 200,000-500,000 VND/tháng tiền điện** nhờ theo dõi chính xác sản lượng điện mặt trời và tiêu thụ. Nếu integration này giúp ích cho bạn, [ủng hộ tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕
+- **Live readings every 5 s** over MQTT: PV (two strings), battery power, voltage, current and SOC, grid, load, AC input and output, temperature, and battery cells.
+- **Inverter settings** read from the device: charge voltages and currents, protection thresholds, work mode, AI mode, grid type and more. These are diagnostic sensors and are read-only.
+- **Energy statistics** for today, this month, this year and lifetime:
+  - PV generation
+  - battery charge and discharge
+  - grid import
+  - household load, essential load and total load
+- **Savings**: energy you didn't buy from the grid (kWh) and its value in VND, at a fixed tariff of 2,900 VND/kWh.
+- **Chart-ready attributes**:
+  - 5-minute and hourly series for today
+  - a value per day for the month
+  - a value per month for the year
+- **History backfill**: on first start the integration fills up to 5 years of past data and keeps it on disk.
+- **Several inverters**: add one config entry per inverter.
+- **Read-only**: the integration never changes inverter settings and never calls a vendor write endpoint.
 
 ---
 
 ## Requirements
 
-- **Home Assistant**: 2024.4+ (`config_flow.py` imports `ConfigFlowResult`, which HA added in 2024.4 — verified against the `homeassistant/core` tree at `2024.1.0`, `2024.2.0`, `2024.3.0` and `2024.4.0`; `hacs.json` declares the same floor so HACS blocks the install instead of letting it fail at setup)
-- **Python**: 3.11+ (the coordinators use `asyncio.timeout`, added in 3.11; the parser and sensor modules also annotate signatures with `X | None` without `from __future__ import annotations`, which Python 3.9 evaluates at import time and rejects)
-- **Dependencies**: paho-mqtt>=1.6.0, crcmod>=1.7 (aiohttp comes with Home Assistant)
-- **Network**: Internet (API + MQTT to `lesvr.suntcn.com`)
+| | |
+|---|---|
+| Home Assistant | **2024.4** or newer (HACS blocks older versions) |
+| Network | Outbound internet to `lesvr.suntcn.com`: port **1886** (MQTT) and **80** (HTTP) |
+| Inverter | Online in the Lumentree / LightEarth app, with its **Device ID** (e.g. `H240909079`) |
+
+Python dependencies (`paho-mqtt`, `crcmod`) are installed by Home Assistant automatically.
 
 ---
 
 ## Installation
 
-### HACS (Recommended)
-1. Open **HACS** → **Integrations** → **Custom Repositories**
-2. Add `https://github.com/ngoviet/lumentreeHA` (Integration type)
-3. Install **Lumentree Inverter** → Restart HA
+### HACS (recommended)
+
+1. Click the **Open in HACS** button above, or in HACS open **⋮ → Custom repositories**, add `https://github.com/ngoviet/lumentreeHA` with type **Integration**.
+2. Download **Lumentree Inverter**.
+3. Restart Home Assistant.
 
 ### Manual
-1. Download [latest release](https://github.com/ngoviet/lumentreeHA/releases)
-2. Extract to `custom_components/lumentree/` in your HA config
-3. Restart Home Assistant
+
+1. Download the latest [release](https://github.com/ngoviet/lumentreeHA/releases).
+2. Copy the repository contents into `<config>/custom_components/lumentree/`, so that `manifest.json` ends up at `custom_components/lumentree/manifest.json`.
+3. Restart Home Assistant.
 
 ---
 
-## Configuration
+## Setup
 
-1. **Settings** → **Devices & Services** → **Add Integration**
-2. Search **Lumentree Inverter**
-3. Enter **Device ID** (format: `H240909079` — found on device label or Lumentree app)
-4. Follow setup wizard
+1. Go to **Settings → Devices & Services → Add Integration** and search for **Lumentree Inverter**.
+2. Enter the **Device ID**. It's printed on the inverter label and shown in the Lumentree app.
+3. Confirm the device that is found.
+
+Repeat for each inverter. To change the Device ID later, choose **Reconfigure** on the integration entry.
+
+During the first few minutes after setup the integration downloads your history (see [Statistics and history](#statistics-and-history)). Monthly, yearly and lifetime values fill in as that finishes.
 
 ---
 
-## Available Entities
+## Updating
 
-### Real-time Sensors (48 entities enabled, 55 defined)
-| Category | Sensors |
-|----------|---------|
-| Power | PV Power, PV1, PV2, Battery, Grid, Load, Total Load, AC Output, AC Input, Apparent Power, Generator, CT Trickle Feed |
-| Voltage | Battery, PV1, PV2, Grid, AC Output, AC Input, Equalizing/Boost/Float Charge Voltage, Battery Low Voltage Protection, Battery Recovery Voltage |
-| Current | Battery, AC Input, AC Output, Battery Maximum Charge Current, Maximum Discharge Current |
-| Energy | PV Input Today |
+When a new release is published, HACS shows it under **Settings → Updates** and in HACS itself. Install it, then **restart Home Assistant**.
+
+If you want to see the update straight away, open the repository in HACS and choose **⋮ → Update information**.
+
+Release notes, including anything you'll notice after updating, are on the [Releases page](https://github.com/ngoviet/lumentreeHA/releases).
+
+---
+
+## Entities
+
+Entity IDs follow the pattern `sensor.device_<serial>_<key>`, for example `sensor.device_h240909079_battery_soc`.
+
+### Real-time (MQTT): 55 sensors
+
+| Group | Sensors |
+|---|---|
+| Power | PV, PV1\*, PV2\*, Battery, Grid, Load, Total Load, AC Output, AC Output Apparent Power, AC Input, Generator |
+| Voltage | Battery, PV1\*, PV2\*, Grid, AC Output, AC Input\* |
+| Current | Battery, AC Input, AC Output |
 | Frequency | AC Output, AC Input |
-| Status | Battery SOC (%), Battery Status, Grid Status, Battery Type, UPS Mode, Master/Slave, AI Mode, Self-Consumption Ratio |
-| Setting (diagnostic) | Battery Capacity, Low Capacity Cutoff Point, Protecting Recovery Point, Equalizing Charge Interval, Equalizing Charge Time, Grid Type, AC Output Frequency Setting, Charge From AC, AC Coupling |
-| Info (diagnostic) | Device Temperature, Work Mode, Battery Mode, Firmware Version, Controller Version, Battery Cell Info, MQTT Device SN |
+| Battery | SOC, Status, Type, Battery Cell Info (cell voltages as attributes) |
+| Status | Grid Status, Master/Slave, Self-Consumption Ratio, Device Temperature, PV Input Today |
+| Settings (diagnostic) | Battery Capacity, Max Charge Current, Max Discharge Current, Equalizing / Boost / Float Charge Voltage, Low Voltage Protection, Recovery Voltage, Low Capacity Cutoff, Protecting Recovery Point, Equalizing Charge Interval and Time, CT Trickle Feed, AI Mode, Grid Type, AC Output Frequency Setting, Charge From AC, AC Coupling, Work Mode, Battery Mode |
+| Info (diagnostic) | Firmware Version, Controller Version, Device SN (MQTT)\*, Last Raw MQTT Hex\* |
 
-Seven real-time sensors ship disabled by default (PV1/PV2 power and voltage, AC Input Voltage, MQTT Device SN, Last Raw MQTT Hex); enable them in the entity registry if you need them.
-See [register availability by frame length](docs/api/REGISTER_MAP.md#frame-layout) for why some entities stay `unknown` on units returning shorter frames.
+\* Disabled by default (7 sensors). Enable them under the device's entity list if you need them.
 
-### Statistics Sensors (28 entities)
-| Period | Metrics | Refresh |
-|--------|---------|---------|
-| Daily (7) | PV, Charge, Discharge, Grid, Load, Essential, Total Load | 5 min |
-| Monthly (7) | Same as Daily | 5 min |
-| Yearly (7) | Same, plus monthly arrays as attributes for charting | 5 min |
-| Total (7) | Lifetime cumulative sums | 5 min |
+Some inverters send a shorter MQTT frame, and the settings in its upper range then stay `unknown`. That's expected; see [register availability by frame length](docs/api/REGISTER_MAP.md#frame-layout).
 
-Saved energy (kWh) and cost savings (VND) are exposed as state attributes on the statistics sensors, not as separate entities.
+### Statistics (HTTP): 28 sensors
 
-### Binary Sensors (2 entities)
-- Online Status, UPS Mode
+| Period | Sensors | Chart attributes |
+|---|---|---|
+| Today (7) | PV, Charge, Discharge, Grid Input, Load, Essential Load, Total Load | `series_5min_w`, `series_5min_kwh`, `series_hour_kwh`, `saved_kwh`, `savings_vnd` |
+| This Month (7) | same | `daily_pv`, `daily_charge`, …, `daily_saved_kwh`, `daily_savings_vnd` (one value per day) |
+| This Year (7) | same | `monthly_pv`, `monthly_charge`, …, `monthly_saved_kwh`, `monthly_savings_vnd` (one value per month) |
+| Total (7) | same, lifetime | `years_processed`, `earliest_year`, `latest_year` |
+
+All statistics refresh every 5 minutes, and **today is included** in the month, year and lifetime figures. The "Today" sensors work in the Home Assistant **Energy dashboard**.
+
+### Binary sensors: 2
+
+- **Online Status**: goes off when no MQTT frame has arrived for 12.5 s.
+- **UPS Mode**
+
+---
+
+## Statistics and history
+
+- **Today** comes live from the Lumentree cloud every 5 minutes.
+- **Finished days** are stored on disk in `<config>/.storage/lumentree_stats/<device>/<year>.json`. The month, year and lifetime figures are computed from them, plus today's live values.
+- **On every start** the integration fills in missing history a month at a time, up to 5 years back. A restart with complete history only asks the cloud for the current month.
+- **Shortly after midnight** (00:20) it saves yesterday's final totals and fills any gaps.
+- A day is only stored once it is over, so a value read in the middle of the day is never kept.
+
+Nothing needs to be configured. If the history looks wrong, see [Services](#services) to rebuild it.
+
+---
+
+## Services
+
+All services are under the `lumentree` domain. Each accepts an optional **`device_sn`**: without it, the service runs for every configured inverter.
+
+| Service | What it does |
+|---|---|
+| `smart_backfill` | Fill missing history month by month (fast). Options: `max_years`, `optimize_cache`. |
+| `purge_and_backfill` | Delete the stored history and rebuild it with `smart_backfill`. |
+| `backfill_all` | Rebuild history day by day (slow, one request per day). Use this if `smart_backfill` reports that the cloud ignores the month. |
+| `backfill_gaps` | Fill missing days, a limited number per run. |
+| `backfill_now` | Fill the last N finished days. |
+| `backfill_empty_dates` | Re-check days that were recorded as empty. |
+| `recompute_month_year` | Recompute this year's month and year sums from the stored days. |
+| `optimize_cache` | Remove empty days from the stored files. |
+| `purge_cache` / `purge_all_cache` | Delete one year's history, or all of it. |
+| `mark_empty_dates` / `mark_coverage_range` | Manual corrections to the stored history. |
+| `enable_purge_on_startup` / `disable_purge_on_startup` | Purge and rebuild history on the next restart (switches itself off afterwards). |
+
+Example (rebuild history for one inverter):
+
+```yaml
+service: lumentree.purge_and_backfill
+data:
+  device_sn: H240909079
+  max_years: 5
+```
+
+---
+
+## Dashboards
+
+Ready-made Lovelace dashboards are in [`docs/dashboard/`](docs/dashboard/):
+
+- [Daily statistics](docs/dashboard/dashboard_daily_stats.yaml)
+- [PV and grid](docs/dashboard/dashboard_pv_grid.yaml)
+- [Total load](docs/dashboard/dashboard_total_load.yaml)
+- [Battery charge and discharge](docs/dashboard/dashboard_battery_charge_discharge.yaml)
+
+Setup notes are in [DASHBOARD_README.md](docs/dashboard/DASHBOARD_README.md), and fixes for common chart problems in [TROUBLESHOOTING_GUIDE.md](docs/dashboard/TROUBLESHOOTING_GUIDE.md).
 
 ---
 
 ## Troubleshooting
 
-### No entities after setup
-- Restart Home Assistant
-- Check logs: `custom_components.lumentree` for errors
-- Verify network access to `lesvr.suntcn.com:1886` (MQTT) and `lesvr.suntcn.com:80` (HTTP)
+**Setup fails or keeps retrying.** Check that Home Assistant can reach `lesvr.suntcn.com` on ports 80 and 1886. If the cloud or broker is down, Home Assistant retries the setup automatically.
 
-### Sensors stuck / not updating
-- MQTT sensors freeze → integration auto-reconnects within 2 minutes
-- Stats sensors → check if daily coordinator is updating
+**Live sensors stop updating.** Check **Online Status**. The integration reconnects to MQTT on its own with increasing delays. If the inverter itself is offline in the Lumentree app, nothing will arrive.
 
-### Enable debug logging
+**Statistics show `unavailable`.** The Lumentree cloud didn't answer the last request. The sensors recover on the next successful refresh, within 5 minutes.
+
+**Month / year / lifetime values look too low.** History may still be downloading after the first start. Wait a few minutes, or run `lumentree.smart_backfill`.
+
+**Debug logging:**
+
 ```yaml
 logger:
   logs:
     custom_components.lumentree: debug
 ```
 
+When reporting a bug, attach **Download diagnostics** from the device page (the token is redacted) and the debug log. Use the [issue tracker](https://github.com/ngoviet/lumentreeHA/issues).
+
 ---
 
-## About the Developer
+## How it works
+
+```
+Inverter ──► Lumentree cloud ──┬── MQTT  reportApp/<serial>  ──► live sensors (5 s)
+                               │   (Modbus-RTU frames; the integration
+                               │    publishes read requests to listenApp/<serial>)
+                               └── HTTP  lesvr.suntcn.com     ──► statistics (5 min)
+                                                                  + history on disk
+```
+
+Protocol and register details for contributors are in [`docs/`](docs/README.md):
+
+- [API protocol](docs/api/API_PROTOCOL.md)
+- [Register map](docs/api/REGISTER_MAP.md)
+- [Cache and backfill](docs/api/CACHE_AND_BACKFILL.md)
+- [Development notes](docs/DEVELOPMENT_NOTES.md)
+
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest tests/`, linting with `ruff check .`.
+
+---
+
+## Support the project
 
 <p align="center">
-  <b>Tôi là người Việt Nam 🇻🇳 — một mình xây dựng và duy trì integration này.</b><br/>
-  Dành <b>200+ giờ</b> phát triển, sửa lỗi, và cập nhật để integration hoạt động ổn định.<br/>
-  <b>Mục tiêu: $20/tháng</b> — đủ để tôi có động lực tiếp tục cập nhật lâu dài.<br/><br/>
+  <b>Tôi là người Việt Nam 🇻🇳, một mình xây dựng và duy trì integration này.</b><br/>
+  Nếu nó giúp bạn tiết kiệm tiền điện, một cốc cà phê là động lực để tôi tiếp tục cập nhật.<br/><br/>
   <a href="https://buymeacoffee.com/ngoviet">
     <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=ngoviet&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
   </a>
 </p>
 
----
-
-## Support This Project
-
-Nếu integration này giúp bạn tiết kiệm tiền điện, hãy ủng hộ tôi:
-
-### Quốc tế
-- [☕ Buy Me A Coffee](https://buymeacoffee.com/ngoviet) — Credit card, Apple Pay, PayPal
-- [💖 GitHub Sponsors](https://github.com/sponsors/ngoviet) — Zero-fee recurring sponsorship
-
-### Việt Nam
-- **VietQR** — Quét mã chuyển khoản ngân hàng (miễn phí)
-- **Momo** — Chuyển tiền qua ví Momo
-
-*(QR codes coming soon — đang chờ thông tin tài khoản)*
+- [☕ Buy Me A Coffee](https://buymeacoffee.com/ngoviet): credit card, Apple Pay, PayPal
+- [💖 GitHub Sponsors](https://github.com/sponsors/ngoviet): recurring sponsorship, no fees
 
 ---
 
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) or [GitHub Releases](https://github.com/ngoviet/lumentreeHA/releases) for detailed version history.
-
----
-
-**Made with ❤️ by a Vietnamese developer — [Buy me a coffee](https://buymeacoffee.com/ngoviet) if this helps you.**
+MIT licensed. Not affiliated with Lumentree or SUNTCN.
