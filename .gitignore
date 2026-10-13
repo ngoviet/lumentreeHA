@@ -102,3 +102,17 @@ legacy/
 *.apk
 mqtt_discovery.json
 api_exploration_*.json
+
+# --- nền D:\code (System_info/templates/dcode/gitignore-base) ---
+.env
+.env.*
+!.env.example
+logs/
+tmp/
+*.log.err
+*.bak*
+*.old
+.venv/
+node_modules/
+.codegraph/
+desktop.ini
