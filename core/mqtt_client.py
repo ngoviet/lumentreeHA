@@ -40,6 +40,63 @@ MAX_RECONNECT_ATTEMPTS = 10
 CONNECT_TIMEOUT = 20
 OFFLINE_TIMEOUT_SECONDS = DEFAULT_POLLING_INTERVAL * 2.5
 NUM_MAIN_REGISTERS_TO_READ = 151  # Read registers 0-150 (extended for work/battery mode)
+BATCH_DELAY_SECONDS = 0.1  # Coalesce frames arriving together into one dispatch
+
+# paho-mqtt 2.x deprecates the 1.x callback signatures and 3.0 removes them;
+# 1.6 (what Home Assistant 2024.4 ships) has no CallbackAPIVersion at all.
+_CALLBACK_API_VERSION2 = getattr(getattr(paho, "CallbackAPIVersion", None), "VERSION2", None)
+
+_CONNACK_ERRORS = {
+    1: "Protocol",
+    2: "ID Rejected",
+    3: "Server Unavailable",
+    4: "Bad User/Password",
+    5: "Not Authorized",
+}
+
+
+def _new_paho_client(client_id: str) -> paho.Client:
+    """Build a paho client using the newest callback API the library offers."""
+    if _CALLBACK_API_VERSION2 is not None:
+        return paho.Client(_CALLBACK_API_VERSION2, client_id=client_id, protocol=paho.MQTTv311)
+    return paho.Client(client_id=client_id, protocol=paho.MQTTv311)
+
+
+def _stop_quietly(mqttc: paho.Client) -> None:
+    """Disconnect a paho client and join its network thread (blocking).
+
+    DISCONNECT goes out first, while the network loop is still running to
+    send it; stopping the loop first left the broker to notice the drop only
+    at keepalive expiry.  Either step failing is logged at debug and
+    otherwise ignored: the client is being discarded, and a failed
+    ``loop_stop()`` is worth seeing only because it leaks the paho thread.
+
+    The callbacks are detached first.  A discarded client's ``on_disconnect``
+    would otherwise schedule a reconnect of its own (one more on every failed
+    hard reconnect) and flip ``_is_connected`` under a replacement client.
+    """
+    mqttc.on_connect = None
+    mqttc.on_disconnect = None
+    mqttc.on_message = None
+    try:
+        mqttc.disconnect()
+    except Exception:
+        _LOGGER.debug("MQTT disconnect() failed", exc_info=True)
+    try:
+        mqttc.loop_stop()
+    except Exception:
+        _LOGGER.debug("MQTT loop_stop() failed", exc_info=True)
+
+
+def _describe_connack(rc: Any) -> str:
+    """Human-readable CONNACK result for either callback API.
+
+    API v1 hands over the raw MQTT 3.1.1 integer; API v2 a ``ReasonCode`` whose
+    ``str()`` is already the reason's name.
+    """
+    if isinstance(rc, int):
+        return _CONNACK_ERRORS.get(rc, "Unknown")
+    return str(rc)
 
 
 class LumentreeMqttClient:
@@ -112,7 +169,7 @@ class LumentreeMqttClient:
         self._offline_timer_gen: int = 0
 
         # Batch update optimization
-        self._batch_timer: asyncio.Task | None = None
+        self._batch_timer: asyncio.TimerHandle | None = None
         self._pending_updates: dict[str, Any] = {}
 
     @property
@@ -140,59 +197,49 @@ class LumentreeMqttClient:
             self._offline_timer_unsub = None
 
     def _cancel_batch_timer(self) -> None:
-        """Cancel the batch timer if active."""
+        """Cancel the batch timer, flushing whatever it was holding.
+
+        Event-loop-only, like every other touch of ``_batch_timer``.
+        """
         if self._batch_timer is not None:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("Cancelling batch timer %s", self._client_id)
-            try:
-                self._batch_timer.cancel()
-            except Exception as exc:
-                _LOGGER.warning(f"Error cancelling batch timer {self._client_id}: {exc}")
-            self._batch_timer = None
-
-    async def _start_batch_timer(self) -> None:
-        """Start timer to process batch updates."""
-        if self._batch_timer is not None:
             self._batch_timer.cancel()
-
-        self._batch_timer = asyncio.create_task(self._process_batch_updates())
-
-    async def _process_batch_updates(self) -> None:
-        """Process batch updates every 100ms to reduce overhead."""
-        try:
-            await asyncio.sleep(0.1)  # 100ms delay
-
-            if self._pending_updates:
-                # Send all updates at once
-                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
-                self._pending_updates.clear()
-
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Sent batch update for %s", self._device_sn)
-        except asyncio.CancelledError:
-            # Timer cancelled, send remaining updates
-            if self._pending_updates:
-                async_dispatcher_send(self.hass, self._signal_update, self._pending_updates.copy())
-                self._pending_updates.clear()
-        except Exception as exc:
-            _LOGGER.error(f"Error in batch update processing: {exc}")
-        finally:
             self._batch_timer = None
+        self._flush_pending_updates()
+
+    def _flush_pending_updates(self) -> None:
+        """Dispatch every queued update as one batch (event loop only)."""
+        self._batch_timer = None
+        if not self._pending_updates:
+            return
+        batch = self._pending_updates
+        self._pending_updates = {}
+        async_dispatcher_send(self.hass, self._signal_update, batch)
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            _LOGGER.debug("Sent batch update for %s", self._device_sn)
 
     def _queue_update(self, data: dict[str, Any]) -> None:
         """Add update to queue for batch processing.
 
+        The first update arms a single ``call_later`` handle and later ones
+        just merge into the pending dict, so a burst of frames (main block and
+        battery cells) becomes one dispatch.  The handle is set synchronously:
+        the earlier task-based timer was armed one loop iteration late, so two
+        frames in the same iteration each started a timer and the second
+        cancelled the first.
+
         Args:
             data: Update data to queue
         """
+        if not self._is_on_event_loop():
+            self._call_soon(self._queue_update, data)
+            return
         self._pending_updates.update(data)
-
-        # Start timer if not already running.
-        # _queue_update is reached from the paho thread via call_soon_threadsafe,
-        # so _batch_timer is only ever touched on the loop -- but keep the
-        # marshalling so a direct call from anywhere stays safe.
         if self._batch_timer is None:
-            self._call_soon(lambda: self.hass.async_create_task(self._start_batch_timer()))
+            self._batch_timer = self.hass.loop.call_later(
+                BATCH_DELAY_SECONDS, self._flush_pending_updates
+            )
 
     def _is_on_event_loop(self) -> bool:
         """Return True when running on this instance's event loop thread."""
@@ -271,48 +318,54 @@ class LumentreeMqttClient:
 
             self._stopping = False
             self._connected_event.clear()
-            self._mqttc = paho.Client(client_id=self._client_id, protocol=paho.MQTTv311)
-            self._mqttc.username_pw_set(username=MQTT_USERNAME, password=MQTT_PASSWORD)
-            self._mqttc.on_connect = self._on_connect
-            self._mqttc.on_disconnect = self._on_disconnect
-            self._mqttc.on_message = self._on_message
+            mqttc = _new_paho_client(self._client_id)
+            mqttc.username_pw_set(username=MQTT_USERNAME, password=MQTT_PASSWORD)
+            mqttc.on_connect = self._on_connect
+            mqttc.on_disconnect = self._on_disconnect
+            mqttc.on_message = self._on_message
+            self._mqttc = mqttc
 
             _LOGGER.info(
-                f"MQTT connecting: {MQTT_BROKER}:{MQTT_PORT} (Client: {self._client_id}) for SN: {self._device_sn}"
+                "MQTT connecting: %s:%s (Client: %s) for SN: %s",
+                MQTT_BROKER,
+                MQTT_PORT,
+                self._client_id,
+                self._device_sn,
             )
 
             try:
                 await self.hass.async_add_executor_job(
-                    self._mqttc.connect, MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE
+                    mqttc.connect, MQTT_BROKER, MQTT_PORT, MQTT_KEEPALIVE
                 )
-                self._mqttc.loop_start()
+                mqttc.loop_start()
                 _LOGGER.info(
-                    f"MQTT loop started {self._client_id}. Waiting for CONNACK ({CONNECT_TIMEOUT}s)"
+                    "MQTT loop started %s. Waiting for CONNACK (%ss)",
+                    self._client_id,
+                    CONNECT_TIMEOUT,
                 )
 
                 try:
                     await asyncio.wait_for(self._connected_event.wait(), timeout=CONNECT_TIMEOUT)
-                    if not self._is_connected:
-                        raise ConnectionRefusedError("MQTT connection refused")
-                    _LOGGER.info(f"MQTT connected successfully {self._client_id}")
                 except TimeoutError as err:
-                    _LOGGER.error(f"MQTT connection timeout {self._client_id}")
-                    await self.disconnect()
-                    # Chained so the timeout stays visible in the traceback
-                    # instead of being hidden behind the re-raise.
+                    # Cleanup happens in the handler below.  This used to call
+                    # self.disconnect(), which takes _connect_lock -- the lock
+                    # this method is still holding -- so a missing CONNACK hung
+                    # setup (and every later hard reconnect) forever.
                     raise ConnectionRefusedError("MQTT connection timeout") from err
+                if not self._is_connected:
+                    raise ConnectionRefusedError("MQTT connection refused")
+                _LOGGER.info("MQTT connected successfully %s", self._client_id)
             except Exception as exc:
-                _LOGGER.error(f"Failed MQTT connect {self._client_id}: {exc}")
-                if self._mqttc:
-                    try:
-                        self._mqttc.loop_stop()
-                        if _LOGGER.isEnabledFor(logging.DEBUG):
-                            _LOGGER.debug("MQTT loop stopped after failure %s", self._client_id)
-                    except Exception as se:
-                        _LOGGER.warning(f"Loop stop error: {se}")
+                _LOGGER.error("Failed MQTT connect %s: %s", self._client_id, exc)
                 self._mqttc = None
                 self._is_connected = False
                 self._connected_event.set()
+                # loop_stop() joins the network thread, so it must not run on
+                # the event loop.
+                try:
+                    await self.hass.async_add_executor_job(_stop_quietly, mqttc)
+                except Exception as stop_exc:
+                    _LOGGER.warning("Loop stop error: %s", stop_exc)
                 if isinstance(exc, ConnectionRefusedError):
                     raise
                 raise ConnectionRefusedError(f"MQTT setup error: {exc}") from exc
@@ -354,29 +407,30 @@ class LumentreeMqttClient:
                 return
             self._call_soon(self._connected_event.set)
         else:
-            err_map = {
-                1: "Protocol",
-                2: "ID Rejected",
-                3: "Server Unavailable",
-                4: "Bad User/Password",
-                5: "Not Authorized",
-            }
-            err = err_map.get(rc, "Unknown")
-            _LOGGER.error(f"MQTT connection refused {self._client_id} (rc={rc}): {err}")
+            _LOGGER.error(
+                "MQTT connection refused %s (rc=%s): %s",
+                self._client_id,
+                rc,
+                _describe_connack(rc),
+            )
             self._is_connected = False
             self._call_soon(self._connected_event.set)
             self._call_soon(self._set_offline)
             self._call_soon(self._safe_schedule_reconnect)
 
-    def _on_disconnect(self, client, userdata, rc, properties=None) -> None:
+    def _on_disconnect(self, client, userdata, *args) -> None:
         """Callback when disconnected.
+
+        paho's callback API v1 passes ``(rc)`` or ``(rc, properties)``; v2
+        passes ``(disconnect_flags, reason_code, properties)``.  Either way the
+        result code is the last argument that is not properties.
 
         Args:
             client: MQTT client instance
             userdata: User data
-            rc: Disconnection result code
-            properties: Disconnect properties (MQTT v5)
+            args: Callback-API-specific tail, see above
         """
+        rc = args[1] if len(args) >= 3 else (args[0] if args else 0)
         self._is_connected = False
         # _set_offline cancels the offline timer itself, on the event loop.
         # Cancelling it here as well would touch the TimerHandle from the paho
@@ -470,45 +524,24 @@ class LumentreeMqttClient:
         old_mqttc = self._mqttc
         self._mqttc = None
         self._cancel_batch_timer()
-        self._pending_updates.clear()
 
         if old_mqttc:
-            # Both calls are best-effort: the old client is already detached, so a
-            # failure here does not change the outcome.  It is logged at debug
-            # rather than swallowed silently because a failing loop_stop() leaves
-            # the paho network-loop thread behind, and a leak of those across
-            # repeated reconnects is exactly the kind of thing that only shows up
-            # as an unexplained thread count later.
-            try:
-                old_mqttc.loop_stop()
-            except Exception:
-                _LOGGER.debug(
-                    "MQTT hard reconnect: loop_stop() failed for %s",
-                    self._client_id,
-                    exc_info=True,
-                )
-            try:
-                old_mqttc.disconnect()
-            except Exception:
-                _LOGGER.debug(
-                    "MQTT hard reconnect: disconnect() failed for %s",
-                    self._client_id,
-                    exc_info=True,
-                )
+            # Off the event loop: loop_stop() joins the paho network thread.
+            await self.hass.async_add_executor_job(_stop_quietly, old_mqttc)
 
         self._is_connected = False
         self._connected_event.clear()
         self._reconnect_attempts = 0
-        self._stopping = False
 
         try:
             await self.connect()
             _LOGGER.info("MQTT hard reconnect successful %s", self._client_id)
         except Exception as exc:
             _LOGGER.error("MQTT hard reconnect failed %s: %s", self._client_id, exc)
-            # connect() calls disconnect() on failure which sets _stopping=True
-            # Reset flags and schedule next hard reconnect attempt
-            self._stopping = False
+            # An unload that landed while connect() was in flight has set
+            # _stopping; rescheduling then would reconnect a removed entry.
+            if self._stopping:
+                return
             self._reconnect_attempts = MAX_RECONNECT_ATTEMPTS
             self._schedule_reconnect()
 
@@ -523,7 +556,7 @@ class LumentreeMqttClient:
         topic = msg.topic
         try:
             payload_bytes = msg.payload
-            payload_hex = "".join(f"{b:02x}" for b in payload_bytes) if payload_bytes else ""
+            payload_hex = bytes(payload_bytes).hex() if payload_bytes else ""
 
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug(
@@ -653,28 +686,13 @@ class LumentreeMqttClient:
             self._is_connected = False
 
         if mqttc_to_disconnect:
+            # The session is clean, so the broker drops the subscription with
+            # the connection; there is nothing to unsubscribe first.
             try:
-                # Unsubscribe before disconnecting
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Unsubscribing from topic %s", self._topic_sub)
-                try:
-                    await self.hass.async_add_executor_job(
-                        mqttc_to_disconnect.unsubscribe, self._topic_sub
-                    )
-                except Exception as unsub_exc:
-                    _LOGGER.warning(
-                        f"Error unsubscribing from {self._topic_sub} {self._client_id}: {unsub_exc}"
-                    )
-
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Stopping MQTT loop %s", self._client_id)
-                await self.hass.async_add_executor_job(mqttc_to_disconnect.loop_stop)
-                if _LOGGER.isEnabledFor(logging.DEBUG):
-                    _LOGGER.debug("Executing MQTT disconnect %s", self._client_id)
-                await self.hass.async_add_executor_job(mqttc_to_disconnect.disconnect)
-                _LOGGER.info(f"MQTT client disconnected {self._client_id}")
+                await self.hass.async_add_executor_job(_stop_quietly, mqttc_to_disconnect)
+                _LOGGER.info("MQTT client disconnected %s", self._client_id)
             except Exception as exc:
-                _LOGGER.warning(f"Error during MQTT disconnect {self._client_id}: {exc}")
+                _LOGGER.warning("Error during MQTT disconnect %s: %s", self._client_id, exc)
         else:
             if _LOGGER.isEnabledFor(logging.DEBUG):
                 _LOGGER.debug("MQTT client already None %s", self._client_id)

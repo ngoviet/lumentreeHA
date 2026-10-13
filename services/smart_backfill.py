@@ -1,4 +1,4 @@
-"""Smart backfill system using getYearData/getMonthData for optimal performance."""
+"""Smart backfill: fill the year caches a month at a time from getMonthData."""
 
 from __future__ import annotations
 
@@ -9,190 +9,184 @@ import logging
 import time
 from typing import Any
 
-from ..const import DEFAULT_TARIFF_VND_PER_KWH
+from ..const import today_in_ha
 from ..core.api_client import LumentreeHttpApiClient
 from . import cache as cache_io
 
 _LOGGER = logging.getLogger(__name__)
 
+# Metrics getMonthData reports, mapped to the cache's daily keys.
+_MONTH_KEYS: dict[str, str] = {
+    "pv": "pv",
+    "grid": "grid",
+    "homeload": "load",
+    "essentialLoad": "essential",
+    "bat": "charge",
+    "batF": "discharge",
+}
+_DAY_METRICS = tuple(_MONTH_KEYS.values())
 
-async def detect_data_gaps_from_api(
-    api_client: LumentreeHttpApiClient, device_id: str, max_years: int = 10
-) -> dict[int, list[int]]:
-    """Detect which months have data using getYearData API (fast scan).
+# A cached value this much below the API's counts as an unfinished day.  The
+# API reports whole 0.1 kWh units, so anything smaller is rounding noise.
+_PARTIAL_DAY_TOLERANCE = 0.05
 
-    Args:
-        api_client: API client
-        device_id: Device ID
-        max_years: Maximum years to check
+_REQUEST_DELAY_SECONDS = 0.1
+
+
+class _ParamsIgnoredError(Exception):
+    """getMonthData answered a past month with another month's numbers."""
+
+
+def _day_values(month_data: dict[str, Any], day: int) -> dict[str, float]:
+    """One day's metrics (kWh) out of a getMonthData result."""
+    values: dict[str, float] = {}
+    for api_key, cache_key in _MONTH_KEYS.items():
+        series = month_data.get(api_key) or []
+        values[cache_key] = float(series[day - 1]) if day <= len(series) else 0.0
+    return values
+
+
+def _has_data(values: dict[str, Any]) -> bool:
+    return any(float(values.get(key, 0.0) or 0.0) > 0.0 for key in _DAY_METRICS)
+
+
+def _month_is_complete(cache: dict[str, Any], year: int, month: int, today: dt.date) -> bool:
+    """True when every finished day of the month is cached or known empty."""
+    daily = cache.get("daily", {})
+    empty = set(cache.get("meta", {}).get("empty_dates", []))
+    for day in range(1, calendar.monthrange(year, month)[1] + 1):
+        date = dt.date(year, month, day)
+        if date >= today:
+            return False  # The month is not over, so the API has more to say.
+        date_str = date.isoformat()
+        if date_str not in daily and date_str not in empty:
+            return False
+    return True
+
+
+def _month_has_cached_data(cache: dict[str, Any], year: int, month: int) -> bool:
+    prefix = f"{year}-{month:02d}-"
+    return any(
+        date_str.startswith(prefix) and _has_data(values)
+        for date_str, values in cache.get("daily", {}).items()
+    )
+
+
+def drop_unfinished_days(cache: dict[str, Any], today: dt.date) -> bool:
+    """Remove entries for ``today`` and later; return True if any were removed.
+
+    Earlier versions cached the partial reading of the day in progress and
+    zero rows for the rest of the month.  An entry for a day that is not over
+    blocks the day's real total from ever being written, and the in-progress
+    row was counted a second time next to the live reading.
+    """
+    cutoff = today.isoformat()
+    daily = cache.get("daily", {})
+    stale = [date_str for date_str in daily if date_str >= cutoff]
+    for date_str in stale:
+        del daily[date_str]
+    meta = cache.get("meta", {})
+    empties = meta.get("empty_dates")
+    if isinstance(empties, list):
+        kept = [date_str for date_str in empties if date_str < cutoff]
+        if len(kept) != len(empties):
+            meta["empty_dates"] = kept
+            stale.append("empty_dates")
+    return bool(stale)
+
+
+def merge_month(
+    cache: dict[str, Any],
+    year: int,
+    month: int,
+    month_data: dict[str, Any],
+    today: dt.date,
+) -> tuple[int, int, bool]:
+    """Fold one getMonthData result into ``cache``.
+
+    Only finished days (before ``today``) are written.  A day missing from the
+    cache is added (or marked empty when the API has nothing for it either).
+    A cached day is raised metric by metric to the API value where the cache
+    is lower: a day's counters only grow, so a lower cached value is a reading
+    taken before the day ended, or a discharge that an earlier version dropped.
 
     Returns:
-        Dictionary mapping year to list of months (1-12) that have data
+        (days_added, days_updated, month_has_data)
     """
-    today = dt.date.today()
-    years_with_data: dict[int, list[int]] = {}
+    days_added = 0
+    days_updated = 0
+    month_has_data = False
+    daily = cache.setdefault("daily", {})
+    empty = set(cache.get("meta", {}).get("empty_dates", []))
 
-    for year_offset in range(max_years):
-        year = today.year - year_offset
-        if year < 2000:
+    for day in range(1, calendar.monthrange(year, month)[1] + 1):
+        date = dt.date(year, month, day)
+        if date >= today:
             break
+        date_str = date.isoformat()
+        api_values = _day_values(month_data, day)
+        api_has_data = _has_data(api_values)
+        month_has_data = month_has_data or api_has_data
 
-        try:
-            year_data = await api_client.get_year_data(device_id, year)
-
-            # Check which months have data
-            months_with_data = []
-            pv_data = year_data.get("pv", [0.0] * 12)
-            grid_data = year_data.get("grid", [0.0] * 12)
-            load_data = year_data.get("homeload", [0.0] * 12)
-
-            for month_idx in range(12):
-                month = month_idx + 1
-                has_data = (
-                    pv_data[month_idx] > 0.0
-                    or grid_data[month_idx] > 0.0
-                    or load_data[month_idx] > 0.0
-                )
-                if has_data:
-                    months_with_data.append(month)
-
-            if months_with_data:
-                years_with_data[year] = months_with_data
-                _LOGGER.debug(f"Year {year} has data in months: {months_with_data}")
-        except Exception as err:
-            _LOGGER.debug(f"Error checking year {year} from API: {err}")
+        existing = daily.get(date_str)
+        if existing is None:
+            if not api_has_data:
+                if date_str not in empty:
+                    cache_io.mark_empty(cache, date_str)
+                    days_added += 1
+                continue
+            cache_io.update_daily(cache, date_str, api_values)
+            days_added += 1
             continue
 
-    return years_with_data
+        merged = {key: float(existing.get(key, 0.0) or 0.0) for key in _DAY_METRICS}
+        raised = False
+        for key in _DAY_METRICS:
+            if api_values[key] > merged[key] + _PARTIAL_DAY_TOLERANCE:
+                merged[key] = api_values[key]
+                raised = True
+        if raised:
+            cache_io.update_daily(cache, date_str, merged)
+            days_updated += 1
+
+    return days_added, days_updated, month_has_data
 
 
-async def backfill_month_from_api(
-    api_client: LumentreeHttpApiClient, device_id: str, year: int, month: int, cache: dict[str, Any]
-) -> tuple[int, int]:
-    """Backfill a month using getMonthData API (much faster than daily).
-
-    Args:
-        api_client: API client
-        device_id: Device ID
-        year: Year
-        month: Month (1-12)
-        cache: Cache dictionary to update
-
-    Returns:
-        Tuple of (days_added, days_updated)
-    """
-    try:
-        month_data = await api_client.get_month_data(device_id, year, month)
-
-        # Get daily arrays from API
-        pv_daily = month_data.get("pv", [])
-        grid_daily = month_data.get("grid", [])
-        load_daily = month_data.get("homeload", [])
-        essential_daily = month_data.get("essentialLoad", [])
-        bat_daily = month_data.get("bat", [])
-        batf_daily = month_data.get("batF", [])
-
-        days_added = 0
-        days_updated = 0
-
-        # Get number of days in month
-        days_in_month = calendar.monthrange(year, month)[1]
-
-        # Process each day
-        daily = cache.setdefault("daily", {})
-        # Use longest available array to avoid losing data from shorter arrays
-        max_days = max(
-            len(arr)
-            for arr in (pv_daily, grid_daily, load_daily, essential_daily, bat_daily, batf_daily)
-        )
-        loop_limit = min(max_days, days_in_month)
-        for day in range(1, loop_limit + 1):
-            date_str = f"{year}-{month:02d}-{day:02d}"
-
-            # Check if day already exists and has data
-            existing = daily.get(date_str)
-            if existing:
-                # Check if existing has real data
-                has_existing_data = any(
-                    float(existing.get(key, 0.0)) > 0.0
-                    for key in ["pv", "grid", "load", "essential"]
-                )
-
-                # Check if API has data for this day
-                has_api_data = (
-                    day <= len(pv_daily)
-                    and pv_daily[day - 1] > 0.0
-                    or day <= len(grid_daily)
-                    and grid_daily[day - 1] > 0.0
-                    or day <= len(load_daily)
-                    and load_daily[day - 1] > 0.0
-                )
-
-                # Only update if API has data and existing doesn't
-                if has_api_data and not has_existing_data:
-                    days_updated += 1
-                else:
-                    continue  # Skip if already has data
-            else:
-                days_added += 1
-
-            # Extract values for this day
-            pv_val = pv_daily[day - 1] if day <= len(pv_daily) else 0.0
-            grid_val = grid_daily[day - 1] if day <= len(grid_daily) else 0.0
-            load_val = load_daily[day - 1] if day <= len(load_daily) else 0.0
-            essential_val = essential_daily[day - 1] if day <= len(essential_daily) else 0.0
-            charge_val = bat_daily[day - 1] if day <= len(bat_daily) else 0.0
-            discharge_val = batf_daily[day - 1] if day <= len(batf_daily) else 0.0
-
-            # Calculate derived values
-            total_load_val = round(load_val + essential_val, 1)
-            saved_kwh = max(0.0, total_load_val - grid_val)
-            savings_vnd = round(saved_kwh * DEFAULT_TARIFF_VND_PER_KWH, 0)
-
-            # Update cache
-            daily[date_str] = {
-                "pv": round(pv_val, 1),
-                "grid": round(grid_val, 1),
-                "load": round(load_val, 1),
-                "essential": round(essential_val, 1),
-                "total_load": total_load_val,
-                "charge": round(charge_val, 1),
-                "discharge": round(discharge_val, 1),
-                "saved_kwh": round(saved_kwh, 1),
-                "savings_vnd": savings_vnd,
-            }
-
-        return days_added, days_updated
-    except Exception as err:
-        _LOGGER.error(f"Error backfilling month {year}-{month:02d}: {err}")
-        return 0, 0
+def _fingerprint(month_data: dict[str, Any]) -> tuple[tuple[float, ...], ...]:
+    return tuple(tuple(month_data.get(key) or ()) for key in _MONTH_KEYS)
 
 
 async def smart_backfill(
     hass, aggregator, max_years: int = 10, optimize_cache: bool = True
 ) -> dict[str, Any]:
-    """Smart backfill using getYearData/getMonthData APIs for optimal performance.
+    """Fill the year caches from getMonthData, newest month first.
 
-    Strategy:
-    1. Use getYearData to quickly identify which years/months have data
-    2. Use getMonthData to backfill months that have data (much faster than daily)
-    3. Only backfill missing days, skip if already has data
-    4. Auto-optimize cache after backfill
+    Each month is one request.  A month whose finished days are all cached
+    (or known empty) is skipped without a request, so a restart on a warm
+    cache asks for little more than the current month.  The walk stops at the
+    first past year without a single day of data -- the device's history
+    starts after it.
+
+    This used to choose months from getYearData.  The captured responses in
+    docs/ show that endpoint answering year=2026 with the twelve months of
+    2025 (their sum is exactly getHistoryYearData's 2025 total, and Oct-Dec
+    are non-zero on 2026-09-12), so the months it picked were last year's.
 
     Args:
         hass: HomeAssistant instance
         aggregator: StatsAggregator instance
-        max_years: Maximum years to backfill
+        max_years: Maximum years to walk back, the current one included
         optimize_cache: If True, optimize cache after backfill
 
     Returns:
         Dictionary with backfill statistics
     """
     device_id = aggregator._device_id
-    api_client = aggregator._api
+    api_client: LumentreeHttpApiClient = aggregator._api
+    today = today_in_ha(hass)
 
     start_time = time.time()
-    stats = {
+    stats: dict[str, Any] = {
         "years_processed": 0,
         "months_processed": 0,
         "days_added": 0,
@@ -200,58 +194,76 @@ async def smart_backfill(
         "years_with_data": [],
         "errors": 0,
     }
+    _LOGGER.info("Starting smart backfill for device %s (max_years=%s)", device_id, max_years)
 
-    _LOGGER.info(f"Starting smart backfill for device {device_id} (max_years={max_years})")
+    seen: dict[tuple[tuple[float, ...], ...], tuple[int, int]] = {}
+    aborted = False
 
-    # Step 1: Quick scan - identify years/months with data using getYearData
-    _LOGGER.info("Step 1: Scanning years with data using getYearData API...")
-    years_with_data = await detect_data_gaps_from_api(api_client, device_id, max_years)
+    for year in range(today.year, today.year - max(1, max_years), -1):
+        cache = await hass.async_add_executor_job(cache_io.load_year, device_id, year, False)
+        dirty = drop_unfinished_days(cache, today) if year == today.year else False
+        year_has_data = False
+        year_errors = 0
+        last_month = today.month if year == today.year else 12
 
-    stats["years_with_data"] = list(years_with_data.keys())
-    _LOGGER.info(f"Found data in {len(years_with_data)} years: {list(years_with_data.keys())}")
-
-    # Step 2: Backfill months that have data using getMonthData
-    _LOGGER.info("Step 2: Backfilling months with data using getMonthData API...")
-
-    for year, months in sorted(years_with_data.items(), reverse=True):
-        _LOGGER.info(f"Processing year {year} ({len(months)} months with data)")
-
-        # Load cache for this year
-        cache = await hass.async_add_executor_job(cache_io.load_year, device_id, year)
-        cache_dirty = False
-
-        for month in sorted(months):
+        for month in range(last_month, 0, -1):
+            if _month_is_complete(cache, year, month, today):
+                year_has_data = year_has_data or _month_has_cached_data(cache, year, month)
+                continue
             try:
-                days_added, days_updated = await backfill_month_from_api(
-                    api_client, device_id, year, month, cache
-                )
-
-                if days_added > 0 or days_updated > 0:
-                    cache_dirty = True
-                    stats["days_added"] += days_added
-                    stats["days_updated"] += days_updated
-                    stats["months_processed"] += 1
-                    _LOGGER.debug(
-                        f"Month {year}-{month:02d}: added {days_added}, updated {days_updated}"
-                    )
-
-                # Small delay to avoid rate limiting
-                await asyncio.sleep(0.1)
+                month_data = await api_client.get_month_data(device_id, year, month)
             except Exception as err:
-                _LOGGER.error(f"Error backfilling {year}-{month:02d}: {err}")
+                _LOGGER.warning("getMonthData %s-%02d failed: %s", year, month, err)
                 stats["errors"] += 1
+                year_errors += 1
+                continue
 
-        # Save cache if modified
-        if cache_dirty:
-            # Recompute aggregates
-            cache = cache_io.recompute_aggregates(cache)
-            await hass.async_add_executor_job(cache_io.save_year, device_id, year, cache)
+            fingerprint = _fingerprint(month_data)
+            if any(any(series) for series in fingerprint):
+                if fingerprint in seen:
+                    # The vendor docs warn this endpoint may serve only the
+                    # current month whatever is asked.  Writing that answer
+                    # into another month would fabricate history.
+                    other_year, other_month = seen[fingerprint]
+                    _LOGGER.warning(
+                        "getMonthData returned identical data for %s-%02d and %s-%02d; "
+                        "the API appears to ignore the month. Stopping smart backfill -- "
+                        "use the backfill_all service for history instead.",
+                        year,
+                        month,
+                        other_year,
+                        other_month,
+                    )
+                    aborted = True
+                    break
+                seen[fingerprint] = (year, month)
+
+            added, updated, has_data = merge_month(cache, year, month, month_data, today)
+            year_has_data = year_has_data or has_data
+            if added or updated:
+                dirty = True
+                stats["days_added"] += added
+                stats["days_updated"] += updated
+                stats["months_processed"] += 1
+            await asyncio.sleep(_REQUEST_DELAY_SECONDS)
+
+        if dirty:
+
+            def _persist(c: dict[str, Any] = cache, y: int = year) -> None:
+                cache_io.save_year(device_id, y, cache_io.recompute_aggregates(c))
+
+            await hass.async_add_executor_job(_persist)
             stats["years_processed"] += 1
-            _LOGGER.info(f"Saved cache for year {year}")
+        if year_has_data:
+            stats["years_with_data"].append(year)
 
-    # Step 3: Optimize cache if requested
-    if optimize_cache:
-        _LOGGER.info("Step 3: Optimizing cache...")
+        if aborted:
+            break
+        if year < today.year and not year_has_data and year_errors == 0:
+            _LOGGER.info("No data at all in %s; history starts after it", year)
+            break
+
+    if optimize_cache and stats["years_with_data"]:
         try:
             from . import cache_optimizer
 
@@ -261,20 +273,24 @@ async def smart_backfill(
                 )
                 if result["status"] == "optimized":
                     _LOGGER.info(
-                        f"Optimized year {year}: removed {result['removed']} empty days, "
-                        f"size reduction: {result['size_reduction_percent']:.1f}%"
+                        "Optimized year %s: removed %s empty days, size reduction: %.1f%%",
+                        year,
+                        result["removed"],
+                        result["size_reduction_percent"],
                     )
         except Exception as err:
-            _LOGGER.warning(f"Error optimizing cache: {err}")
+            _LOGGER.warning("Error optimizing cache: %s", err)
 
     elapsed = time.time() - start_time
     stats["elapsed_seconds"] = round(elapsed, 2)
-
     _LOGGER.info(
-        f"Smart backfill completed: {stats['years_processed']} years, "
-        f"{stats['months_processed']} months, {stats['days_added']} days added, "
-        f"{stats['days_updated']} days updated, {stats['errors']} errors, "
-        f"took {elapsed:.1f}s"
+        "Smart backfill completed: %s years written, %s months, %s days added, "
+        "%s days updated, %s errors, took %.1fs",
+        stats["years_processed"],
+        stats["months_processed"],
+        stats["days_added"],
+        stats["days_updated"],
+        stats["errors"],
+        elapsed,
     )
-
     return stats

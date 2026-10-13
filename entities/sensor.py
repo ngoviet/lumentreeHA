@@ -907,18 +907,6 @@ async def async_setup_entry(
 class LumentreeMqttSensor(SensorEntity, RestoreEntity):
     """MQTT sensor entity."""
 
-    __slots__ = (
-        "hass",
-        "entity_description",
-        "_device_sn",
-        "_attr_unique_id",
-        "_attr_object_id",
-        "entity_id",
-        "_attr_device_info",
-        "_remove_dispatcher",
-        "_attr_native_value",
-    )
-
     _attr_should_poll = False
     _attr_has_entity_name = True
 
@@ -1021,19 +1009,6 @@ class LumentreeMqttSensor(SensorEntity, RestoreEntity):
 class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
     """Battery cell sensor entity."""
 
-    __slots__ = (
-        "hass",
-        "entity_description",
-        "_device_sn",
-        "_attr_unique_id",
-        "_attr_object_id",
-        "entity_id",
-        "_attr_device_info",
-        "_attr_extra_state_attributes",
-        "_remove_dispatcher",
-        "_attr_native_value",
-    )
-
     _attr_should_poll = False
     _attr_has_entity_name = True
 
@@ -1119,15 +1094,6 @@ class LumentreeBatteryCellSensor(SensorEntity, RestoreEntity):
 class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], SensorEntity):
     """Daily statistics sensor entity."""
 
-    __slots__ = (
-        "entity_description",
-        "_device_sn",
-        "_attr_unique_id",
-        "_attr_device_info",
-        "_attr_attribution",
-        "_attr_native_value",
-    )
-
     _attr_has_entity_name = True
     _attr_should_poll = False
 
@@ -1166,13 +1132,13 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        """Handle coordinator update."""
-        old_value = self._attr_native_value
+        """Handle coordinator update.
+
+        Always writes: availability and the series attributes change without
+        the rounded value changing, and HA drops a write that changes nothing.
+        """
         self._update_state_from_coordinator()
-        if self._attr_native_value != old_value:
-            self.async_write_ha_state()
-            if _LOGGER.isEnabledFor(logging.DEBUG):
-                _LOGGER.debug("Stats sensor %s updated", self.entity_id)
+        self.async_write_ha_state()
 
     def _update_state_from_coordinator(self) -> None:
         """Update state from coordinator data."""
@@ -1277,20 +1243,6 @@ class LumentreeDailyStatsSensor(CoordinatorEntity[DailyStatsCoordinator], Sensor
 
 class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
     """Total load power sensor (calculated)."""
-
-    __slots__ = (
-        "hass",
-        "entity_description",
-        "_device_sn",
-        "_attr_unique_id",
-        "_attr_object_id",
-        "entity_id",
-        "_attr_device_info",
-        "_remove_dispatcher",
-        "_load_power",
-        "_ac_output_power",
-        "_attr_native_value",
-    )
 
     _attr_should_poll = False
     _attr_has_entity_name = True
@@ -1406,13 +1358,6 @@ class LumentreeTotalLoadPowerSensor(SensorEntity, RestoreEntity):
 
 
 class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
-    __slots__ = (
-        "entity_description",
-        "_device_sn",
-        "_attr_unique_id",
-        "_attr_device_info",
-        "_attr_native_value",
-    )
     _attr_has_entity_name = True
     _attr_should_poll = False
 
@@ -1429,10 +1374,9 @@ class _BaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        old_value = self._attr_native_value
+        # Always write; see LumentreeDailyStatsSensor._handle_coordinator_update.
         self._update_state_from_coordinator()
-        if self._attr_native_value != old_value:
-            self.async_write_ha_state()
+        self.async_write_ha_state()
 
     def _update_state_from_coordinator(self) -> None:
         key = self.entity_description.key

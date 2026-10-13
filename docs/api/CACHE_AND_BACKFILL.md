@@ -9,19 +9,32 @@
 
 ## Cache Structure
 
-Cache nằm trong `.storage/lumentree_stats/`, **một file JSON cho mỗi device mỗi
-năm** — không phải cây thư mục theo ngày/tháng:
+Cache nằm trong `<config>/.storage/lumentree_stats/` (thư mục config của Home
+Assistant, đặt qua `cache.set_base_dir()` lúc setup — các bản trước dùng đường dẫn
+tương đối theo working directory của process), **một file JSON cho mỗi device
+mỗi năm** — không phải cây thư mục theo ngày/tháng:
 
 ```
-.storage/lumentree_stats/{device_id}/{YYYY}.json
+<config>/.storage/lumentree_stats/{device_id}/{YYYY}.json
+<config>/.storage/lumentree_stats/{device_id}/{YYYY}.json.bak   # bản trước đó
 ```
 
 Một file năm chứa cả `daily` (map ngày → tổng), `monthly` (12 phần tử/metric),
 `yearly_total`, và `meta` (coverage, empty_dates, last_backfill_date).
 
-Ghi cache là **atomic** (ghi temp rồi `os.replace`, có lock theo file). Đây là
-chi tiết bảo vệ tính toàn vẹn dữ liệu — xem `save_year()` trong
+Ghi cache là **atomic** (ghi temp, `fsync`, rồi `os.replace`, có lock theo
+file). File cũ được giữ lại làm `.bak`; `load_year()` tự khôi phục từ đó khi file
+chính hỏng hoặc mất. Xem `save_year()` trong
 [`services/cache.py`](../../services/cache.py).
+
+### Ngày đang diễn ra không bao giờ được ghi
+
+Chỉ những ngày **đã kết thúc** (theo múi giờ của HA) mới vào cache. Ngày hôm nay
+do daily coordinator cung cấp trực tiếp; khi qua nửa đêm, nó gọi API lần cuối và
+**ghi đè** ngày hôm qua. Các phiên bản trước ghi cả số liệu dở dang của hôm nay
+(và các dòng 0 cho phần còn lại của tháng) vào cache, rồi mọi backfill lẫn bước
+chốt ngày đều bỏ qua ngày đó vì "đã có" — tổng dở dang bị đóng băng vĩnh viễn và
+hôm nay bị cộng hai lần vào tổng tháng.
 
 ### I/O và event loop
 
@@ -36,10 +49,30 @@ của Home Assistant.
 ## Smart Backfill Strategy
 
 ### Principles
-1. **Use daily API for historical data**: More reliable than monthly/yearly APIs
-2. **Cache-first approach**: Check cache before API calls
-3. **Incremental backfill**: Fill gaps chronologically
+1. **Cache-first approach**: Check cache before API calls
+2. **Only finished days**: never persist today or a future date
+3. **Incremental backfill**: Fill gaps, repair partial days
 4. **Respect API limitations**: Don't overload API with requests
+
+### `smart_backfill` (chạy mỗi lần khởi động và mỗi đêm lúc 00:20)
+
+[`services/smart_backfill.py`](../../services/smart_backfill.py) đi lùi từng
+tháng bằng `getMonthData` (1 request/tháng, có cả `batF` = xả pin):
+
+- Tháng mà mọi ngày đã kết thúc đều có trong `daily` hoặc `empty_dates` được bỏ
+  qua **không gọi API** — khởi động lại với cache đầy đủ chỉ hỏi tháng hiện tại.
+- Ngày thiếu được thêm; ngày không có số liệu được đánh dấu rỗng.
+- Ngày đã có nhưng thấp hơn API ở một metric nào đó (đọc giữa ngày, hoặc
+  discharge = 0 do bản cũ bỏ `batF`) được nâng lên theo từng metric.
+- Dừng ở năm quá khứ đầu tiên không có một ngày dữ liệu nào.
+- Nếu hai tháng khác nhau trả về **y hệt** cùng một dữ liệu khác 0, API đang bỏ
+  qua tham số tháng → dừng hẳn thay vì ghi số của tháng này vào tháng khác.
+
+`getYearData` **không** còn được dùng. Bản ghi probe trong `docs/` cho thấy
+`getYearData(year=2026)` trả về 12 tháng của **2025** (tổng = 33955, đúng bằng
+giá trị 2025 của `getHistoryYearData`; Oct–Dec khác 0 dù probe chạy ngày
+2026-09-12). Cảm biến "This Year" giờ tính từ cache theo ngày + tháng hiện tại
+của monthly coordinator.
 
 ### Backfill Algorithm
 
@@ -80,10 +113,11 @@ không thể phân biệt "ngày rỗng" với "lỗi" chỉ bằng response. Ha
 
 ### Xử lý giới hạn của API
 
-`getYearData`/`getMonthData` **chỉ trả về năm/tháng hiện tại** — không lấy được
-dữ liệu lịch sử. Vì vậy backfill lịch sử phải đi qua daily API rồi tự tính
-aggregate từ cache ngày. Xem
-[`API_PROTOCOL.md`](API_PROTOCOL.md#important-notes) cho chi tiết giới hạn này.
+`getYearData` không trả về năm được hỏi (xem trên). Với `getMonthData`, probe
+chỉ xác nhận được tháng hiện tại; tài liệu cũ nghi rằng nó bỏ qua tham số với
+tháng quá khứ. `smart_backfill` tự phát hiện trường hợp đó và dừng — khi ấy dùng
+service `backfill_all` (daily API, chậm hơn nhưng chắc chắn đúng ngày). Xem
+[`API_PROTOCOL.md`](API_PROTOCOL.md#important-notes).
 
 ## Cache Management
 

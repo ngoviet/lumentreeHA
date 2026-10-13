@@ -14,9 +14,8 @@
         "custom_components.lumentree"
     ],
     "requirements": [
-        "aiohttp>=3.8.0",
         "paho-mqtt>=1.6.0",
         "crcmod>=1.7"
     ],
-    "version": "5.2.1"
+    "version": "5.3.0"
 }
