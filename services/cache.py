@@ -41,7 +41,28 @@ def _get_file_lock(device_id: str, year: int) -> threading.Lock:
         return _file_locks[key]
 
 
+# Relative default for tools and tests; the integration points this at the HA
+# config directory on setup via set_base_dir().
 CACHE_BASE_DIR = os.path.join(".storage", "lumentree_stats")
+
+# Device directories already created, so cache_path() stops issuing a
+# makedirs() system call on every load and save.
+_known_dirs: set[str] = set()
+
+
+def set_base_dir(path: str) -> None:
+    """Point the cache at ``path`` (normally ``<config>/.storage/lumentree_stats``).
+
+    The default is relative to the process working directory, which is the HA
+    config directory in the official container but can be anything (``/``,
+    the service user's home) on a Core install -- so the cache silently landed
+    somewhere else, or nowhere writable.
+    """
+    global CACHE_BASE_DIR
+    if path != CACHE_BASE_DIR:
+        CACHE_BASE_DIR = path
+        _known_dirs.clear()
+
 
 _MONTHLY_KEYS = (
     "pv",
@@ -107,7 +128,10 @@ def _empty_cache() -> dict[str, Any]:
 
 def cache_path(device_id: str, year: int) -> str:
     dev_dir = os.path.join(CACHE_BASE_DIR, device_id)
-    _ensure_dir(dev_dir)
+    if dev_dir not in _known_dirs:
+        _ensure_dir(dev_dir)
+        if os.path.isdir(dev_dir):
+            _known_dirs.add(dev_dir)
     return os.path.join(dev_dir, f"{year}.json")
 
 
@@ -153,7 +177,7 @@ def load_year(device_id: str, year: int, auto_recompute: bool = True) -> dict[st
         Cache dictionary
     """
     path = cache_path(device_id, year)
-    if not os.path.exists(path):
+    if not os.path.exists(path) and not os.path.exists(path + ".bak"):
         return _empty_cache()
 
     def _read_json(filepath):
@@ -223,6 +247,18 @@ def save_year(device_id: str, year: int, data: dict[str, Any]) -> None:
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
+                # Without the fsync a power cut after the rename can leave a
+                # zero-length file on filesystems with delayed allocation.
+                f.flush()
+                os.fsync(f.fileno())
+            # The previous good file becomes the .bak that load_year() falls
+            # back to when the primary will not parse.  Nothing wrote one
+            # before, so that recovery path could never fire.
+            if os.path.exists(path):
+                try:
+                    os.replace(path, path + ".bak")
+                except OSError as err:
+                    _LOGGER.debug("Could not rotate cache backup for %s: %s", path, err)
             # os.replace is atomic on POSIX, try it first
             try:
                 os.replace(tmp_path, path)
@@ -371,79 +407,66 @@ def summarize_year(cache: dict[str, Any]) -> dict[str, float]:
     return result
 
 
-def recompute_aggregates(cache: dict[str, Any]) -> dict[str, Any]:
-    """Rebuild monthly arrays and yearly totals from daily map."""
-    monthly = {
-        "pv": _empty_month(),
-        "grid": _empty_month(),
-        "load": _empty_month(),
-        "essential": _empty_month(),
-        "total_load": _empty_month(),
-        "charge": _empty_month(),
-        "discharge": _empty_month(),
-        "saved_kwh": _empty_month(),
-        "savings_vnd": _empty_month(),
-    }
+def monthly_totals(cache: dict[str, Any], before: str | None = None) -> dict[str, list[float]]:
+    """Twelve rounded monthly sums per metric, built from the daily map.
+
+    Pure: ``cache`` is not modified.  With ``before`` (an ISO date), only days
+    strictly earlier are counted -- the caller supplies the day in progress
+    separately and must not have a partial cached row added to it.
+    """
+    monthly = {key: _empty_month() for key in _MONTHLY_KEYS}
     for d, v in cache.get("daily", {}).items():
+        if before is not None and d >= before:
+            continue
         try:
             month = int(d[5:7]) - 1
+            if not 0 <= month < 12:
+                raise ValueError(d)
         except Exception:
             # A malformed date key cannot be placed in any month bucket; skip it
             # rather than dropping the whole rebuild.
             _LOGGER.debug("Skipping daily entry with unparsable date %r", d)
             continue
-        for key in monthly.keys():
+        load_val = float(v.get("load", 0.0))
+        essential_val = float(v.get("essential", 0.0))
+        stored_total = v.get("total_load")
+        total_load_val = (
+            float(stored_total) if stored_total is not None else round(load_val + essential_val, 1)
+        )
+        saved_kwh_val = max(0.0, total_load_val - float(v.get("grid", 0.0)))
+        for key in _MONTHLY_KEYS:
             if key == "total_load":
-                # Calculate total_load from load + essential if not already stored
-                # Use stored total_load if available, otherwise calculate from load + essential
-                stored_total = v.get("total_load")
-                if stored_total is not None:
-                    monthly[key][month] += float(stored_total)
-                else:
-                    load_val = float(v.get("load", 0.0))
-                    essential_val = float(v.get("essential", 0.0))
-                    monthly[key][month] += round(load_val + essential_val, 1)
+                monthly[key][month] += total_load_val
             elif key == "saved_kwh":
-                # Calculate saved_kwh from total_load - grid if not already stored
-                total_load_val = float(
-                    v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0)))
-                )
-                grid_val = float(v.get("grid", 0.0))
-                saved_kwh_val = max(0.0, total_load_val - grid_val)
                 monthly[key][month] += saved_kwh_val
             elif key == "savings_vnd":
-                # Calculate savings_vnd from saved_kwh if not already stored
-                total_load_val = float(
-                    v.get("total_load", float(v.get("load", 0.0)) + float(v.get("essential", 0.0)))
-                )
-                grid_val = float(v.get("grid", 0.0))
-                saved_kwh_val = max(0.0, total_load_val - grid_val)
                 monthly[key][month] += saved_kwh_val * DEFAULT_TARIFF_VND_PER_KWH
             else:
                 monthly[key][month] += float(v.get(key, 0.0))
     # Round monthly arrays to match API precision
-    cache["monthly"] = {}
-    for k, vals in monthly.items():
-        if k == "savings_vnd":
-            cache["monthly"][k] = [round(x, 0) for x in vals]
-        else:
-            cache["monthly"][k] = [round(x, 1) for x in vals]
+    return {
+        key: [round(x, 0 if key == "savings_vnd" else 1) for x in vals]
+        for key, vals in monthly.items()
+    }
 
+
+def recompute_aggregates(cache: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild monthly arrays and yearly totals from daily map."""
+    cache["monthly"] = monthly_totals(cache)
     # Round yearly totals to match API precision
-    ytot = {}
-    for k, vals in cache["monthly"].items():
-        s = sum(vals)
-        if k == "savings_vnd":
-            ytot[k] = round(s, 0)
-        else:
-            ytot[k] = round(s, 1)
-    cache["yearly_total"] = ytot
+    cache["yearly_total"] = {
+        key: round(sum(vals), 0 if key == "savings_vnd" else 1)
+        for key, vals in cache["monthly"].items()
+    }
     return cache
 
 
 def purge_year(device_id: str, year: int) -> bool:
     path = cache_path(device_id, year)
     try:
+        # The backup goes too, or the next load would restore what was purged.
+        if os.path.exists(path + ".bak"):
+            os.remove(path + ".bak")
         if os.path.exists(path):
             os.remove(path)
             return True
