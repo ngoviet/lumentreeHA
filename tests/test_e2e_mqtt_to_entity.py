@@ -300,11 +300,11 @@ def _deliver(client, payload_hex: str, topic: str | None = None) -> None:
 async def _settle(hass: HomeAssistant, client) -> None:
     """Wait for a delivered frame to reach entity state.
 
-    The client does not dispatch inline: ``_queue_update`` coalesces into a
-    100ms ``asyncio.create_task`` so a burst of frames becomes one update.
-    ``async_block_till_done`` does not wait for that task -- HA never tracked it
-    -- so the sleep here is the wait, and the block afterwards drains the
-    dispatcher callbacks it schedules.
+    The client does not dispatch inline: ``_queue_update`` coalesces behind a
+    100ms ``loop.call_later`` so a burst of frames becomes one update.
+    ``async_block_till_done`` does not wait for a bare timer handle -- HA never
+    tracked it -- so the sleep here is the wait, and the block afterwards drains
+    the dispatcher callbacks it schedules.
     """
     await asyncio.sleep(0.15)
     await hass.async_block_till_done()
