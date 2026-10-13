@@ -1,8 +1,8 @@
-# /config/custom_components/lumentree/const.py
-# Final version - Read 95 regs, no unavailable MQTT modes
+"""Constants for the Lumentree integration."""
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 from typing import Final
 
@@ -16,6 +16,17 @@ _LOGGER = logging.getLogger(__package__)
 def get_timezone(hass: HomeAssistant):
     """Get the configured Home Assistant timezone (cached per-call but cheap)."""
     return dt_util.get_time_zone(hass.config.time_zone) or dt_util.get_default_time_zone()
+
+
+def today_in_ha(hass: HomeAssistant) -> dt.date:
+    """Today's date in the Home Assistant time zone.
+
+    ``datetime.date.today()`` answers in the host's zone, which in a container
+    is often UTC: for a UTC+7 install that is "yesterday" until 07:00, and
+    every "is this day finished yet?" decision taken in that window is wrong.
+    """
+    now: dt.datetime = dt_util.now(get_timezone(hass))
+    return now.date()
 
 
 # --- HTTP API Constants ---
