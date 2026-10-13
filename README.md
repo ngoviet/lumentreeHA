@@ -263,10 +263,11 @@ To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest te
 
 ### Việt Nam
 
-- **VietQR**: quét mã chuyển khoản ngân hàng (miễn phí)
-- **Momo**: chuyển tiền qua ví Momo
+Quét mã **VietQR** bằng app ngân hàng bất kỳ để chuyển khoản (miễn phí). Nội dung gợi ý: `Ung ho lumentreeHA`.
 
-*(Mã QR sẽ được cập nhật sớm.)*
+<p align="center">
+  <img src="images/vietqr.jpg" alt="VietQR — MB Bank — NGO DUC VIET — 911051212" width="280" />
+</p>
 
 ---
 
