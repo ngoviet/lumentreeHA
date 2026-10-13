@@ -76,18 +76,6 @@ async def async_setup_entry(
 class LumentreeBinarySensor(BinarySensorEntity):
     """Binary sensor entity."""
 
-    __slots__ = (
-        "hass",
-        "entity_description",
-        "_device_sn",
-        "_attr_unique_id",
-        "_attr_object_id",
-        "entity_id",
-        "_attr_device_info",
-        "_attr_is_on",
-        "_remove_dispatcher",
-    )
-
     _attr_should_poll = False
     _attr_has_entity_name = True
 
