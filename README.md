@@ -256,8 +256,17 @@ To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest te
   </a>
 </p>
 
+### Quốc tế
+
 - [☕ Buy Me A Coffee](https://buymeacoffee.com/ngoviet): credit card, Apple Pay, PayPal
 - [💖 GitHub Sponsors](https://github.com/sponsors/ngoviet): recurring sponsorship, no fees
+
+### Việt Nam
+
+- **VietQR**: quét mã chuyển khoản ngân hàng (miễn phí)
+- **Momo**: chuyển tiền qua ví Momo
+
+*(Mã QR sẽ được cập nhật sớm.)*
 
 ---
 
