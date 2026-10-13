@@ -2,6 +2,13 @@ backfill_now:
   name: Backfill statistics now
   description: Fetch daily data from lesvr and build cache for the last N days.
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     days:
       name: Days
       description: Number of past days to backfill (inclusive of today).
@@ -16,12 +23,26 @@ backfill_now:
 recompute_month_year:
   name: Recompute month/year aggregates
   description: Recalculate monthly arrays and yearly totals from cached daily data for the current year.
-  fields: {}
+  fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
 
 optimize_cache:
   name: Optimize cache
   description: Normalize cache by removing empty days (all zeros) to reduce size and improve performance.
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     year:
       name: Year
       description: Year to optimize (defaults to current year if omitted).
@@ -61,6 +82,13 @@ purge_cache:
   name: Purge cached statistics
   description: Delete cached statistics file for a specific year of the configured device.
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     year:
       name: Year
       description: Year to purge (defaults to current year if omitted).
@@ -75,12 +103,26 @@ purge_cache:
 purge_all_cache:
   name: Purge toàn bộ cache
   description: Xóa tất cả cache files (.json) cho device này.
-  fields: {}
+  fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
 
 purge_and_backfill:
   name: Xóa cache và backfill lại (Smart)
   description: "Xóa toàn bộ cache cũ và smart backfill lại dữ liệu từ đầu - nhanh hơn 10-100x so với backfill cũ."
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     max_years:
       name: Max years
       description: Số năm cần backfill (mặc định 5).
@@ -102,8 +144,15 @@ purge_and_backfill:
 
 smart_backfill:
   name: Smart backfill (tối ưu)
-  description: "Backfill thông minh sử dụng getYearData/getMonthData API - nhanh hơn 10-100x so với daily backfill. Tự động phát hiện gaps và optimize cache."
+  description: "Backfill thông minh theo từng tháng bằng getMonthData - nhanh hơn 10-100x so với daily backfill. Bỏ qua tháng đã đủ dữ liệu, sửa các ngày bị lưu dở dang và optimize cache."
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     max_years:
       name: Max years
       description: Số năm tối đa để backfill (mặc định 10).
@@ -126,6 +175,13 @@ backfill_all:
   name: Backfill toàn bộ dữ liệu (cũ)
   description: "Quét lùi dữ liệu từ hiện tại về quá khứ. Nếu chỉ định max_years: quét đủ số năm đó (KHÔNG dừng vì empty_streak, hữu ích khi có khoảng thời gian dài thiết bị nghỉ). Nếu để trống max_years: quét không giới hạn cho đến khi gặp empty_streak."
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     max_years:
       name: Max years
       description: "Tối đa số năm cần quét (mặc định 5). Nếu chỉ định: sẽ quét đủ số năm, bỏ qua empty_streak. Để trống = không giới hạn, chỉ dừng theo empty_streak."
@@ -151,6 +207,13 @@ backfill_gaps:
   name: Backfill các ngày còn thiếu
   description: Lấp dần các ngày còn thiếu trong cache, giới hạn số ngày mỗi lần chạy.
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     max_years:
       name: Max years
       description: Số năm gần nhất để kiểm tra (mặc định 3).
@@ -176,6 +239,13 @@ backfill_empty_dates:
   name: Backfill lại các ngày đã đánh dấu empty
   description: "Re-check các ngày đã bị đánh dấu empty với logic mới (có fallback và cải thiện). Hữu ích sau khi cải thiện logic fetch/parse để phát hiện các ngày bị đánh dấu empty nhầm."
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     max_years:
       name: Max years
       description: Số năm gần nhất để kiểm tra (mặc định 5).
@@ -201,6 +271,13 @@ mark_empty_dates:
   name: Đánh dấu ngày rỗng
   description: Đánh dấu các ngày chắc chắn không có dữ liệu để bỏ qua vĩnh viễn.
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     year:
       name: Year
       description: Năm của các ngày cần đánh dấu.
@@ -223,6 +300,13 @@ mark_coverage_range:
   name: Đặt phạm vi bao phủ dữ liệu
   description: Ghi lại khoảng [earliest, latest] đã có dữ liệu đầy đủ cho 1 năm.
   fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
     year:
       name: Year
       description: Năm cần thiết lập phạm vi bao phủ.
@@ -249,10 +333,24 @@ mark_coverage_range:
 enable_purge_on_startup:
   name: Enable purge and backfill on startup
   description: "Bật flag để tự động xóa cache và backfill lại khi restart Home Assistant. Flag sẽ tự động tắt sau khi backfill hoàn tất."
-  fields: {}
+  fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
 
 disable_purge_on_startup:
   name: Disable purge and backfill on startup
   description: "Tắt flag purge và backfill tự động khi startup."
-  fields: {}
+  fields:
+    device_sn:
+      name: Device serial
+      description: Serial number of the inverter to act on. Leave empty to act on every configured inverter.
+      required: false
+      example: H240909079
+      selector:
+        text:
 
