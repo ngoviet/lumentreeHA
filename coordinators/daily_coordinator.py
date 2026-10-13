@@ -14,6 +14,7 @@ from homeassistant.util import dt as dt_util
 from ..const import (
     ATTR_SAVED_KWH,
     ATTR_SAVINGS_VND,
+    ATTR_SOURCE_DATE,
     DEFAULT_DAILY_INTERVAL,
     DEFAULT_TARIFF_VND_PER_KWH,
     get_timezone,
@@ -77,6 +78,10 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # names, so changing their value would break existing installs.
             new_data[ATTR_SAVED_KWH] = round(saved_kwh, 1)
             new_data[ATTR_SAVINGS_VND] = round(savings_vnd, 0)  # Money: no decimals
+            # The day these totals belong to.  Readers that add "today" on top
+            # of the cache check it, so the first minutes after midnight do not
+            # count yesterday's final totals into the new day (or new month).
+            new_data[ATTR_SOURCE_DATE] = today_str
 
             # Update last_date tracking
             self._last_date = today_str
@@ -130,23 +135,28 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         Instead of using data from memory (which may be incomplete if different
         endpoints finalize at different times), we query the API one more time
         for yesterday's date to ensure we get the final, finalized data from server.
+
+        An existing cache entry is overwritten.  This used to return early when
+        the date was already cached, but the only way it can be is a write made
+        while the day was still running (a backfill before this fix, or a
+        manual service call), so the early return kept exactly the partial
+        totals this method exists to replace.
         """
         try:
             year = int(yesterday_date[:4])
-            cache = await self.hass.async_add_executor_job(
-                cache_io.load_year, self.aggregator._device_id, year
-            )
-
-            # Skip if already exists (avoid unnecessary API call)
-            if yesterday_date in cache.get("daily", {}):
-                _LOGGER.debug(f"Data for {yesterday_date} already exists in cache, skipping")
-                return
+            device_id = self.aggregator._device_id
 
             # Query API one more time with yesterday's date to get finalized data
             # This ensures all 6 data types are synchronized from the same API call
             _LOGGER.info(f"Fetching finalized data for {yesterday_date} from API...")
             async with asyncio.timeout(60):
                 finalized_data = await self.api.get_daily_stats(self.device_sn, yesterday_date)
+            if not finalized_data:
+                # Every source failed.  A real empty day still reports zeros,
+                # so do not record this one as empty; the nightly backfill
+                # will retry it.
+                _LOGGER.warning("No finalized data for %s; leaving it to backfill", yesterday_date)
+                return
 
             # Extract values from API response format to cache format
             # API returns integers divided by 10, so precision is 1 decimal place for kWh
@@ -178,29 +188,27 @@ class DailyStatsCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # Check if data is meaningful (not all zeros)
             is_empty = all(abs(v) < 1e-6 for v in values.values())
 
-            if is_empty:
-                _LOGGER.debug(f"Finalized data for {yesterday_date} is empty, marking as empty")
-                cache = cache_io.mark_empty(cache, yesterday_date)
-                await self.hass.async_add_executor_job(
-                    cache_io.save_year, self.aggregator._device_id, year, cache
-                )
-                return
-
-            # Update the cache, recompute the aggregates and write it back in one
-            # executor job.  update_daily is blocking file work and
-            # recompute_aggregates walks the whole daily map, so running either
-            # on the event loop stalls every entity update for the duration.
-            # The save at the end was already offloaded; these two were not.
-            def _persist() -> None:
+            # Load, update and save in one executor job, with the cache read
+            # *after* the API call.  Reading it before the call let a backfill
+            # that saved during the request be overwritten by this stale copy.
+            # The recompute walks the whole daily map, so it stays off the
+            # event loop as well.
+            def _persist() -> bool:
+                cache = cache_io.load_year(device_id, year, auto_recompute=False)
+                if is_empty:
+                    if yesterday_date in cache.get("daily", {}):
+                        # An all-zero answer cannot beat a reading already held.
+                        return False
+                    cache_io.save_year(device_id, year, cache_io.mark_empty(cache, yesterday_date))
+                    return False
                 updated, _m = cache_io.update_daily(cache, yesterday_date, values)
                 updated.setdefault("meta", {})["last_backfill_date"] = yesterday_date
-                cache_io.save_year(
-                    self.aggregator._device_id,
-                    year,
-                    cache_io.recompute_aggregates(updated),
-                )
+                cache_io.save_year(device_id, year, cache_io.recompute_aggregates(updated))
+                return True
 
-            await self.hass.async_add_executor_job(_persist)
+            if not await self.hass.async_add_executor_job(_persist):
+                _LOGGER.debug("Finalized data for %s is empty", yesterday_date)
+                return
 
             _LOGGER.info(
                 f"Auto-saved finalized data for {yesterday_date} to cache: "

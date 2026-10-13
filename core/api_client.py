@@ -74,7 +74,14 @@ def _finite_or_none(value: Any) -> float | None:
 class LumentreeHttpApiClient:
     """HTTP API client for Lumentree cloud services."""
 
-    __slots__ = ("_session", "_token", "_device_info_cache", "_all_day_data_absent")
+    __slots__ = (
+        "_session",
+        "_token",
+        "_device_info_cache",
+        "_all_day_data_absent",
+        "_reauth_device_id",
+        "_reauth_lock",
+    )
 
     _CACHE_TIMEOUT = 3600  # 1 hour
 
@@ -91,6 +98,10 @@ class LumentreeHttpApiClient:
         # 998 means "endpoint does not exist", which is a property of the host,
         # not of the device or the day, so it holds for the client's lifetime.
         self._all_day_data_absent = False
+        # The token is minted from the device ID alone (shareDevices), so a
+        # rejected token can be replaced without asking the user anything.
+        self._reauth_device_id: str | None = None
+        self._reauth_lock = asyncio.Lock()
 
     # ---------------------------
     # Helpers for statistics
@@ -400,7 +411,62 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("API token %s.", "set" if token else "cleared")
 
+    def set_reauth_device_id(self, device_id: str | None) -> None:
+        """Enable transparent token renewal for ``device_id``.
+
+        With this set, a request rejected for authentication mints a new token
+        once and is retried, instead of every poll failing until the user
+        re-runs the config flow -- which does nothing but the same
+        device-ID-only authentication.
+        """
+        self._reauth_device_id = device_id
+
+    async def _renew_token(self, rejected_token: str | None) -> bool:
+        """Replace ``rejected_token``; return True if a new token is in place.
+
+        Serialised, so the three concurrent day-data requests that all see the
+        same rejection renew once between them rather than three times.
+        """
+        if not self._reauth_device_id:
+            return False
+        async with self._reauth_lock:
+            if self._token != rejected_token:
+                return True  # Another request already renewed it.
+            try:
+                await self.authenticate_device(self._reauth_device_id)
+            except (ApiException, AuthException) as err:
+                _LOGGER.warning("Token renewal failed: %s", err)
+                return False
+            return True
+
     async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        extra_headers: dict[str, str] | None = None,
+        requires_auth: bool = True,
+        max_retries: int = API_MAX_RETRIES,
+    ) -> dict[str, Any]:
+        """Make an HTTP request, renewing a rejected token once.
+
+        See ``_request_once`` for arguments, return value and exceptions.
+        """
+        token_used = self._token
+        try:
+            return await self._request_once(
+                method, endpoint, params, data, extra_headers, requires_auth, max_retries
+            )
+        except AuthException:
+            if not requires_auth or not await self._renew_token(token_used):
+                raise
+            _LOGGER.info("API token renewed; retrying %s", endpoint)
+            return await self._request_once(
+                method, endpoint, params, data, extra_headers, requires_auth, max_retries
+            )
+
+    async def _request_once(
         self,
         method: str,
         endpoint: str,
@@ -455,7 +521,7 @@ class LumentreeHttpApiClient:
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("HTTP %s %s", method, url)
 
-        last_exc = None
+        last_exc: Exception | None = None
         delay = API_RETRY_BASE_DELAY
 
         for attempt in range(max_retries):
@@ -870,48 +936,48 @@ class LumentreeHttpApiClient:
             month: Month (1-12)
 
         Returns:
-            Dictionary with monthly data containing daily arrays (up to 31 values)
-            Format: {
-                "pv": [31 values in 0.1 kWh],
-                "grid": [31 values in 0.1 kWh],
-                "homeload": [31 values in 0.1 kWh],
-                "essentialLoad": [31 values in 0.1 kWh],
-                "bat": [31 values in 0.1 kWh],
-                ...
-            }
+            Dictionary with daily arrays in kWh (index 0 = day 1), one each for
+            "pv", "grid", "homeload", "essentialLoad", "bat" (charge) and
+            "batF" (discharge).  A metric the response omits is an empty list.
+
+        Raises:
+            ApiException / AuthException: the request failed.  This used to
+            return empty arrays instead, which a caller could not tell apart
+            from a month with no data.
         """
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Fetching month data for %s @ %s-%02d", device_identifier, year, month)
 
-        try:
-            params = {"deviceId": device_identifier, "year": str(year), "month": str(month)}
-            resp = await self._request("GET", URL_GET_MONTH_DATA, params=params, requires_auth=True)
-            data = resp.get("data", {})
+        params = {"deviceId": device_identifier, "year": str(year), "month": str(month)}
+        resp = await self._request("GET", URL_GET_MONTH_DATA, params=params, requires_auth=True)
+        data = resp.get("data")
+        if not isinstance(data, dict):
+            data = {}
 
-            # Convert tableValueInfo arrays from 0.1 kWh to kWh
-            result: dict[str, Any] = {}
-            for key in ["pv", "grid", "homeload", "essentialLoad", "bat"]:
-                if key in data:
-                    item = data[key]
-                    table_value_info = self._to_float_list(item.get("tableValueInfo", []))
-                    # Convert from 0.1 kWh to kWh (divide by 10)
-                    result[key] = [v / 10.0 for v in table_value_info] if table_value_info else []
-                else:
-                    result[key] = []
+        # batF is the discharge series: leaving it out wrote discharge = 0 for
+        # every day smart backfill filled.
+        result: dict[str, Any] = {}
+        for key in ["pv", "grid", "homeload", "essentialLoad", "bat", "batF"]:
+            item = data.get(key)
+            values = item.get("tableValueInfo") if isinstance(item, dict) else None
+            result[key] = self._kwh_by_position(values)
+        return result
 
-            return result
-        except Exception as exc:
-            _LOGGER.error(
-                f"Error fetching month data for {device_identifier} @ {year}-{month:02d}: {exc}"
-            )
-            # Return empty arrays on error
-            return {
-                "pv": [],
-                "grid": [],
-                "homeload": [],
-                "essentialLoad": [],
-                "bat": [],
-            }
+    @staticmethod
+    def _kwh_by_position(vals: Any) -> list[float]:
+        """Convert a 0.1 kWh array to kWh, keeping every entry in its slot.
+
+        The index is the day (or month), so an unreadable entry becomes 0.0
+        instead of being dropped -- dropping it would book every later day one
+        day early.
+        """
+        if not isinstance(vals, list):
+            return []
+        out: list[float] = []
+        for v in vals:
+            number = _finite_or_none(v)
+            out.append(number / 10.0 if number is not None else 0.0)
+        return out
 
     async def _fetch_pv_data(self, base_params: dict[str, str]) -> dict[str, Any]:
         """Fetch PV generation data from the per-metric legacy endpoint.

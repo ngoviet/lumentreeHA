@@ -14,6 +14,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from ..const import today_in_ha
 from ..core.api_client import LumentreeHttpApiClient
 from . import cache as cache_io
 
@@ -123,34 +124,29 @@ class StatsAggregator:
             _LOGGER.error(f"Error finding earliest data date: {err}")
             return None
 
+    def _yesterday(self) -> dt.date:
+        """The most recent day that is over, in the HA time zone.
+
+        Backfills stop here.  A day still in progress has only a partial
+        reading, and once a date is in the cache every backfill skips it -- so
+        caching today froze its partial totals permanently.
+        """
+        return today_in_ha(self._hass) - dt.timedelta(days=1)
+
     async def fetch_day(self, date_str: str) -> dict[str, float]:
         """Fetch a single day and return normalized totals in kWh.
 
-        Returns keys: pv, grid, load, essential, charge, discharge
-        Uses parallel API calls for 3x speed improvement.
+        Returns keys: pv, grid, load, essential, total_load, charge, discharge.
+        One request through the combined day endpoint, falling back to the
+        three per-metric endpoints the same way the daily coordinator does
+        (this used to call all three every time).
+
+        A day no source could answer for comes back as zeros, as before:
+        ``backfill_all`` relies on runs of empty days to find where the
+        device's history starts.
         """
-        # Build params once and call all 3 APIs in parallel
-        params = {"deviceId": self._device_id, "queryDate": date_str}
-        pv, bat, oth = await asyncio.gather(
-            self._api._fetch_pv_data(params),
-            self._api._fetch_battery_data(params),
-            self._api._fetch_other_data(params),
-            return_exceptions=True,
-        )
-
-        # Track API failures for logging
-        api_failures = []
-
-        # Handle exceptions gracefully
-        if isinstance(pv, Exception):
-            api_failures.append(f"PV: {type(pv).__name__}")
-            pv = {}
-        if isinstance(bat, Exception):
-            api_failures.append(f"Battery: {type(bat).__name__}")
-            bat = {}
-        if isinstance(oth, Exception):
-            api_failures.append(f"Other: {type(oth).__name__}")
-            oth = {}
+        stats = await self._api.get_daily_stats(self._device_id, date_str)
+        pv = oth = bat = stats
 
         # Extract values with fallback to series sums if tableValue is None
         # PV: prefer tableValue, fallback to pv_sum_kwh from series
@@ -188,14 +184,6 @@ class StatsAggregator:
         charge_value = float(bat.get("charge_today") or 0.0)
         discharge_value = float(bat.get("discharge_today") or 0.0)
 
-        # Log API failures if any
-        if api_failures:
-            _LOGGER.warning(
-                f"API failures for {date_str}: {', '.join(api_failures)}. "
-                f"Values: pv={pv_final:.2f}, grid={grid_final:.2f}, load={load_final:.2f}, "
-                f"essential={essential_final:.2f}, charge={charge_value:.2f}, discharge={discharge_value:.2f}"
-            )
-
         return {
             "pv": pv_final,
             "grid": grid_final,
@@ -210,8 +198,10 @@ class StatsAggregator:
         """Backfill inclusive date range with optimized batch cache I/O.
 
         Groups days by year and performs batch cache operations for better performance.
-        Uses adaptive delay with exponential backoff on rate limits.
+        Uses adaptive delay with exponential backoff on rate limits.  Days that
+        are not over yet are skipped.
         """
+        until = min(until, self._yesterday())
         # Group days by year for batch processing
         days_by_year: dict[int, list[dt.date]] = {}
         day = since
@@ -258,7 +248,7 @@ class StatsAggregator:
                 )
 
     async def backfill_last_n_days(self, days: int) -> None:
-        today = dt.date.today()
+        today = today_in_ha(self._hass)
         start = today - dt.timedelta(days=days - 1)
         await self.backfill_days(start, today)
 
@@ -286,7 +276,7 @@ class StatsAggregator:
         Uses optimized batch processing per year.
         """
         start_time = time.time()
-        today = dt.date.today()
+        newest = self._yesterday()
         empty = 0
         base_delay = 0.1  # Reduced from 0.2s for better performance
         delay = base_delay
@@ -300,8 +290,8 @@ class StatsAggregator:
         stop_reason = None
 
         # Track current year cache
-        current_year = None
-        cache = None
+        current_year: int | None = None
+        cache: dict[str, Any] = {}
         last_progress_log = 0
 
         # Calculate limit_days: None means unlimited (only stop by empty_streak)
@@ -322,7 +312,7 @@ class StatsAggregator:
         )
 
         for i in range(limit_days):
-            day = today - dt.timedelta(days=i)
+            day = newest - dt.timedelta(days=i)
             date_str = day.strftime("%Y-%m-%d")
             year = day.year
 
@@ -424,8 +414,9 @@ class StatsAggregator:
                     )
                 else:
                     _LOGGER.error(f"Error fetching {date_str}: {err}")
-                continue
 
+            # Sleep after errors too: the doubled delay is the backoff, and
+            # skipping the sleep on exactly the error path hammered the API.
             await asyncio.sleep(delay)
 
         # Check if we hit the limit
@@ -461,7 +452,7 @@ class StatsAggregator:
         Trả về số ngày đã lấp.
         Uses optimized batch cache operations.
         """
-        today = dt.date.today()
+        newest = self._yesterday()
         filled = 0
         base_delay = 0.2
         delay = base_delay
@@ -470,12 +461,10 @@ class StatsAggregator:
             if filled >= max_days_per_run:
                 break
 
-            year = today.year - year_offset
+            year = newest.year - year_offset
             # Phạm vi ngày của năm
             start_date = dt.date(year, 1, 1)
-            end_date = dt.date(year, 12, 31)
-            if year == today.year:
-                end_date = today
+            end_date = min(dt.date(year, 12, 31), newest)
 
             # Load cache once per year
             cache_year = await self._hass.async_add_executor_job(
@@ -507,9 +496,10 @@ class StatsAggregator:
                         delay = base_delay  # Reset on success
 
                     except Exception:
-                        # Exponential backoff on errors
+                        # Exponential backoff on errors.  No `continue` here:
+                        # it skipped the day increment below and retried the
+                        # same failing day forever.
                         delay = min(delay * 2, 5.0)  # Cap at 5 seconds
-                        continue
 
                     await asyncio.sleep(delay)
 
@@ -539,7 +529,7 @@ class StatsAggregator:
             Dictionary với statistics: {"recovered": N, "confirmed_empty": M, "errors": K}
         """
         start_time = time.time()
-        today = dt.date.today()
+        today = today_in_ha(self._hass)
         base_delay = 0.1
         delay = base_delay
 
@@ -643,7 +633,6 @@ class StatsAggregator:
                         )
                     else:
                         _LOGGER.error(f"Error re-checking {date_str}: {err}")
-                    continue
 
                 await asyncio.sleep(delay)
 
