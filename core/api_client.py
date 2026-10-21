@@ -808,10 +808,10 @@ class LumentreeHttpApiClient:
         error, or a response whose every metric was unusable -- they were the
         only path for a long time and still answer identically for PV, grid,
         load and essential load, which the recorded comparison measured equal.
-        The battery discharge representation differs (an explicit zero there,
-        an absent `batF` here) and the client normalises it, though the battery
-        mapping itself is unverified because the captured device has no
-        battery. A failure of the combined endpoint therefore degrades speed
+        The battery is the exception: the combined endpoint often omits `batF`
+        even on days with discharge (issue #7), so `get_all_day_data` takes the
+        battery from getBatDayData whenever `batF` is missing.
+        A failure of the combined endpoint therefore degrades speed
         rather than function. An empty result means exactly that for both
         sources, so this test is the endpoint's own "no data" answer either way.
 
@@ -1000,6 +1000,25 @@ class LumentreeHttpApiClient:
             _LOGGER.exception("Unexpected PV stats error")
             return {"pv_today": None}
 
+    _BATTERY_KEYS = (
+        "charge_today",
+        "discharge_today",
+        "battery_series_5min_w",
+        "battery_charge_series_hour_kwh",
+        "battery_discharge_series_hour_kwh",
+    )
+
+    async def _legacy_battery(self, base_params: dict[str, str]) -> dict[str, Any]:
+        """getBatDayData's battery keys, or {} when it had nothing usable.
+
+        Used to replace the combined endpoint's battery figures, so a failed
+        legacy call must leave those untouched rather than null them.
+        """
+        battery = await self._fetch_battery_data(base_params)
+        if battery.get("charge_today") is None and battery.get("discharge_today") is None:
+            return {}
+        return {key: battery[key] for key in self._BATTERY_KEYS if battery.get(key) is not None}
+
     async def _fetch_battery_data(self, base_params: dict[str, str]) -> dict[str, Any]:
         """Fetch battery charge/discharge data from the legacy endpoint.
 
@@ -1073,6 +1092,24 @@ class LumentreeHttpApiClient:
             if isinstance(value, list) or value is not None
         }
 
+    @staticmethod
+    def _title_param(payload: Any, key: str) -> dict[str, Any] | None:
+        """The `titleParams` entry for `key`, or None.
+
+        getAllDayData repeats every metric in `titleParams`, including ones it
+        leaves out of `data` (seen for `batF`).  Only the total is used from
+        it: the captured entry for an absent `batF` has `tableValueInfo: null`.
+        """
+        if not isinstance(payload, dict):
+            return None
+        params = payload.get("titleParams")
+        if not isinstance(params, list):
+            return None
+        for entry in params:
+            if isinstance(entry, dict) and entry.get("tableKey") == key:
+                return entry
+        return None
+
     @classmethod
     def _merge_all_day_payload(cls, payload: Any) -> dict[str, Any]:
         """Turn a getAllDayData `data` object into the standard stats dict.
@@ -1104,54 +1141,20 @@ class LumentreeHttpApiClient:
 
         charge_today = cls._metric_total_kwh(data.get("bat"))
         discharge_today = cls._metric_total_kwh(data.get("batF"))
-        # An absent side is normalised to 0.0 kWh whenever the other side for
-        # the same day is present.  The gate is the other side's presence
-        # because presence is the only proxy the payload offers for "this
-        # device has a battery and reported on this day": the slot-level
-        # omission is an output detail the legacy endpoint never shared.
-        # Symmetric on purpose -- "bat present, batF absent" and "batF present,
-        # bat absent" are the same situation seen from either end, and the
-        # second one would otherwise reach the same substituted zero by a
-        # different road: charge_today would stay None, _drop_none_scalars
-        # would drop the key, and the coordinator's `or 0.0` would read it back
-        # as 0.0.  Both directions now agree in the returned dict shape and in
-        # the durable outcome, so neither is an undocumented instance of the
-        # other's trade.
-        #
-        # This is a chosen trade, not a proven equivalence -- it is what keeps
-        # the combined source answering the same as getBatDayData, whose
-        # absent bats[0]/bats[1] also reads back as 0 downstream.
-        # Counterfactual: a day that discharged while omitting batF is reported
-        # as 0 kWh rather than unknown, and no payload in this repo can rule
-        # that out.
-        #
-        # The wrong 0 is durable and that is accepted deliberately: the
-        # coordinator persists the day into the year cache on rollover, where
-        # recompute_aggregates folds it into the monthly, yearly and total
-        # statistics the dashboards read, and a later poll does not rewrite an
-        # already-finalized day.  The alternative -- teaching the coordinator
-        # and the cache to distinguish "not reported" from "measured zero" --
-        # needs durable state and a cache-format decision, so it is out of
-        # scope for a change whose point is one request instead of three.
-        #
-        # A second consequence of the same trade: the coordinator re-queries the
-        # whole current day on every poll, so the published
-        # `battery_series_5min_w` and both hourly rollups reflect only what the
-        # response in hand carried.  Within one payload the two frames are
-        # unioned by slot -- a side present at a slot keeps it, and neither can
-        # drop the other -- but nothing carries a slot across polls, so a day
-        # whose payload gains or loses a side between polls can publish a
-        # different series on each poll.  Accepted for the same reason as the
-        # durable zero: a monotonic across-poll union would need durable
-        # per-day state and a cache-format decision.  Counterfactual: a day
-        # where the vendor reports one side only, which no payload in this repo
-        # can confirm or rule out.
-        #
-        # The absent-metric substitution above and `get_daily_stats` returning a
-        # partial response instead of falling back are one class of decision and
-        # are read together: an absent metric becomes a durable zero for the
-        # day.  This change records both rather than fixing either; the
-        # recorded residual for pv/grid/homeload lives on `get_daily_stats`.
+        # `data.batF` is missing far more often than "no discharge that day":
+        # issue #7 reports Battery Discharge Today stuck at 0 on a battery
+        # system from 5.2.0 (this endpoint's release) on, and an independent
+        # fork by a battery owner patches the same gap.  `titleParams` still
+        # lists a batF entry with its own `tableValue` when `data.batF` is
+        # absent (docs/probe_results_getalldaydata.json), so its total is read
+        # from there.  `get_all_day_data` additionally asks getBatDayData,
+        # which is the authority whenever it answers.
+        if discharge_today is None:
+            discharge_today = cls._metric_total_kwh(cls._title_param(payload, "batF"))
+        if charge_today is None:
+            charge_today = cls._metric_total_kwh(cls._title_param(payload, "bat"))
+        # With one side known, the other is reported as 0.0 rather than
+        # dropped, so the dict shape matches getBatDayData's.
         if charge_today is not None and discharge_today is None:
             discharge_today = 0.0
         elif discharge_today is not None and charge_today is None:
@@ -1167,13 +1170,13 @@ class LumentreeHttpApiClient:
         response carries every metric under `data`, plus a `titleParams` array
         describing them.
 
-        Two representation differences from the legacy endpoints, both handled
-        in `_merge_all_day_payload` rather than at the call site:
-
-        * Battery arrives as two *unsigned* series -- `bat` (charge) and `batF`
-          (discharge) -- where the legacy endpoint used one signed series.
-        * `batF` is **omitted entirely** when the day had no discharge, rather
-          than being present and zero.
+        Battery arrives as two *unsigned* series -- `bat` (charge) and `batF`
+        (discharge) -- where the legacy endpoint used one signed series, and
+        `batF` is often left out of `data` altogether, including on days with
+        discharge (issue #7).  When it is, the battery part of the answer is
+        taken from getBatDayData instead: one extra request, still two in
+        place of the legacy three, and the only source known to report
+        discharge correctly.
 
         Args:
             device_identifier: Device ID or serial number
@@ -1195,7 +1198,15 @@ class LumentreeHttpApiClient:
                 params={"deviceId": device_identifier, "queryDate": query_date},
                 requires_auth=True,
             )
-            return self._merge_all_day_payload(resp.get("data"))
+            payload = resp.get("data")
+            result = self._merge_all_day_payload(payload)
+            if result and isinstance(payload, dict) and not isinstance(payload.get("batF"), dict):
+                result.update(
+                    await self._legacy_battery(
+                        {"deviceId": device_identifier, "queryDate": query_date}
+                    )
+                )
+            return result
 
         except (ApiException, AuthException) as exc:
             if getattr(exc, "code", None) == RETURN_VALUE_ENDPOINT_MISSING:
