@@ -37,14 +37,13 @@
 > request returns PV, battery, load and grid for a day. The three per-metric
 > endpoints below are its **fallback**: they answer identically for PV, grid,
 > load and essential load, which the recorded comparison measured equal on both
-> paths ([probe_compare_day_endpoints.json](../probe_compare_day_endpoints.json)). The battery discharge
-> representation differs — the legacy endpoint returns an explicit zero, the
-> combined endpoint omits `batF` — and the client normalises it, but the battery
-> mapping itself is **unverified**, because the captured device reports no
-> battery. See the [endpoint survey](API_ENDPOINTS_DISCOVERED.md) for their
-> legacy status. The combined endpoint is used on the coordinator path only:
-> `services/aggregator.py` backfill still issues the three legacy calls per day,
-> and adopting it there is deliberately deferred.
+> paths ([probe_compare_day_endpoints.json](../probe_compare_day_endpoints.json)). The battery
+> is the exception: the combined endpoint often leaves `batF` out of `data`
+> even on days with discharge (see the caveat below), so the client takes the
+> battery from `getBatDayData` whenever `batF` is missing. See the
+> [endpoint survey](API_ENDPOINTS_DISCOVERED.md) for their legacy status. The
+> daily coordinator and the per-day backfill in `services/aggregator.py` both go
+> through `get_daily_stats`.
 
 ### Daily Data APIs
 
@@ -59,14 +58,18 @@
   listing the same metrics with their display names. A metric with nothing to
   report can be absent from `data` while still appearing in `titleParams`, so
   `titleParams` is a shape to read, not an index of what `data` holds.
-- **Caveat**: `batF` is **omitted entirely** when there was no discharge, where
-  `getBatDayData` returns an explicit zero. The key is absent, not present and
-  null; the `batF` entry that still appears in `titleParams` carries
-  `tableValueInfo: null`, not an empty list. The client normalises the missing
-  key (charge present + `batF` absent ⇒ 0 kWh discharge) so the two sources stay
-  interchangeable for callers. The recorded comparison behind that claim covers
-  the day **totals** only — the per-metric series lists were not compared, so
-  series-level equivalence between the two sources is **not** established.
+- **Caveat**: `batF` is often **absent from `data`**, and not only on days
+  without discharge. An earlier revision assumed "absent ⇒ no discharge" and
+  reported 0 kWh; [issue #7](https://github.com/ngoviet/lumentreeHA/issues/7)
+  reports Battery Discharge Today stuck without data on a battery system from
+  5.2.0 (the release that adopted this endpoint), and an independent fork by a
+  battery owner patches the same gap by re-asking `getBatDayData`. The key is
+  absent, not present and null; the `batF` entry that still appears in
+  `titleParams` carries its own `tableValue` and `tableValueInfo: null`. The
+  client therefore (1) reads the discharge total from `titleParams` when
+  `data.batF` is missing, and (2) replaces the battery figures with
+  `getBatDayData`'s whenever that call answers — two requests instead of the
+  legacy three, and one when `batF` is present.
 - **Caveat**: a metric's `tableValue` total and its `tableValueInfo` series can
   disagree — on the captured device `bat.tableValue` is 0 while its 288-point
   series sums to 157. The daily sensor reports the total, so it can read 0
@@ -185,7 +188,7 @@
     "homeload": { ... },
     "essentialLoad": { ... },
     "bat": { ... },      // Battery charge
-    "batF": { ... }      // Battery discharge -- key absent entirely on a day with none
+    "batF": { ... }      // Battery discharge -- often absent; total still in titleParams
   }
 }
 ```
