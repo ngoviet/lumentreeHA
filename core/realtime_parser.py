@@ -453,15 +453,17 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
     resp_hex: str | None = None
     sep = "2b2b2b2b"
 
-    # Extract response hex from payload
+    # Extract response hex from payload.  Only 0x03 (read holding registers)
+    # answers are decoded.  reportApp/<sn> carries the device's answer to
+    # every request, the vendor app's included -- the captured traffic has its
+    # 0x10 write acknowledgements -- and the app also issues 0x04 reads of the
+    # statistics block ("0104" in its v1 request builder), whose 96-register
+    # chart pages are 192 bytes.  Decoding one of those as the 95-register main
+    # block would publish chart samples as live readings.
     if sep in ph:
         parts = ph.split(sep)
-        resp_hex = (
-            parts[1]
-            if len(parts) == 2 and (parts[1].startswith("0103") or parts[1].startswith("0104"))
-            else None
-        )
-    elif ph.startswith("0103") or ph.startswith("0104"):
+        resp_hex = parts[1] if len(parts) == 2 and parts[1].startswith("0103") else None
+    elif ph.startswith("0103"):
         resp_hex = ph
 
     if not resp_hex or len(resp_hex) < 12:
@@ -541,29 +543,17 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
             )
             return None
         else:
-            # Unknown length - log with more context but try to parse if it's close to expected
-            _LOGGER.warning(
-                "Unrecognized length (%s bytes, declares %s). Expected: %s or %s for main, "
-                "%s for cells. Payload preview: %s...",
-                main_len,
-                bc,
-                expected_main_bytes,
-                expected_main_bytes_legacy,
-                expected_cell_bytes,
-                resp_hex[: min(60, len(resp_hex))],
-            )
-            # If length is close to any expected main format, try parsing
-            for expected_len in (expected_main_bytes, expected_main_bytes_legacy):
-                if abs(main_len - expected_len) <= 20 and main_len >= expected_len - 10:
-                    _LOGGER.debug("Attempting to parse %s bytes as main data", main_len)
-                    is_cell_data = False
-                    if main_len > expected_len:
-                        db = db[:expected_len]
-                    else:
-                        db = db + b"\x00" * (expected_len - main_len)
-                    break
-            else:
-                return None
+            # Any other length answers a request this integration did not make
+            # (the vendor app shares the topic).  It used to be padded or cut to
+            # the nearest main-frame size and decoded, which turned whatever
+            # range the app had read into sensor values.  A response is only
+            # decoded when its length says which request it answers.
+            if _LOGGER.isEnabledFor(logging.DEBUG):
+                _LOGGER.debug(
+                    "Ignoring %s-byte response: not a frame this integration requested",
+                    main_len,
+                )
+            return None
 
         if is_cell_data:
             cell_result = _parse_battery_cells(db)
@@ -664,20 +654,28 @@ def parse_mqtt_payload(ph: str) -> dict[str, Any] | None:
             bp_signed = rr("BATTERY_POWER", True)
             if bp_signed is not None:
                 parsed_data[KEY_BATTERY_POWER] = -bp_signed  # Invert sign for card compatibility
+                # 0 W is neither: it used to read "Discharging".
                 parsed_data[KEY_BATTERY_STATUS] = (
-                    "Charging" if parsed_data[KEY_BATTERY_POWER] > 0 else "Discharging"
+                    "Charging"
+                    if parsed_data[KEY_BATTERY_POWER] > 0
+                    else "Discharging"
+                    if parsed_data[KEY_BATTERY_POWER] < 0
+                    else "Idle"
                 )
             else:
                 parsed_data[KEY_BATTERY_POWER] = None
                 parsed_data[KEY_BATTERY_STATUS] = "Unknown"
 
-            # Grid status
+            # Grid status.  0 W used to read "Exporting".
+            grid_now = parsed_data.get(KEY_GRID_POWER)
             grid_status = (
-                "Importing"
-                if parsed_data.get(KEY_GRID_POWER, 0) > 0
+                "Unknown"
+                if grid_now is None
+                else "Importing"
+                if grid_now > 0
                 else "Exporting"
-                if parsed_data.get(KEY_GRID_POWER) is not None
-                else "Unknown"
+                if grid_now < 0
+                else "Idle"
             )
             parsed_data[KEY_GRID_STATUS] = grid_status
 

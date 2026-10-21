@@ -103,6 +103,41 @@ def test_merge_month_marks_days_without_data_empty(lumentree_cache):
     assert len(cache["meta"]["empty_dates"]) == 31
 
 
+def test_merge_month_leaves_days_a_truncated_answer_never_reported(lumentree_cache):
+    """A series that stops at day 10 says nothing about days 11..31.
+
+    Those days used to be read as zero and marked empty, after which the month
+    counted as complete and was never asked for again.
+    """
+    cache = lumentree_cache._empty_cache()
+    truncated = _month(pv=[4.0] * 31, grid=[1.0] * 31)
+    truncated["homeload"] = [3.0] * 10
+
+    added, _updated, _has = sb.merge_month(cache, 2026, 8, truncated, TODAY)
+
+    assert added == 10
+    assert sorted(cache["daily"]) == [f"2026-08-{d:02d}" for d in range(1, 11)]
+    assert cache["meta"]["empty_dates"] == []
+    assert not sb._month_is_complete(cache, 2026, 8, TODAY), "the month must be asked again"
+
+    full = _month(pv=[4.0] * 31, grid=[1.0] * 31, homeload=[3.0] * 31)
+    added, _updated, _has = sb.merge_month(cache, 2026, 8, full, TODAY)
+    assert added == 21
+    assert sb._month_is_complete(cache, 2026, 8, TODAY)
+
+
+def test_merge_month_without_any_required_series_is_a_month_without_data(lumentree_cache):
+    """All required series empty is "no data", not a truncation."""
+    cache = lumentree_cache._empty_cache()
+    empty = {key: [] for key in ("pv", "grid", "homeload", "essentialLoad", "bat", "batF")}
+
+    added, _updated, has_data = sb.merge_month(cache, 2026, 8, empty, TODAY)
+
+    assert not has_data
+    assert added == 31
+    assert len(cache["meta"]["empty_dates"]) == 31
+
+
 def test_drop_unfinished_days(lumentree_cache):
     cache = lumentree_cache._empty_cache()
     for date in ("2026-09-11", "2026-09-12", "2026-09-30"):

@@ -911,18 +911,63 @@ class TestDailyStatsFallback:
             "/lesvr/getOtherDayData",
         }
 
-    def test_a_usable_combined_response_is_served_without_the_legacy_calls(
+    def test_a_combined_response_with_batf_is_served_in_one_request(
         self, lumentree_api_client
     ) -> None:
-        """The one-request path stays the one-request path."""
+        """With the battery in the payload, the one-request path stays one request."""
         responses = dict(self._LEGACY)
-        responses["/lesvr/getAllDayData"] = {"returnValue": 1, "data": _combined_payload()}
+        payload = _combined_payload()
+        payload["bat"] = {"tableValue": 30, "tableValueInfo": [0, 100]}
+        payload["batF"] = {"tableValue": 12, "tableValueInfo": [50, 0]}
+        responses["/lesvr/getAllDayData"] = {"returnValue": 1, "data": payload}
         client, session = self._client(lumentree_api_client, responses)
 
         result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
 
         assert result["pv_today"] == 6.0
+        assert result["discharge_today"] == 1.2
         assert [c["path"] for c in session.calls] == ["/lesvr/getAllDayData"]
+
+    def test_a_combined_response_without_batf_takes_the_battery_from_getbatdaydata(
+        self, lumentree_api_client
+    ) -> None:
+        """Issue #7: Battery Discharge Today read 0 from 5.2.0 on.
+
+        getAllDayData left `batF` out of `data` on a battery system that did
+        discharge, and the client reported the absence as 0 kWh.  The battery
+        now comes from getBatDayData -- and only the battery: PV, grid and load
+        are still the combined endpoint's.
+        """
+        responses = dict(self._LEGACY)
+        payload = _combined_payload()
+        payload["bat"] = {"tableValue": 0, "tableValueInfo": [0, 0]}
+        responses["/lesvr/getAllDayData"] = {"returnValue": 1, "data": payload}
+        client, session = self._client(lumentree_api_client, responses)
+
+        result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+
+        assert result["charge_today"] == 3.0
+        assert result["discharge_today"] == 1.2
+        assert result["pv_today"] == 6.0
+        assert [c["path"] for c in session.calls] == [
+            "/lesvr/getAllDayData",
+            "/lesvr/getBatDayData",
+        ]
+
+    def test_a_failed_getbatdaydata_keeps_the_combined_battery(self, lumentree_api_client) -> None:
+        """A legacy failure must not null figures the combined endpoint had."""
+        responses = dict(self._LEGACY)
+        responses["/lesvr/getBatDayData"] = {"returnValue": 2, "msg": "busy"}
+        payload = _combined_payload()
+        payload["bat"] = {"tableValue": 30, "tableValueInfo": [0, 100]}
+        payload["titleParams"] = [{"tableKey": "batF", "tableValue": 7, "tableValueInfo": None}]
+        responses["/lesvr/getAllDayData"] = {"returnValue": 1, "data": payload}
+        client, _session = self._client(lumentree_api_client, responses)
+
+        result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
+
+        assert result["charge_today"] == 3.0
+        assert result["discharge_today"] == 0.7, "titleParams' batF total was not used"
 
     def test_a_partial_combined_response_is_served_without_the_legacy_calls(
         self, lumentree_api_client
@@ -934,7 +979,8 @@ class TestDailyStatsFallback:
         must not be made: paying three requests for a response the vendor
         documents as ordinary per-metric absence is the cost this change
         exists to remove.  The omission is therefore visible in the result --
-        no grid/load key at all -- rather than papered over here.
+        no grid/load key at all -- rather than papered over here.  Only the
+        battery is fetched separately, because `batF` is absent.
         """
         responses = dict(self._LEGACY)
         responses["/lesvr/getAllDayData"] = {
@@ -945,9 +991,10 @@ class TestDailyStatsFallback:
 
         result = asyncio.run(client.get_daily_stats("H240909079", "2026-09-11"))
 
-        assert [c["path"] for c in session.calls] == ["/lesvr/getAllDayData"], (
-            f"a partial combined response must not trigger the legacy calls: {session.calls}"
-        )
+        assert [c["path"] for c in session.calls] == [
+            "/lesvr/getAllDayData",
+            "/lesvr/getBatDayData",
+        ], f"a partial combined response must not trigger the PV/grid calls: {session.calls}"
         assert result["pv_today"] == 6.0
         assert "grid_in_today" not in result
         assert "total_load_today" not in result
