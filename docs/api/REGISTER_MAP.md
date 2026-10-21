@@ -60,6 +60,16 @@ Two consequences shape everything below:
   on those units — the key is simply not set, so the sensor shows `unknown`
   rather than a wrong number.
 
+- **The topic is shared.** `reportApp/<sn>` carries the device's answer to
+  every request, the vendor app's included: the captured traffic holds 1933
+  `0x03` answers and 4 `0x10` write acknowledgements. The app also builds
+  `0x04` reads of the statistics block (`"0104"` in its v1 request builder,
+  `_command_read_v1`), whose chart pages are 96 registers (192 bytes). The
+  parser therefore decodes only `0x03` answers of a length listed below; any
+  other frame answers someone else's request. It used to pad or cut lengths
+  within 20 bytes of a main frame and decode them, turning such a read into
+  sensor values.
+
 Observed aligned frame lengths, with counts from the captured corpus:
 
 | Data bytes | Registers | Frames | Meaning |
@@ -218,3 +228,27 @@ ceiling and the full 151-register frame.
 | `SOLAR_SELL_GRAPH` (index 19) | Mode flag, not a measurement. |
 | `DEVICE_IMAGE_FLAG` (index 94) | Selects which product image the app shows. |
 | Battery cell data | Already published separately via `REG_ADDR_CELL_START`. |
+
+## Not yet used: the statistics block (function `0x04`)
+
+The device keeps its own energy counters in input registers, read with
+function `0x04`. Two independent sources agree it exists:
+
+- [syssi/esphome-lumentree](https://github.com/syssi/esphome-lumentree)
+  (`docs/protocol-design.md`, read over BLE/RS232) lists *today's* totals at
+  input registers 0–5, ÷10 → kWh: PV, essential load, grid, total load,
+  **battery charge, battery discharge**; followed by 288-point 5-minute charts
+  in 96-register pages.
+- The vendor app's v1 request builder emits `"0104"` + address + count + CRC —
+  the same framing this integration uses for `0x03` — so the cloud relays
+  `0x04` reads to the device over `listenApp/<sn>`.
+
+Reading registers 0–5 would give today's battery discharge straight from the
+device, independent of the cloud's day statistics. It is **not implemented**:
+no `0x04` answer has been captured from the MQTT relay, so the byte layout and
+scaling over this path are unconfirmed. One captured `reportApp` frame
+answering `01 04 0000 0008` would settle it.
+
+The same source documents a BMS block at holding registers 185–197 (battery
+temperature, BMS current and voltage limits, alarm and fault locations),
+outside the 0–150 range this integration requests.
