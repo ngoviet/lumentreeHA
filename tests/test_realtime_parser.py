@@ -270,6 +270,64 @@ class TestFailureModes:
         assert lumentree_parser.parse_mqtt_payload(frame) is None
 
 
+def _raw_frame(function_code: int, n_regs: int, fill: int = 0x1234) -> str:
+    """A CRC-valid response with an arbitrary function code and length."""
+    body = fill.to_bytes(2, "big") * n_regs
+    pdu = bytes([0x01, function_code, len(body) & 0xFF]) + body
+    return SEPARATOR + (pdu + crc16(pdu).to_bytes(2, "little")).hex()
+
+
+class TestForeignResponses:
+    """reportApp/<sn> also carries the device's answers to the vendor app.
+
+    Only a frame whose function code and length match what this integration
+    asked for may become sensor state; anything else used to be padded or cut
+    to the nearest main-frame size and decoded.
+    """
+
+    def test_statistics_read_is_ignored(self, lumentree_parser) -> None:
+        """A 0x04 chart page (96 registers) is not the 95-register main block."""
+        assert lumentree_parser.parse_mqtt_payload(_raw_frame(0x04, 96)) is None
+        assert lumentree_parser.parse_mqtt_payload(_raw_frame(0x04, 95)) is None
+
+    @pytest.mark.parametrize("n_regs", [70, 96, 105, 148, 155])
+    def test_unrequested_holding_read_is_ignored(self, lumentree_parser, n_regs) -> None:
+        """Lengths near a main frame used to be forced into one."""
+        assert lumentree_parser.parse_mqtt_payload(_raw_frame(0x03, n_regs)) is None
+
+    def test_write_acknowledgement_is_ignored(self, lumentree_parser) -> None:
+        pdu = bytes([0x01, 0x10, 0x00, 0x64, 0x00, 0x05])
+        frame = SEPARATOR + (pdu + crc16(pdu).to_bytes(2, "little")).hex()
+        assert lumentree_parser.parse_mqtt_payload(frame) is None
+
+
+class TestStatusAtZero:
+    def test_idle_battery_is_not_discharging(self, lumentree_parser) -> None:
+        parsed = lumentree_parser.parse_mqtt_payload(build_frame({61: 0}))
+        assert parsed["battery_status"] == "Idle"
+
+    def test_battery_direction(self, lumentree_parser) -> None:
+        # Wire: positive = discharge; published power is inverted (+ = charge).
+        assert (
+            lumentree_parser.parse_mqtt_payload(build_frame({61: 500}))["battery_status"]
+            == "Discharging"
+        )
+        assert (
+            lumentree_parser.parse_mqtt_payload(build_frame({61: (-500) & 0xFFFF}))[
+                "battery_status"
+            ]
+            == "Charging"
+        )
+
+    def test_idle_grid_is_not_exporting(self, lumentree_parser) -> None:
+        parsed = lumentree_parser.parse_mqtt_payload(build_frame({REG["GRID_POWER"]: 0}))
+        assert parsed["grid_status"] == "Idle"
+        exporting = lumentree_parser.parse_mqtt_payload(
+            build_frame({REG["GRID_POWER"]: (-300) & 0xFFFF})
+        )
+        assert exporting["grid_status"] == "Exporting"
+
+
 class TestCommandGeneration:
     def test_generated_command_has_valid_crc(self, lumentree_parser) -> None:
         cmd = lumentree_parser.generate_modbus_read_command(1, 3, 0, 151)
