@@ -46,6 +46,26 @@ def _day_values(month_data: dict[str, Any], day: int) -> dict[str, float]:
     return values
 
 
+# Series a day must appear in before the answer can speak for that day.  The
+# battery and essential-load series are optional: units without them omit them.
+_REQUIRED_SERIES = ("pv", "grid", "homeload")
+
+
+def _covered_days(month_data: dict[str, Any]) -> int | None:
+    """How many leading days every required series reports, or None for all.
+
+    A required series that stops early is a truncated answer: the days past
+    its end were never reported, which is not the same as reported as zero.
+    Reading them as zero marked those days empty for good, the month then
+    counted as complete, and it was never asked for again.  When every
+    required series is empty the month simply has no data, as before.
+    """
+    lengths = [len(month_data.get(key) or []) for key in _REQUIRED_SERIES]
+    if not any(lengths):
+        return None
+    return min(lengths)
+
+
 def _has_data(values: dict[str, Any]) -> bool:
     return any(float(values.get(key, 0.0) or 0.0) > 0.0 for key in _DAY_METRICS)
 
@@ -104,7 +124,8 @@ def merge_month(
 ) -> tuple[int, int, bool]:
     """Fold one getMonthData result into ``cache``.
 
-    Only finished days (before ``today``) are written.  A day missing from the
+    Only finished days (before ``today``) that every required series covers
+    are written.  A day missing from the
     cache is added (or marked empty when the API has nothing for it either).
     A cached day is raised metric by metric to the API value where the cache
     is lower: a day's counters only grow, so a lower cached value is a reading
@@ -118,10 +139,15 @@ def merge_month(
     month_has_data = False
     daily = cache.setdefault("daily", {})
     empty = set(cache.get("meta", {}).get("empty_dates", []))
+    covered = _covered_days(month_data)
 
     for day in range(1, calendar.monthrange(year, month)[1] + 1):
         date = dt.date(year, month, day)
         if date >= today:
+            break
+        if covered is not None and day > covered:
+            # Not reported: leave the day to the next run instead of
+            # recording a zero the device never sent.
             break
         date_str = date.isoformat()
         api_values = _day_values(month_data, day)
