@@ -1,46 +1,39 @@
 # Lumentree Inverter for Home Assistant
 
+<!-- readme-axi type=ha -->
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 [![GitHub release](https://img.shields.io/github/release/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/releases)
 [![GitHub stars](https://img.shields.io/github/stars/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/stargazers)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ngoviet)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-ff69b4?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ngoviet)
 
-<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=ngoviet&repository=lumentreeHA&category=integration" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS" width="200" height="36"></a>
+**English** · [Tiếng Việt](README.vi.md)
 
 Monitor a **Lumentree hybrid solar inverter** (SUNT series) in Home Assistant: live power, battery and grid readings every 5 seconds, plus daily, monthly, yearly and lifetime energy statistics with charts and electricity-cost savings in VND.
 
-> 🇻🇳 **Dự án do một người Việt tự duy trì.** Nếu integration giúp bạn theo dõi và tiết kiệm tiền điện, hãy [ủng hộ một cốc cà phê](#support-the-project) ☕ (VietQR, Buy Me a Coffee hoặc GitHub Sponsors).
+<a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=ngoviet&repository=lumentreeHA&category=integration" target="_blank"><img src="https://my.home-assistant.io/badges/hacs_repository.svg" alt="Open this repository in HACS" width="200" height="36"></a>
 
----
-
-## Contents
-
-- [Screenshots](#screenshots)
-- [What you get](#what-you-get)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Setup](#setup)
-- [Updating](#updating)
-- [Entities](#entities)
-- [Statistics and history](#statistics-and-history)
-- [Services](#services)
-- [Dashboards](#dashboards)
-- [Troubleshooting](#troubleshooting)
-- [How it works](#how-it-works)
-- [Support the project](#support-the-project)
-
----
-
-## Screenshots
+> 🇻🇳 Built and maintained by one person in Việt Nam — if it saves you time, please
+> [support the project](#support-the-project).
 
 | Sensors | 24 h energy charts | Statistics summary |
 |---|---|---|
 | ![Sensors overview](images/sensors_entity_overview.jpg) | ![Energy charts 24h](images/dashboard_energy_charts_24h.jpg) | ![Statistics summary](images/dashboard_statistics_summary.jpg) |
 
----
+## Contents
 
-## What you get
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Entities](#entities)
+- [Services](#services)
+- [Troubleshooting](#troubleshooting)
+- [How it works](#how-it-works)
+- [Development](#development)
+
+## Features
 
 - **Live readings every 5 s** over MQTT: PV (two strings), battery power, voltage, current and SOC, grid, load, AC input and output, temperature, and battery cells.
 - **Inverter settings** read from the device: charge voltages and currents, protection thresholds, work mode, AI mode, grid type and more. These are diagnostic sensors and are read-only.
@@ -58,8 +51,6 @@ Monitor a **Lumentree hybrid solar inverter** (SUNT series) in Home Assistant: l
 - **Several inverters**: add one config entry per inverter.
 - **Read-only**: the integration never changes inverter settings and never calls a vendor write endpoint.
 
----
-
 ## Requirements
 
 | | |
@@ -69,8 +60,6 @@ Monitor a **Lumentree hybrid solar inverter** (SUNT series) in Home Assistant: l
 | Inverter | Online in the Lumentree / LightEarth app, with its **Device ID** (e.g. `H240909079`) |
 
 Python dependencies (`paho-mqtt`, `crcmod`) are installed by Home Assistant automatically.
-
----
 
 ## Installation
 
@@ -86,9 +75,15 @@ Python dependencies (`paho-mqtt`, `crcmod`) are installed by Home Assistant auto
 2. Copy the repository contents into `<config>/custom_components/lumentree/`, so that `manifest.json` ends up at `custom_components/lumentree/manifest.json`.
 3. Restart Home Assistant.
 
----
+### Updating
 
-## Setup
+When a new release is published, HACS shows it under **Settings → Updates** and in HACS itself. Install it, then **restart Home Assistant**.
+
+If you want to see the update straight away, open the repository in HACS and choose **⋮ → Update information**.
+
+Release notes, including anything you'll notice after updating, are on the [Releases page](https://github.com/ngoviet/lumentreeHA/releases).
+
+## Configuration
 
 1. Go to **Settings → Devices & Services → Add Integration** and search for **Lumentree Inverter**.
 2. Enter the **Device ID**. It's printed on the inverter label and shown in the Lumentree app.
@@ -97,18 +92,6 @@ Python dependencies (`paho-mqtt`, `crcmod`) are installed by Home Assistant auto
 Repeat for each inverter. To change the Device ID later, choose **Reconfigure** on the integration entry.
 
 During the first few minutes after setup the integration downloads your history (see [Statistics and history](#statistics-and-history)). Monthly, yearly and lifetime values fill in as that finishes.
-
----
-
-## Updating
-
-When a new release is published, HACS shows it under **Settings → Updates** and in HACS itself. Install it, then **restart Home Assistant**.
-
-If you want to see the update straight away, open the repository in HACS and choose **⋮ → Update information**.
-
-Release notes, including anything you'll notice after updating, are on the [Releases page](https://github.com/ngoviet/lumentreeHA/releases).
-
----
 
 ## Entities
 
@@ -147,9 +130,7 @@ All statistics refresh every 5 minutes, and **today is included** in the month, 
 - **Online Status**: goes off when no MQTT frame has arrived for 12.5 s.
 - **UPS Mode**
 
----
-
-## Statistics and history
+### Statistics and history
 
 - **Today** comes live from the Lumentree cloud every 5 minutes.
 - **Finished days** are stored on disk in `<config>/.storage/lumentree_stats/<device>/<year>.json`. The month, year and lifetime figures are computed from them, plus today's live values.
@@ -159,7 +140,16 @@ All statistics refresh every 5 minutes, and **today is included** in the month, 
 
 Nothing needs to be configured. If the history looks wrong, see [Services](#services) to rebuild it.
 
----
+### Dashboards
+
+Ready-made Lovelace dashboards are in [`docs/dashboard/`](docs/dashboard/):
+
+- [Daily statistics](docs/dashboard/dashboard_daily_stats.yaml)
+- [PV and grid](docs/dashboard/dashboard_pv_grid.yaml)
+- [Total load](docs/dashboard/dashboard_total_load.yaml)
+- [Battery charge and discharge](docs/dashboard/dashboard_battery_charge_discharge.yaml)
+
+Setup notes are in [DASHBOARD_README.md](docs/dashboard/DASHBOARD_README.md), and fixes for common chart problems in [TROUBLESHOOTING_GUIDE.md](docs/dashboard/TROUBLESHOOTING_GUIDE.md).
 
 ## Services
 
@@ -188,21 +178,6 @@ data:
   max_years: 5
 ```
 
----
-
-## Dashboards
-
-Ready-made Lovelace dashboards are in [`docs/dashboard/`](docs/dashboard/):
-
-- [Daily statistics](docs/dashboard/dashboard_daily_stats.yaml)
-- [PV and grid](docs/dashboard/dashboard_pv_grid.yaml)
-- [Total load](docs/dashboard/dashboard_total_load.yaml)
-- [Battery charge and discharge](docs/dashboard/dashboard_battery_charge_discharge.yaml)
-
-Setup notes are in [DASHBOARD_README.md](docs/dashboard/DASHBOARD_README.md), and fixes for common chart problems in [TROUBLESHOOTING_GUIDE.md](docs/dashboard/TROUBLESHOOTING_GUIDE.md).
-
----
-
 ## Troubleshooting
 
 **Setup fails or keeps retrying.** Check that Home Assistant can reach `lesvr.suntcn.com` on ports 80 and 1886. If the cloud or broker is down, Home Assistant retries the setup automatically.
@@ -223,8 +198,6 @@ logger:
 
 When reporting a bug, attach **Download diagnostics** from the device page (the token is redacted) and the debug log. Use the [issue tracker](https://github.com/ngoviet/lumentreeHA/issues).
 
----
-
 ## How it works
 
 ```
@@ -242,9 +215,9 @@ Protocol and register details for contributors are in [`docs/`](docs/README.md):
 - [Cache and backfill](docs/api/CACHE_AND_BACKFILL.md)
 - [Development notes](docs/DEVELOPMENT_NOTES.md)
 
-To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest tests/`, linting with `ruff check .`.
+## Development
 
----
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest tests/`, linting with `ruff check .`.
 
 <!-- support:start -->
 ## Support the project
@@ -263,9 +236,10 @@ To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest te
   <img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/vietqr-card.svg" width="300" alt="VietQR — MB Bank — NGO DUC VIET — 911051212">
 </p>
 
-<p align="center"><sub>🇻🇳 VietQR: quét bằng app ngân hàng bất kỳ, nội dung <code>Ung ho lumentreeHA</code>. Cảm ơn bạn! · Thank you for keeping this project alive.</sub></p>
+<p align="center"><sub>🇻🇳 VietQR: scan with any Vietnamese banking app, transfer note <code>Ung ho lumentreeHA</code>. Thank you for keeping this project alive!</sub></p>
+<p align="center"><sub>Crypto (BEP20 network): <code>0x57f07d44fb581cddc028a0c67d63a8cc05aa6caa</code> · USDT · USDC · BNB · ETH · BTC</sub></p>
 <!-- support:end -->
 
----
+## License
 
-MIT licensed. Not affiliated with Lumentree or SUNTCN.
+[MIT](LICENSE) © Ngô Đức Việt. Not affiliated with Lumentree or SUNTCN.
