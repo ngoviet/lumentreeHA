@@ -10,7 +10,7 @@
 
 Monitor a **Lumentree hybrid solar inverter** (SUNT series) in Home Assistant: live power, battery and grid readings every 5 seconds, plus daily, monthly, yearly and lifetime energy statistics with charts and electricity-cost savings in VND.
 
-> 🇻🇳 **Dự án do một người Việt tự duy trì.** Nếu integration giúp bạn theo dõi và tiết kiệm tiền điện, hãy [mời tôi một cốc cà phê](https://buymeacoffee.com/ngoviet) ☕
+> 🇻🇳 **Dự án do một người Việt tự duy trì.** Nếu integration giúp bạn theo dõi và tiết kiệm tiền điện, hãy [ủng hộ một cốc cà phê](#support-the-project) ☕ (VietQR, Buy Me a Coffee hoặc GitHub Sponsors).
 
 ---
 
@@ -246,28 +246,25 @@ To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md). Tests run with `pytest te
 
 ---
 
+<!-- support:start -->
 ## Support the project
 
 <p align="center">
-  <b>Tôi là người Việt Nam 🇻🇳, một mình xây dựng và duy trì integration này.</b><br/>
-  Nếu nó giúp bạn tiết kiệm tiền điện, một cốc cà phê là động lực để tôi tiếp tục cập nhật.<br/><br/>
-  <a href="https://buymeacoffee.com/ngoviet">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Buy+me+a+coffee&emoji=%E2%98%95&slug=ngoviet&button_colour=FFDD00&font_colour=000000&font_family=Poppins&outline_colour=000000&coffee_colour=ffffff" alt="Buy Me A Coffee" />
-  </a>
+  <img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/banner.svg" width="720" alt="Built and maintained by one person in Việt Nam">
 </p>
-
-### Quốc tế
-
-- [☕ Buy Me A Coffee](https://buymeacoffee.com/ngoviet): credit card, Apple Pay, PayPal
-- [💖 GitHub Sponsors](https://github.com/sponsors/ngoviet): recurring sponsorship, no fees
-
-### Việt Nam
-
-Quét mã **VietQR** bằng app ngân hàng bất kỳ để chuyển khoản (miễn phí). Nội dung gợi ý: `Ung ho lumentreeHA`.
 
 <p align="center">
-  <img src="images/vietqr.jpg" alt="VietQR — MB Bank — NGO DUC VIET — 911051212" width="280" />
+  <a href="https://buymeacoffee.com/ngoviet"><img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/btn-coffee.svg" height="56" alt="Buy me a coffee"></a>
+  &nbsp;
+  <a href="https://github.com/sponsors/ngoviet"><img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/btn-sponsors.svg" height="56" alt="GitHub Sponsors"></a>
 </p>
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ngoviet/.github/main/assets/support/vietqr-card.svg" width="300" alt="VietQR — MB Bank — NGO DUC VIET — 911051212">
+</p>
+
+<p align="center"><sub>🇻🇳 VietQR: quét bằng app ngân hàng bất kỳ, nội dung <code>Ung ho lumentreeHA</code>. Cảm ơn bạn! · Thank you for keeping this project alive.</sub></p>
+<!-- support:end -->
 
 ---
 
