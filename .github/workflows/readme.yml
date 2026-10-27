@@ -1,0 +1,11 @@
+name: README
+
+on:
+  push:
+    paths: [README.md, README.vi.md]
+  pull_request:
+    paths: [README.md, README.vi.md]
+
+jobs:
+  readme:
+    uses: ngoviet/.github/.github/workflows/readme.yml@main
