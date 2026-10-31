@@ -3,8 +3,8 @@
 <!-- readme-axi type=ha -->
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub release](https://img.shields.io/github/release/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/releases)
-[![GitHub stars](https://img.shields.io/github/stars/ngoviet/lumentreeHA.svg)](https://github.com/ngoviet/lumentreeHA/stargazers)
+[![GitHub release](https://img.shields.io/github/release/HoangQuan90/lumentreeHA.svg)](https://github.com/HoangQuan90/lumentreeHA/releases)
+[![GitHub stars](https://img.shields.io/github/stars/HoangQuan90/lumentreeHA.svg)](https://github.com/HoangQuan90/lumentreeHA/stargazers)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-ffdd00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/ngoviet)
 [![GitHub Sponsors](https://img.shields.io/badge/GitHub%20Sponsors-ff69b4?style=flat&logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ngoviet)
 
@@ -71,7 +71,7 @@ Python dependencies (`paho-mqtt`, `crcmod`) are installed by Home Assistant auto
 
 ### Manual
 
-1. Download the latest [release](https://github.com/ngoviet/lumentreeHA/releases).
+1. Download the latest [release](https://github.com/HoangQuan90/lumentreeHA/releases).
 2. Copy the repository contents into `<config>/custom_components/lumentree/`, so that `manifest.json` ends up at `custom_components/lumentree/manifest.json`.
 3. Restart Home Assistant.
 
@@ -81,7 +81,7 @@ When a new release is published, HACS shows it under **Settings → Updates** an
 
 If you want to see the update straight away, open the repository in HACS and choose **⋮ → Update information**.
 
-Release notes, including anything you'll notice after updating, are on the [Releases page](https://github.com/ngoviet/lumentreeHA/releases).
+Release notes, including anything you'll notice after updating, are on the [Releases page](https://github.com/HoangQuan90/lumentreeHA/releases).
 
 ## Configuration
 

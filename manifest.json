@@ -2,13 +2,13 @@
     "domain": "lumentree",
     "name": "Lumentree Inverter",
     "codeowners": [
-        "@ngoviet"
+        "@HoangQuan90"
     ],
     "config_flow": true,
-    "documentation": "https://github.com/ngoviet/lumentreeHA",
+    "documentation": "https://github.com/HoangQuan90/lumentreeHA",
     "integration_type": "device",
     "iot_class": "cloud_polling",
-    "issue_tracker": "https://github.com/ngoviet/lumentreeHA/issues",
+    "issue_tracker": "https://github.com/HoangQuan90/lumentreeHA/issues",
     "loggers": [
         "paho",
         "custom_components.lumentree"
@@ -17,5 +17,5 @@
         "paho-mqtt>=1.6.0",
         "crcmod>=1.7"
     ],
-    "version": "5.3.2"
+    "version": "5.3.3"
 }
